@@ -48,3 +48,9 @@
 After deploying, check the two-field login, SVG logo and /healthz version, then request a summary from an existing recording with the real configured provider. Verify waiting/running/ready states, citations and persistence after a browser reload. Keep the generated summary as a draft until a human checks it. Summary creation sends the full allowed transcript in chunks to the selected LLM and counts toward request/token limits. A chat request sends only selected fragments.
 
 For initial owner provisioning, use POST /api/register with email, password and setupToken, X-Mnema-Request: 1 and the configured Origin. A public sign-up form is not an alternative to the one-time setup secret. Never put the setup secret in public documentation or a shared URL.
+
+## Optional runtime reuse on Amvera
+
+`deploy/Dockerfile.amvera-runtime` builds the current application on a previously verified runtime image that already contains Node, Whisper and OCR. Supply your own immutable image reference through the required build argument `MNEMONIO_RUNTIME_IMAGE`. The recipe checks that production dependency declarations are unchanged and replaces the application code and public files. If dependencies, the model or system packages change, use the root full-build Dockerfile instead. No private registry credentials are included in this repository.
+
+The root Dockerfile remains the portable full build. The runtime-reuse recipe is a deployment option; it does not change the application version or replace the current server code with the old version.
