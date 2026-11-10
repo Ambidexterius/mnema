@@ -1,0 +1,23 @@
+{
+  "name": "mnema",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite app --host 127.0.0.1 --port 5173",
+    "build": "vite build app --outDir ../dist --emptyOutDir",
+    "start": "node server/server.mjs",
+    "test": "node --test server/*.test.mjs"
+  },
+  "dependencies": {
+    "@gravity-ui/uikit": "7.47.1",
+    "better-auth": "1.7.19",
+    "lucide-react": "1.71.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.7"
+  },
+  "description": "Research repository with source-backed insights and configurable LLM providers"
+}

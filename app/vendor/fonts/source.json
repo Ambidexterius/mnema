@@ -1,0 +1,16 @@
+{
+  "stylesheet": "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap",
+  "retrieved": "2026-11-10",
+  "assets": [
+    [
+      "https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf",
+      "inter-0.ttf",
+      "1b08e7fc267a5c7e1d614100f604b83e7e8a0be241f0f288faa2b3ac93a683ba"
+    ],
+    [
+      "https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZg.ttf",
+      "inter-1.ttf",
+      "e7a1aaf7eda9f2fad4131725fa556265ec75ca7b2d756260173a040363e8d4f7"
+    ]
+  ]
+}
