@@ -177,3 +177,5 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .auth-with-variants{container:auth-variant-page / inline-size}
 @container auth-variant-page (max-width:740px){.auth-with-variants .auth-minimal-main{display:flex;flex-direction:column;gap:24px;max-width:448px}.auth-variant-controls{width:100%}.auth-variant-list{display:none}.auth-variant-select{display:block}}
 .transcript-edit-history{margin-top:24px;border-top:1px solid var(--g-color-line-generic);padding-top:16px}.transcript-edit-history summary{cursor:pointer;font:var(--g-text-subheader-1-font)}.transcript-edit-history ol{padding-inline-start:20px}.transcript-edit-history li{padding:16px 0;overflow-wrap:anywhere;line-height:1.6}.transcript-edit-history p{margin-top:8px}.transcript-edit-history summary:focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:4px}
+/* Long generated summaries remain reachable while the transcript scrolls. */
+@media(min-width:768px){.study-summary{max-height:calc(100dvh - 112px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-inline-end:8px}}
