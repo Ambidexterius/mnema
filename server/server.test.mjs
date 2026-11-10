@@ -7,7 +7,7 @@ import {randomBytes} from 'node:crypto';
 import {createMnemaServer} from './server.mjs';
 const dir=await mkdtemp(join(tmpdir(),'mnema-test-'));
 const setup=randomBytes(32).toString('hex');
-const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4191',authSecret:randomBytes(32).toString('hex'),setupToken:setup});
+const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4191',authSecret:randomBytes(32).toString('hex'),setupToken:setup,providerFetch:async()=>new Response(JSON.stringify({choices:[{message:{content:'OK'}}],usage:{total_tokens:42}}),{status:200,headers:{'Content-Type':'application/json'}})});
 await new Promise(r=>app.server.listen(4191,'127.0.0.1',r));
 let ownerCookie='',viewerCookie='',invite;
 async function req(path,{body,method,cookie,headers={}}={}){const response=await fetch('http://127.0.0.1:4191'+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:'http://127.0.0.1:4191',...(cookie?{Cookie:cookie}:{}),...headers},...(body!==undefined?{body:typeof body==='string'?body:JSON.stringify(body)}:{})});const data=await response.json();return{response,data}}
@@ -25,5 +25,11 @@ test('chunked upload bypasses request-size limits and retries do not duplicate b
  let r=await chunk(0,512*1024);assert.equal(r.status,200);assert.equal((await r.json()).offset,512*1024);r=await chunk(0,512*1024);assert.equal((await r.json()).offset,512*1024);
  assert.equal((await chunk(512*1024,1024*1024)).status,200);assert.equal((await chunk(1024*1024,bytes.length)).status,200);
  const done=await req('/api/upload-sessions/'+id+'/complete',{cookie:ownerCookie,body:{}});assert.equal(done.response.status,201);assert(done.data.state.studies.some(s=>s.fileId===id));const file=await fetch('http://127.0.0.1:4191/api/files/'+id,{headers:{Cookie:ownerCookie}});assert.deepEqual(Buffer.from(await file.arrayBuffer()),bytes);
+});
+test('model connection test is admin-only and accounts actual tokens before enforcing quota',async()=>{
+ const oldKey=process.env.LLM_KEY_CUSTOM1,oldLimit=process.env.LLM_MONTHLY_TOKEN_LIMIT;process.env.LLM_KEY_CUSTOM1='test-only-provider-key';
+ try{const state=await req('/api/state',{cookie:ownerCookie});const model={id:'quota-test',name:'Quota test',url:'https://api.openai.com/v1',model:'fixture',keyRef:'LLM_KEY_CUSTOM1',enabled:true};assert.equal((await req('/api/state',{cookie:ownerCookie,method:'PATCH',body:{version:state.data.version,changes:{models:[model]}}})).response.status,200);
+ assert.equal((await req('/api/models/quota-test/test',{cookie:viewerCookie,body:{}})).response.status,403);const result=await req('/api/models/quota-test/test',{cookie:ownerCookie,body:{}});assert.equal(result.response.status,200);assert.equal(result.data.usage.total_tokens,42);assert.equal(app.db.prepare("SELECT sum(amount) AS n FROM mnema_usage WHERE kind='llm_tokens'").get().n,42);process.env.LLM_MONTHLY_TOKEN_LIMIT='42';assert.equal((await req('/api/models/quota-test/test',{cookie:ownerCookie,body:{}})).response.status,429);
+ }finally{if(oldKey===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=oldKey;if(oldLimit===undefined)delete process.env.LLM_MONTHLY_TOKEN_LIMIT;else process.env.LLM_MONTHLY_TOKEN_LIMIT=oldLimit}
 });
 test('revocation immediately denies existing session and source URL',async()=>{const r=await req('/api/state',{cookie:ownerCookie});const viewer=r.data.state.users.find(u=>u.email==='reader@example.com');assert.equal((await req('/api/users/'+viewer.id,{cookie:ownerCookie,method:'PATCH',body:{status:'revoked'}})).response.status,200);assert.equal((await req('/api/state',{cookie:viewerCookie})).response.status,401);assert.equal((await req('/api/files/'+r.data.state.studies[0].fileId,{cookie:viewerCookie})).response.status,401)});
