@@ -59,7 +59,7 @@ export interface Study {
   color: string;
   findings: number;
   drafts?: number;
-  summaryInfo?: {state:'queued'|'running'|'ready'|'error'; review:'draft'|'verified'; revision:string; modelId:string; model?:string; requestedBy:string; startedAt:number; finishedAt?:number; progress?:string; error?:string};
+  summaryInfo?: {state:'queued'|'running'|'ready'|'error'; review:'draft'|'verified'; revision:string; modelId:string; model?:string; requestedBy:string; startedAt:number; finishedAt?:number; progress?:string; errorCode?:string; error?:string};
   summary: { title: string; text: string; segments: string[] }[];
   segments: Segment[];
   fileName?: string;

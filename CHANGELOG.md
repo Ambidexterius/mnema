@@ -1,5 +1,6 @@
 # 0.7.0 — Мнемонио: сводка и работа с расшифровкой
 
+- Summary errors explain recovery without technical jargon; the error state replaces the initial empty-state prompt.
 - Structured JSON output for DeepSeek, tolerant extraction of complete JSON objects, and metadata-only provider diagnostics; truncated responses are rejected.
 - Русское название «Мнемонио», знак Shapes Gallery (Shape 69) с указанием автора.
 - Два поля входа и регистрации: «Рабочая почта» и «Пароль», внутренние подписи Gravity UI. Имя берётся из приглашения; доступ по приглашениям сохранён.
