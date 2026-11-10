@@ -1,7 +1,7 @@
 import React,{useId,useRef,useState} from 'react';
 import {Button,TextInput} from '@gravity-ui/uikit';
 import {ArrowLeft,ArrowRight,Eye,EyeOff,Moon,Sun} from 'lucide-react';
-import {api} from './api.js';
+import {api} from './api.ts';
 
 function Field({label,children}){const id=useId();return <div className="form-field"><label htmlFor={id}>{label}</label>{React.cloneElement(children,{id})}</div>}
 export default function AuthPage({theme,onTheme,login,onComplete,setupRequired=false,setupEnabled=false}){

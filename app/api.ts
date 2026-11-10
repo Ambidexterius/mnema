@@ -1,10 +1,11 @@
-export async function api(path,body,method=body===undefined?'GET':'POST'){
+export class ApiError extends Error{status:number;constructor(message:string,status:number){super(message);this.status=status}}
+export async function api<T=any>(path:string,body?:unknown,method:string=body===undefined?'GET':'POST'):Promise<T>{
  const response=await fetch(path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},...(body!==undefined?{body:JSON.stringify(body)}:{})});
- let result;try{result=await response.json()}catch{throw new Error('Сервер вернул неожиданный ответ. Обновите страницу.')}
- if(!response.ok){const e=new Error(result.error||result.message||'Не удалось выполнить действие.');e.status=response.status;throw e}return result;
+ let result:any;try{result=await response.json()}catch{throw new Error('Сервер вернул неожиданный ответ. Обновите страницу.')}
+ if(!response.ok)throw new ApiError(result.error||result.message||'Не удалось выполнить действие.',response.status);return result;
 }
 
-export async function uploadFile(file,metadata,onProgress=()=>{}){
+export async function uploadFile(file:File,metadata:Record<string,string>,onProgress:(percent:number)=>void=()=>{}){
  if(!file.size||file.size>2*1024**3)throw new Error('Выберите непустой файл размером до 2 ГБ.');
  const upload=await api('/api/upload-sessions',{name:file.name,mime:file.type,size:file.size,...metadata});
  try{

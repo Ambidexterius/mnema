@@ -7,14 +7,16 @@ import {fileURLToPath} from 'node:url';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 
-const execute=promisify(execFile);
-const id=(fileId,part,text)=>'s-'+createHash('sha256').update(fileId+':'+part+':'+text).digest('hex').slice(0,24);
+type Run=(cmd:string,args:string[],options?:Record<string,unknown>)=>Promise<{stdout:string;stderr?:string}>;
+interface JobArgs{filePath:string;fileName?:string;fileId:string;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
+const execute=promisify(execFile) as unknown as Run;
+const id=(fileId:string,part:string,text:string)=>'s-'+createHash('sha256').update(fileId+':'+part+':'+text).digest('hex').slice(0,24);
 export function processingReadiness(){return {
  asr:existsSync(join(process.env.ASR_MODEL_DIR||'/app/models/whisper-small','model.bin')),
  ocr:existsSync('/usr/bin/tesseract')&&existsSync('/usr/bin/pdftoppm'),
  model:'Whisper Small int8',ocrLanguages:process.env.OCR_LANGUAGES||'rus+eng'
 }}
-export async function extractDocument({filePath,fileName,fileId,onProgress=()=>{},run=execute,maxPages=Number(process.env.OCR_MAX_PAGES||100)}){
+export async function extractDocument({filePath,fileName='',fileId,onProgress=()=>{},run=execute,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
  const segments=[];let pages=0,ocrPages=0,total=0;
  const add=(content,page)=>{const paras=content.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);let index=0;for(const paragraph of paras)for(let offset=0;offset<paragraph.length;offset+=1200){const value=paragraph.slice(offset,offset+1200);total+=value.length;if(total>10*1024**2||segments.length>=5000)throw new Error('Документ слишком большой. Разделите его на части.');segments.push({id:id(fileId,page+':'+index++,value),time:0,page,speaker:page?'Страница '+page:'Документ',text:value})}};
  if(!/\.pdf$/i.test(fileName)){const value=await readFile(filePath);if(value.length>10*1024**2)throw new Error('Текстовый файл больше 10 МБ. Разделите документ.');add(value.toString('utf8'),null)}
@@ -36,7 +38,7 @@ export async function extractDocument({filePath,fileName,fileId,onProgress=()=>{
  if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
  return {segments,pages,ocrPages,engine:ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
-export async function transcribeRecording({filePath,fileId,onProgress=()=>{},run=execute}){
+export async function transcribeRecording({filePath,fileId,onProgress=()=>{},run=execute}:JobArgs){
  const readiness=processingReadiness();if(!readiness.asr)throw new Error('Локальная модель речи ещё не установлена. Дождитесь обновления сервера.');
  const probe=await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration,format_name','-of','json',filePath],{timeout:30000,maxBuffer:1024**2});const info=JSON.parse(probe.stdout).format||{};
  const duration=Number(info.duration),maximum=Number(process.env.ASR_MAX_AUDIO_SECONDS||14400);
