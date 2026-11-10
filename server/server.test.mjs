@@ -1,9 +1,11 @@
 import {test,after} from 'node:test';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
 import {createMnemaServer} from './server.mjs';
-const dir=await mkdtemp('/private/tmp/mnema-test-');
+const dir=await mkdtemp(join(tmpdir(),'mnema-test-'));
 const setup=randomBytes(32).toString('hex');
 const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4191',authSecret:randomBytes(32).toString('hex'),setupToken:setup});
 await new Promise(r=>app.server.listen(4191,'127.0.0.1',r));
