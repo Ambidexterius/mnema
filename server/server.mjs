@@ -14,7 +14,7 @@ import {fromNodeHeaders,toNodeHandler} from 'better-auth/node';
 import {getMigrations} from 'better-auth/db/migration';
 
 process.umask(0o077);
-const VERSION='0.3.0';
+const VERSION='0.3.1';
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
