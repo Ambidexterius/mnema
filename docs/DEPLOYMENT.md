@@ -42,3 +42,9 @@
 ## Проверка после запуска
 
 Проверьте HTTPS, /healthz, настройку владельца, приглашение читателя, запрет изменения и доступа после отзыва, загрузку документа и переход к исходнику. Перезапустите контейнер и убедитесь, что данные сохранились. Затем настройте резервные копии /data и проверьте восстановление на отдельном тестовом экземпляре.
+
+## Release 0.7.0 acceptance
+
+After deploying, check the two-field login, SVG logo and /healthz version, then request a summary from an existing recording with the real configured provider. Verify waiting/running/ready states, citations and persistence after a browser reload. Keep the generated summary as a draft until a human checks it. Summary creation sends the full allowed transcript in chunks to the selected LLM and counts toward request/token limits. A chat request sends only selected fragments.
+
+For initial owner provisioning, use POST /api/register with email, password and setupToken, X-Mnema-Request: 1 and the configured Origin. A public sign-up form is not an alternative to the one-time setup secret. Never put the setup secret in public documentation or a shared URL.

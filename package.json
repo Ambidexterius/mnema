@@ -1,7 +1,7 @@
 {
   "name": "mnema",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite app --host 127.0.0.1 --port 5173",

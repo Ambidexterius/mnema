@@ -1,0 +1,9 @@
+import React,{useEffect,useState} from 'react';
+const choices=[['compact','Компактно'],['regular','Стандартно'],['spacious','Свободно']];
+export function useAuthVariant(){
+ const read=()=>new URLSearchParams(location.search).get('__variant')||'compact';const [variant,setVariant]=useState(read),[hidden,setHidden]=useState(false);const enabled=new URLSearchParams(location.search).has('__variant');
+ const choose=(value:string)=>{const u=new URL(location.href);u.searchParams.set('__variant',value);history.replaceState(null,'',u);setVariant(value)};
+ useEffect(()=>{if(!enabled)return;const key=(e:KeyboardEvent)=>{if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||(e.target as HTMLElement)?.closest('input,textarea,select,[contenteditable="true"]'))return;if(e.key.toLowerCase()==='h'){setHidden(h=>!h);return}if(['ArrowDown','ArrowRight','ArrowUp','ArrowLeft'].includes(e.key)){e.preventDefault();const i=choices.findIndex(c=>c[0]===variant);choose(choices[(i+(['ArrowDown','ArrowRight'].includes(e.key)?1:2))%3][0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[enabled,variant]);
+ const picker=enabled&&!hidden?<div className="auth-variant-controls"><nav className="auth-variant-list" aria-label="Варианты формы"><div role="group" aria-labelledby="density-heading"><span id="density-heading">↳ Плотность</span>{choices.map(([key,label])=><button key={key} aria-pressed={key===variant} onClick={()=>choose(key)} type="button">{label}</button>)}</div><small>← → переключить · H скрыть</small></nav><label className="auth-variant-select">Плотность<select value={variant} onChange={e=>choose(e.target.value)}>{choices.map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label></div>:null;
+ return {variant:choices.some(c=>c[0]===variant)?variant:'compact',picker,enabled};
+}

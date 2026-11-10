@@ -11,9 +11,11 @@ export type Basis = 'report' | 'raw';
 export interface Segment {
   id: string;
   time: number;
+  end?: number;
   page?: number | null;
   speaker: string;
   text: string;
+  correctedText?: string;
 }
 
 export interface HistoryEntry {
@@ -57,6 +59,7 @@ export interface Study {
   color: string;
   findings: number;
   drafts?: number;
+  summaryInfo?: {state:'queued'|'running'|'ready'|'error'; review:'draft'|'verified'; revision:string; modelId:string; model?:string; requestedBy:string; startedAt:number; finishedAt?:number; progress?:string; error?:string};
   summary: { title: string; text: string; segments: string[] }[];
   segments: Segment[];
   fileName?: string;
@@ -69,6 +72,8 @@ export interface Study {
   report?: ReportStatus;
   reportExpected?: string;
   processing?: { pages?: number; ocrPages?: number; engine?: string; model?: string; processingSeconds: number; duration?: number };
+  transcriptEdits?: {segmentId:string;before:string;after:string;by:string;at:number}[];
+  processingStartedAt?: number;
   progress?: string | null;
   error?: string | null;
   step?: number;
