@@ -1,11 +1,12 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
+import type {Segment} from '../app/types.ts';
 
 type Run=(cmd:string,args:string[],options?:Record<string,unknown>)=>Promise<{stdout:string;stderr?:string}>;
 interface JobArgs{filePath:string;fileName?:string;fileId:string;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
@@ -14,6 +15,7 @@ const id=(fileId:string,part:string,text:string)=>'s-'+createHash('sha256').upda
 export function processingReadiness(){return {
  asr:existsSync(join(process.env.ASR_MODEL_DIR||'/app/models/whisper-small','model.bin')),
  ocr:existsSync('/usr/bin/tesseract')&&existsSync('/usr/bin/pdftoppm'),
+ diarization:existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','segmentation.onnx'))&&existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','embedding.onnx'))&&process.env.ASR_DIARIZATION!=='0',
  model:'Whisper Small int8',ocrLanguages:process.env.OCR_LANGUAGES||'rus+eng'
 }}
 export async function extractDocument({filePath,fileName='',fileId,onProgress=()=>{},run=execute,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
@@ -55,12 +57,38 @@ export async function transcribeRecording({filePath,fileId,onProgress=()=>{},run
  const working=await mkdtemp(join(tmpdir(),'mnema-asr-'));const started=Date.now();
  try{
   onProgress('Подготовка аудио');const audio=join(working,'audio-%05d.flac'),output=join(working,'transcript.json');
-  await run('ffmpeg',['-nostdin','-v','error','-protocol_whitelist','file,pipe','-threads','1','-i',filePath,'-map','0:a:0','-vn','-ac','1','-ar','16000','-c:a','flac','-threads','1','-t',String(maximum),'-f','segment','-segment_time','900','-reset_timestamps','1',audio],{timeout:15*60000,maxBuffer:1024**2});
+  await prepareAudio(run,filePath,audio,maximum);
   onProgress('Локальное распознавание речи');const script=join(dirname(fileURLToPath(import.meta.url)),'transcribe.py');
   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(6*3600000,Math.max(10*60000,duration*5000)),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
   const result=JSON.parse(await readFile(output,'utf8'));
   if(!result.segments?.length)throw new Error('В записи не удалось распознать речь. Проверьте качество звука.');
   result.segments=result.segments.map((s,i)=>({...s,id:id(fileId,String(i),s.text)}));
+  return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
+ }finally{await rm(working,{recursive:true,force:true})}
+}
+
+async function probeRecording(run:Run,filePath:string){
+ const probe=await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration,format_name','-of','json',filePath],{timeout:30000,maxBuffer:1024**2});const info=JSON.parse(probe.stdout).format||{};
+ const duration=Number(info.duration),maximum=Number(process.env.ASR_MAX_AUDIO_SECONDS||14400);
+ if(!Number.isFinite(duration)||duration<=0||duration>maximum)throw new Error('Запись должна быть непустой и не длиннее '+Math.floor(maximum/3600)+' часов.');
+ return {duration,maximum};
+}
+function prepareAudio(run:Run,filePath:string,audio:string,maximum:number){
+ return run('ffmpeg',['-nostdin','-v','error','-protocol_whitelist','file,pipe','-threads','1','-i',filePath,'-map','0:a:0','-vn','-ac','1','-ar','16000','-c:a','flac','-threads','1','-t',String(maximum),'-f','segment','-segment_time','900','-reset_timestamps','1',audio],{timeout:15*60000,maxBuffer:1024**2});
+}
+/** Labels speakers of an existing transcript without running speech recognition again. */
+export async function detectSpeakers({filePath,segments,onProgress=()=>{},run=execute}:{filePath:string;segments:Segment[];onProgress?:(p:string)=>void;run?:Run}){
+ if(!processingReadiness().diarization)throw new Error('Определение спикеров не установлено на этом сервере.');
+ const {duration,maximum}=await probeRecording(run,filePath);
+ const working=await mkdtemp(join(tmpdir(),'mnema-speakers-'));const started=Date.now();
+ try{
+  onProgress('Подготовка аудио');await prepareAudio(run,filePath,join(working,'audio-%05d.flac'),maximum);
+  const input=join(working,'segments.json'),output=join(working,'speakers.json');
+  await writeFile(input,JSON.stringify(segments.map(s=>({id:s.id,time:s.time,end:s.end,speaker:s.speaker}))),{mode:0o600});
+  onProgress('Определяем спикеров');const script=join(dirname(fileURLToPath(import.meta.url)),'diarize.py');
+  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(4*3600000,Math.max(10*60000,duration*3000)),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
+  const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};
+  if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
  }finally{await rm(working,{recursive:true,force:true})}
 }

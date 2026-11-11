@@ -74,6 +74,8 @@ export interface Study {
   reportExpected?: string;
   processing?: { pages?: number; ocrPages?: number; engine?: string; model?: string; processingSeconds: number; duration?: number };
   transcriptEdits?: {segmentId:string;before:string;after:string;by:string;at:number}[];
+  speakerInfo?: {state:'queued'|'running'|'ready'|'error'; count?:number; engine?:string; progress?:string|null; error?:string; startedAt?:number; finishedAt?:number};
+  speakerEdits?: {action:'detected'|'renamed'|'reassigned'; from?:string; to?:string; count?:number; changed:number; by:string; at:number}[];
   processingStartedAt?: number;
   progress?: string | null;
   error?: string | null;

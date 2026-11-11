@@ -6,6 +6,8 @@
 
 Whisper Small и faster-whisper: MIT, https://huggingface.co/Systran/faster-whisper-small и https://github.com/SYSTRAN/faster-whisper. CTranslate2: MIT. Tesseract и языковые модели: Apache-2.0, https://tesseract-ocr.github.io/tessdoc/. Poppler и FFmpeg поставляются из Debian; соответствующие лицензии и copyright находятся в /usr/share/doc контейнера. Требования ASR закреплены в server/requirements-asr.txt; модель закреплена по revision в Dockerfile.
 
+Разделение спикеров: sherpa-onnx и sherpa-onnx-core 2.0.1 — Apache-2.0, https://github.com/k2-fsa/sherpa-onnx. pyannote segmentation 3.0 — MIT, © 2022 CNRS, https://huggingface.co/pyannote/segmentation-3.0, ONNX-экспорт k2-fsa. WeSpeaker ResNet34 (VoxCeleb) — модель следует лицензии датасета VoxCeleb, Creative Commons Attribution 4.0, https://github.com/wenet-e2e/wespeaker и https://mm.kaist.ac.kr/datasets/voxceleb/. Модели скачиваются при сборке образа с проверкой SHA-256 (server/fetch-diarization-models.py).
+
 ## Shapes Gallery
 
 Original Shape 69: Monika Michalczyk, https://www.shapes.gallery/. Geometry retained; color and viewBox adapted. See app/licenses/shapes-gallery.md.
