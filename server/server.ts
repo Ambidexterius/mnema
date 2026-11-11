@@ -1,3 +1,4 @@
+import {createS3Mirror,s3Config} from './s3-storage.ts';
 import {documentPreview} from './document-preview.ts';
 import {materialActivity} from '../app/material-activity.ts';
 import {collectGlobalResearch,globalEvidence} from './global-research.ts';
@@ -12,7 +13,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {mkdir,readFile,writeFile,rename,unlink,stat,appendFile,truncate} from 'node:fs/promises';
 import {createReadStream,createWriteStream} from 'node:fs';
 import {pipeline} from 'node:stream/promises';
-import {Transform} from 'node:stream';
+import {Transform,Readable} from 'node:stream';
 import {extractDocument,transcribeRecording,processingReadiness,detectSpeakers} from './processing.ts';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -110,6 +111,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  for(const w of q('SELECT id FROM mnema_workspaces').all())wsStore.run(w.id,()=>{if(getState().state.findings.some(f=>!f.status))mutate(s=>{s.findings=s.findings.map(legacyFinding).map(({verified,priority,...f})=>f)})});
  for(const w of q('SELECT id FROM mnema_workspaces').all())wsStore.run(w.id,()=>{if(getState().state.studies.some(s=>['queued','running'].includes(s.summaryInfo?.state)))mutate(s=>{for(const study of s.studies)if(['queued','running'].includes(study.summaryInfo?.state))study.summaryInfo={...study.summaryInfo,state:'error',errorCode:'interrupted',error:'Материал и расшифровка сохранены. Попробуйте создать сводку ещё раз.'}})});
  if(process.env.MNEMA_LLM_PRESET==='amvera-deepseek-v4')for(const w of q('SELECT id FROM mnema_workspaces').all())wsStore.run(w.id,()=>{if(!getState().state.models.some(m=>m.id===amveraPreset.id))mutate(s=>{s.models=s.models.map(m=>({...m,enabled:false}));s.models.push(amveraPreset);s.modelId=amveraPreset.id})});
+ const storageMirror=createS3Mirror(db,dir,s3Config());
  const processors=()=>{const r=processingReadiness();return [{id:'whisper',name:r.model,description:r.diarization?'Локальная речь, таймкоды и разделение спикеров':'Локальная речь и таймкоды, без разделения спикеров',mode:'Локально',enabled:true,configured:r.asr},{id:'speakers',name:'Разделение спикеров',description:'pyannote segmentation 3.0 и WeSpeaker, локально на CPU',mode:'Локально',enabled:true,configured:Boolean(options.speakerProcessor)||r.diarization},{id:'tesseract',name:'Tesseract + Poppler',description:'PDF и сканы, русский и английский, номера страниц',mode:'Локально',enabled:true,configured:r.ocr}]};
  const ownerExists=()=>Boolean(q('SELECT 1 FROM mnema_access WHERE admin=1 LIMIT 1').get());
  const users=()=>q('SELECT u.id,u.name,u.email,m.role,m.admin,m.revoked FROM user u JOIN mnema_members m ON m.user_id=u.id WHERE m.workspace_id=?').all(currentWs()).map(u=>({...u,owner:Boolean(u.admin),status:u.revoked?'revoked':'active'})).concat(q('SELECT id,name,email,role FROM mnema_invites WHERE workspace_id=? AND used=0 AND revoked=0 AND expires>?').all(currentWs(),Date.now()).map(u=>({...u,status:'invited'})));
@@ -232,6 +234,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/imports/source/findings'&&req.method==='POST'){
      if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const b=await body(req);let result;mutate(st=>{result=importFindings(st,b.items,person)});return json(res,200,result);
     }
+    if(path==='/api/storage'&&req.method==='GET'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');return json(res,200,storageMirror.status())}
+    if(path==='/api/storage/verify-backup'&&req.method==='POST'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');await body(req);try{return json(res,200,await storageMirror.verifyBackup())}catch{fail(503,'Не удалось проверить резервную копию. Дождитесь завершения копирования и повторите.')}}
+    if(path==='/api/storage/sync'&&req.method==='POST'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');await body(req);void storageMirror.tick();return json(res,202,storageMirror.status())}
     if(path==='/api/state'&&req.method==='GET')return json(res,200,view(person));
     if(path==='/api/state'&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'У вас доступ только для просмотра.');const b=await body(req);const current=getState();if(b.version!==current.version)fail(409,'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.');const changes=b.changes||{};
@@ -284,7 +289,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(/^\/api\/files\/[^/]+$/.test(path)&&['GET','HEAD'].includes(req.method)){
      const id=path.split('/').at(-1);const study=getState().state.studies.find(s=>s.fileId===id);const file=study&&q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);if(!file)fail(404,'Файл не найден.');const isPDF=/\.pdf$/i.test(file.name),isText=/\.txt$/i.test(file.name);const mime=isPDF?'application/pdf':isText?'text/plain; charset=utf-8':/^video\//.test(file.mime)||/^audio\//.test(file.mime)?file.mime:'application/octet-stream';
-     let start=0,end=file.size-1,status=200;const r=req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);if(req.headers.range&&!r)fail(416,'Некорректный диапазон.');if(r){start=Number(r[1]);end=r[2]?Math.min(Number(r[2]),end):end;if(start>end||start>=file.size)fail(416,'Некорректный диапазон.');status=206}const headers={'Content-Type':mime,'Content-Length':end-start+1,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','Content-Disposition':`inline; filename*=UTF-8''${encodeURIComponent(file.name)}`};if(status===206)headers['Content-Range']=`bytes ${start}-${end}/${file.size}`;res.writeHead(status,headers);if(req.method==='HEAD')return res.end();return createReadStream(join(dir,'uploads',id),{start,end}).pipe(res);
+     let start=0,end=file.size-1,status=200;const r=req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);if(req.headers.range&&!r)fail(416,'Некорректный диапазон.');if(r){start=Number(r[1]);end=r[2]?Math.min(Number(r[2]),end):end;if(start>end||start>=file.size)fail(416,'Некорректный диапазон.');status=206}const headers={'Content-Type':mime,'Content-Length':end-start+1,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','Content-Disposition':`inline; filename*=UTF-8''${encodeURIComponent(file.name)}`};if(status===206)headers['Content-Range']=`bytes ${start}-${end}/${file.size}`;if(storageMirror.has(id)){try{const remote=await storageMirror.objects.request(req.method,storageMirror.objectKey(id),undefined,req.headers.range?{range:req.headers.range}:{});const remoteHeaders={...headers,'X-Mnema-Storage':'s3','Content-Length':remote.headers.get('content-length')||String(end-start+1),...(remote.headers.get('content-range')?{'Content-Range':remote.headers.get('content-range')}:{})};res.writeHead(remote.status,remoteHeaders);if(req.method==='HEAD')return res.end();await pipeline(Readable.fromWeb(remote.body as any),res);return}catch(e){if(res.headersSent)throw e;console.error('S3 read unavailable; using retained local copy')}}res.writeHead(status,{...headers,'X-Mnema-Storage':'local'});if(req.method==='HEAD')return res.end();return createReadStream(join(dir,'uploads',id),{start,end}).pipe(res);
     }
     if(/^\/api\/studies\/[^/]+$/.test(path)&&req.method==='DELETE'){
      if(person.role!=='full')fail(403,'Удалять исследования может участник с полным доступом.');const id=path.split('/')[3];const study=getState().state.studies.find(s=>s.id===id);if(!study)fail(404,'Материал не найден.');
@@ -350,8 +355,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   }catch(e){if(res.headersSent){res.destroy();return}json(res,e.status||500,{error:e.status?e.message:'Не удалось выполнить действие. Повторите попытку.'});if(!e.status)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
  };
  const server=http.createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)json(res,500,{error:'Не удалось выполнить запрос.'})})});
+ server.once('close',()=>{storageMirror.close();clearInterval(worker)});
  server.requestTimeout=30*60*1000;server.headersTimeout=30000;
- return {server,db,auth,notifications:completionMail,close:()=>{completionMail.close();clearInterval(worker);server.close();db.close()}};
+ return {server,db,auth,storage:storageMirror,notifications:completionMail,close:()=>{storageMirror.close();completionMail.close();clearInterval(worker);server.close();db.close()}};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const app=await createMnemaServer();const port=Number(process.env.PORT||4180);app.server.listen(port,'0.0.0.0',()=>console.log('Mnema '+VERSION+' listening on '+port));
