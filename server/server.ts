@@ -7,7 +7,7 @@ import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
 import {selectEvidence} from './retrieval.ts';
 import {summarizeMaterial,transcriptRevision,SummaryFailure,resumePendingSummaries} from './summaries.ts';
-import {extractFindings,newFindings} from './finding-extraction.ts';
+import {extractFindings,dedupeWithModel} from './finding-extraction.ts';
 import http from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
@@ -33,7 +33,7 @@ const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
 const cookieValue=(req:any,name:string)=>String(req.headers.cookie||'').split(';').map((c:string)=>c.trim()).find((c:string)=>c.startsWith(name+'='))?.slice(name.length+1)||'';
 
 process.umask(0o077);
-const VERSION='0.9.4';
+const VERSION='0.9.5';
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -189,14 +189,20 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   mutate(s=>{s.studies.find(x=>x.id===study.id).summaryInfo.state='running'});
   const summary=await summarizeMaterial(study.segments,study.title,payload=>requestSummary(model.model,payload,request=>callModel({id:info.requestedBy},model,request),()=>mutate(s=>{const target=s.studies.find(x=>x.id===study.id);if(target)target.summaryInfo.progress=(target.summaryInfo.progress||'Анализируем материал')+' · Повтор ответа'})),progress=>mutate(s=>{s.studies.find(x=>x.id===study.id).summaryInfo.progress=progress}));
   // Findings are a separate pass over the whole text; if it fails, the summary blocks become drafts as before.
-  let extracted=null;if(info.autoFindings){try{extracted=await runExtraction(study,model,info.requestedBy,progress=>mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(t)t.summaryInfo.progress=progress}))}catch(e){console.error('Findings pass failed, using summary blocks',e.code||e.status||e.name)}}
-  mutate(s=>{const target=s.studies.find(x=>x.id===study.id);if(!target)return;if(transcriptRevision(target.segments)!==revision)throw new Error('Расшифровка изменилась. Повторите создание сводки.');target.summary=summary;target.summaryInfo={...info,state:'ready',review:'draft',model:model.name,finishedAt:Date.now(),progress:null,error:null};if(info.autoFindings){if(extracted)addDraftFindings(s,study.id,revision,extracted,model.name);else{const now=Date.now();for(const [i,block] of summary.entries()){const id='sf-'+hash(study.id+':'+revision+':'+i).slice(0,32);if(s.findings.some(f=>f.id===id))continue;s.findings.push({id,studyId:study.id,segmentId:block.segments[0],...(block.segments.length>1?{evidence:block.segments.slice(1,9)}:{}),title:block.title.slice(0,160),description:block.text,kind:'Инсайт',importance:'Средняя',significant:false,origin:'ai',status:'draft',createdAt:now,createdBy:model.name,history:[{action:'suggested',status:'draft',by:model.name,at:now}]});}}}});
+  let extracted=null;if(info.autoFindings){try{const items=await runExtraction(study,model,info.requestedBy,progress=>mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(t)t.summaryInfo.progress=progress}));mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(t)t.summaryInfo.progress='Ищем повторы'});extracted=await planFindings(study,items,model,info.requestedBy)}catch(e){console.error('Findings pass failed, using summary blocks',e.code||e.status||e.name)}}
+  mutate(s=>{const target=s.studies.find(x=>x.id===study.id);if(!target)return;if(transcriptRevision(target.segments)!==revision)throw new Error('Расшифровка изменилась. Повторите создание сводки.');target.summary=summary;target.summaryInfo={...info,state:'ready',review:'draft',model:model.name,finishedAt:Date.now(),progress:null,error:null};if(info.autoFindings){if(extracted)applyFindingsPlan(s,study.id,revision,extracted,model.name);else{const now=Date.now();for(const [i,block] of summary.entries()){const id='sf-'+hash(study.id+':'+revision+':'+i).slice(0,32);if(s.findings.some(f=>f.id===id))continue;s.findings.push({id,studyId:study.id,segmentId:block.segments[0],...(block.segments.length>1?{evidence:block.segments.slice(1,9)}:{}),title:block.title.slice(0,160),description:block.text,kind:'Инсайт',importance:'Средняя',significant:false,origin:'ai',status:'draft',createdAt:now,createdBy:model.name,history:[{action:'suggested',status:'draft',by:model.name,at:now}]});}}}});
  };
  const runExtraction=(study,model,requestedBy,onProgress)=>extractFindings(study.segments,{title:study.title,type:study.type},payload=>requestSummary(model.model,payload,request=>callModel({id:requestedBy},model,request)),onProgress);
- // Stable IDs per transcript revision: a repeated run does not duplicate drafts; similar or rejected findings are not suggested again.
- const addDraftFindings=(s,studyId,revision,items,modelName)=>{const now=Date.now();const fresh=newFindings(items,s.findings.filter(f=>f.studyId===studyId).map(f=>f.title));let added=0;
-  for(const item of fresh){const id='af-'+hash(studyId+':'+revision+':'+item.title).slice(0,32);if(s.findings.some(f=>f.id===id))continue;s.findings.push({id,studyId,segmentId:item.segments[0],...(item.segments.length>1?{evidence:item.segments.slice(1)}:{}),title:item.title,description:item.description,kind:item.kind,importance:item.importance,...(item.reason?{reason:item.reason}:{}),significant:false,origin:'ai',status:'draft',createdAt:now,createdBy:modelName,history:[{action:'suggested',status:'draft',by:modelName,at:now}]});added++}
-  return added};
+ // Semantic duplicates: the model groups new candidates with the material's findings; on failure — word matching.
+ const knownFindings=(state,studyId)=>state.findings.filter(f=>f.studyId===studyId).map(f=>({id:f.id,title:f.title,description:f.description,kind:f.kind,importance:f.importance,status:f.status||'draft',origin:f.origin||'human',segmentId:f.segmentId,evidence:f.evidence}));
+ const planFindings=(study,items,model,requestedBy)=>dedupeWithModel(items,knownFindings(getState().state,study.id),payload=>requestSummary(model.model,payload,request=>callModel({id:requestedBy},model,request)),reason=>console.error('Findings dedupe fallback',reason));
+ // Stable IDs per transcript revision: a repeated run does not duplicate drafts. Only AI drafts that are still drafts are merged or removed.
+ const applyFindingsPlan=(s,studyId,revision,plan,modelName)=>{const now=Date.now();let added=0,merged=plan.merged;
+  const draft=f=>f&&f.studyId===studyId&&f.status==='draft'&&f.origin==='ai';
+  for(const u of plan.update){const f=s.findings.find(x=>x.id===u.id);if(draft(f)){const evidence=u.evidence.filter(id=>id!==f.segmentId).slice(0,8);if(evidence.length)f.evidence=evidence}}
+  const removable=new Set(plan.remove.filter(id=>draft(s.findings.find(x=>x.id===id))));merged-=plan.remove.length-removable.size;s.findings=s.findings.filter(f=>!removable.has(f.id));
+  for(const item of plan.add){const id='af-'+hash(studyId+':'+revision+':'+item.title).slice(0,32);if(s.findings.some(f=>f.id===id))continue;s.findings.push({id,studyId,segmentId:item.segments[0],...(item.segments.length>1?{evidence:item.segments.slice(1)}:{}),title:item.title,description:item.description,kind:item.kind,importance:item.importance,...(item.reason?{reason:item.reason}:{}),significant:false,origin:'ai',status:'draft',createdAt:now,createdBy:modelName,history:[{action:'suggested',status:'draft',by:modelName,at:now}]});added++}
+  return {added,merged}};
  const processFindings=async(study)=>{
   const info={...study.findingsInfo},revision=transcriptRevision(study.segments||[]);if(revision!==info.revision)throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');
   const member=q('SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?').get(currentWs(),info.requestedBy);if(!member||member.revoked||member.role!=='full')throw new Error('Доступ изменился. Попросите участника с полным доступом повторить поиск.');
@@ -204,7 +210,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const setInfo=patch=>mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(t)t.findingsInfo={...t.findingsInfo,...patch}});
   setInfo({state:'running',progress:'Ищем находки'});
   const items=await runExtraction(study,model,info.requestedBy,progress=>setInfo({progress}));
-  mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(!t)return;if(transcriptRevision(t.segments)!==revision)throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');const added=addDraftFindings(s,study.id,revision,items,model.name);t.findingsInfo={...info,state:'ready',progress:null,error:null,found:items.length,added,model:model.name,finishedAt:Date.now()}});
+  setInfo({progress:'Ищем повторы'});const plan=await planFindings(study,items,model,info.requestedBy);
+  mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(!t)return;if(transcriptRevision(t.segments)!==revision)throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');const {added,merged}=applyFindingsPlan(s,study.id,revision,plan,model.name);t.findingsInfo={...info,state:'ready',progress:null,error:null,found:items.length,added,merged,dedupe:plan.method,model:model.name,finishedAt:Date.now()}});
  };
  const nextSummary=()=>{for(const ws of q('SELECT id,data FROM mnema_workspaces').all()){const studies=JSON.parse(ws.data).studies;const study=studies.find(s=>s.summaryInfo?.state==='queued');if(study)return {workspaceId:ws.id,studyId:study.id,kind:'summary'};const search=studies.find(s=>s.findingsInfo?.state==='queued');if(search)return {workspaceId:ws.id,studyId:search.id,kind:'findings'}}return null};
  let workerBusy=false;
