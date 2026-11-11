@@ -420,3 +420,12 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .processor-row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;column-gap:16px;row-gap:8px}
 .processor-row .setting-main{min-width:0}
 @media(max-width:600px){.processor-row{grid-template-columns:40px minmax(0,1fr);align-items:start}.processor-row>.g-label{grid-column:2;justify-self:start}}
+
+/* Version sits above the shared brand; overview contains the complete research list. */
+.brand-lockup{min-width:0;flex:1}
+.app-version{display:block;font-size:12px;line-height:16px;font-weight:400;letter-spacing:0;color:var(--g-color-text-secondary)}
+.brand-lockup>.app-version{padding-left:4px;margin-bottom:4px}
+.auth-form-heading>.app-version{margin-bottom:8px}
+.rail-collapsed .brand-lockup>.app-version{display:none}
+.research-heading{flex-wrap:wrap}
+.project-question .question-heading{margin-bottom:20px}
