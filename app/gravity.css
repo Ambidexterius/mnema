@@ -424,8 +424,18 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 /* Version sits above the shared brand; overview contains the complete research list. */
 .brand-lockup{min-width:0;flex:1}
 .app-version{display:block;font-size:12px;line-height:16px;font-weight:400;letter-spacing:0;color:var(--g-color-text-secondary)}
-.brand-lockup>.app-version{padding-left:4px;margin-bottom:4px}
-.auth-form-heading>.app-version{margin-bottom:8px}
-.rail-collapsed .brand-lockup>.app-version{display:none}
 .research-heading{flex-wrap:wrap}
 .project-question .question-heading{margin-bottom:20px}
+
+/* The version aligns with the wordmark; the shape aligns with the product name. */
+.brand{display:grid;grid-template-columns:36px minmax(0,1fr);column-gap:8px;row-gap:4px}
+.brand>:first-child{grid-column:1;grid-row:2}
+.brand>.app-version{grid-column:2;grid-row:1}
+.brand>.brand-text{grid-column:2;grid-row:2}
+.rail-collapsed .brand>.app-version{display:none}
+.rail-collapsed .brand{grid-template-columns:36px}
+.rail-collapsed .brand>:first-child{grid-row:1}
+.auth-brand-centered{display:grid;grid-template-columns:36px auto;column-gap:12px;row-gap:4px;justify-content:center}
+.auth-brand-centered>:first-child{grid-column:1;grid-row:2}
+.auth-brand-centered>.app-version{grid-column:2;grid-row:1;text-align:left}
+.auth-brand-centered>.auth-product-name{grid-column:2;grid-row:2}
