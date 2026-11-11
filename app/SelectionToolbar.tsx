@@ -2,15 +2,16 @@
 // Works for the transcript and for the rendered document pages; follows the selection while scrolling.
 import React,{useEffect,useRef,useState} from 'react';
 import {Copy,Highlighter,Lightbulb} from 'lucide-react';
-import {occurrenceAt} from './text-ranges.ts';
+import {expandToWords,occurrenceAt} from './text-ranges.ts';
 
 export interface TextSelection {text:string;segmentId?:string;page?:number;occurrence?:number}
 type Props={roots:()=>(HTMLElement|null)[];canEdit:boolean;onHighlight:(s:TextSelection)=>void;onFinding:(s:TextSelection)=>void;onCopy:(s:TextSelection)=>void};
 
 function readSelection(roots:(HTMLElement|null)[]):{selection:TextSelection;rect:DOMRect}|null{
  const sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.rangeCount)return null;
- const text=sel.toString().replace(/\s+/g,' ').trim();if(text.length<3)return null;
- const range=sel.getRangeAt(0);const start=range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement;
+ // The quote is widened to whole words, so a quick drag does not cut words at the edges.
+ const range=expandToWords(sel.getRangeAt(0));
+ const text=range.toString().replace(/\u00ad/g,'').replace(/\s+/g,' ').trim();if(text.length<3)return null;const start=range.startContainer instanceof Element?range.startContainer:range.startContainer.parentElement;
  const root=roots.find(r=>r?.contains(start??null));if(!start||!root)return null;
  const rect=range.getBoundingClientRect();if(!rect.width&&!rect.height)return null;
  const segment=start.closest('[id^="segment-"]');const page=start.closest<HTMLElement>('[data-page]');

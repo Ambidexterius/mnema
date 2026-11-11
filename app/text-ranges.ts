@@ -1,7 +1,7 @@
 // Finding quotes inside rendered text (transcript, PDF text layer, Word preview) and painting them
 // with the CSS Custom Highlight API, so the DOM of third-party renderers is never rewritten.
 
-import {compactText} from './highlight-text.ts';
+import {compactText,wordBounds} from './highlight-text.ts';
 export {compactText};
 
 /** Text-node positions of every comparable character under `root`. */
@@ -30,6 +30,14 @@ export function occurrenceAt(root:Node,range:Range,quote:string){
  const text=compactText(before.toString());let count=0;for(let at=text.indexOf(needle);at>=0;at=text.indexOf(needle,at+1))count++;
  // The selection itself may start mid-needle in the compact text; matches that begin before it are earlier repeats.
  return count;
+}
+
+/** A copy of the range widened to whole words at both ends; words are not joined across separate text nodes. */
+export function expandToWords(range:Range):Range{
+ const out=range.cloneRange();
+ if(out.startContainer.nodeType===Node.TEXT_NODE){const text=(out.startContainer as Text).data;const [a]=wordBounds(text,out.startOffset,out.startOffset);out.setStart(out.startContainer,a)}
+ if(out.endContainer.nodeType===Node.TEXT_NODE){const text=(out.endContainer as Text).data;const [,b]=wordBounds(text,out.endOffset,out.endOffset);out.setEnd(out.endContainer,b)}
+ return out;
 }
 
 type HighlightRegistry={set(name:string,value:unknown):void;delete(name:string):void};

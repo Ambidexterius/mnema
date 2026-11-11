@@ -18,3 +18,14 @@ test('quotes: a repeated phrase is resolved by page, explicit fragment or occurr
  assert.equal(quoteSegment(segments,'Сначала смотрю загрузку',{occurrence:5}),'c','an occurrence beyond the list falls back to the last');
  assert.equal(quoteOccurrence(segments,'c','Сначала смотрю загрузку'),1);assert.equal(quoteOccurrence(segments,'a','Сначала смотрю загрузку'),0);
 });
+
+import {wordBounds,compactText} from '../app/highlight-text.ts';
+test('quotes: a selection is widened to whole words, spaces and punctuation stay as they are',()=>{
+ const text='Подошел, ввел код подъезда, поднялся на этаж, взял ключ.';
+ const cut=(a:number,b:number)=>{const [x,y]=wordBounds(text,a,b);return text.slice(x,y)};
+ assert.equal(cut(text.indexOf('одъезда'),text.indexOf('ял ключ')+2),'подъезда, поднялся на этаж, взял');
+ assert.equal(cut(text.indexOf(' ввел'),text.indexOf('ввел')+4),' ввел','a selection starting on a space keeps its start');
+ assert.equal(cut(0,3),'Подошел');
+ assert.equal(cut(text.length-2,text.length),'ключ.');
+ assert.equal(compactText('встре­чаться'),'встречаться','soft hyphens are ignored');
+});
