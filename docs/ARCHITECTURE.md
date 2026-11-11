@@ -23,10 +23,17 @@ flowchart LR
 
 ## Summary and transcript workflow
 
-A summary is requested explicitly on the material page. The server reads the full permitted transcript in bounded chunks, validates source segment IDs and stores the result with transcript revision, model and review state. Only verified summaries are returned to read-only members. Queued/running tasks interrupted by a server restart become retryable errors; no automatic additional provider call is made.
+A summary is requested explicitly on the material page. The server reads the full permitted transcript in bounded chunks, validates source segment IDs and stores the result with transcript revision, model and review state. Only verified summaries are returned to read-only members. Queued tasks survive a restart; interrupted running summaries return to the queue. Completed summaries and prior failures are not recreated automatically.
 
 Transcript corrections preserve the original text and append an audit entry. A correction invalidates the old summary. Upload completion is idempotent; upload sessions are scoped to their user and workspace. With local ASR installed, recording uploads enter the processing queue automatically.
 
 ## Import and project context
 
 The client pins each API request to a workspace header and each file URL to a validated workspace parameter. Membership is checked before selecting it. The import API is admin-only and disabled unless `MNEMA_IMPORT_SOURCE_ORIGIN` names the source system; provenance URLs must belong to that origin. It accepts bounded source records, never roles or model settings, checks file SHA-256 and stores provenance. The import dialog transfers originals, transcripts and passports, then calls the analyze endpoint: the server queues each imported material for the project's selected model, so imported text is sent to that provider. Generated summaries and findings are drafts. The API can also store source finding cards as drafts in a separate catalog; the dialog does not use it. Readers see only verified material; uploaded originals remain protected by server membership.
+
+
+## Private S3 copies
+
+When MNEMA_S3_BUCKET and credentials are configured, ready originals are copied to a private prefix with streamed checksums. Source routes keep workspace authorization and support Range reads from S3, with a retained local fallback. The working SQLite database remains on the persistent volume; an hourly consistent backup is stored in S3. The service owner can verify its SHA-256 and SQLite integrity in a temporary database without replacing production.
+
+Completion favicon state is local to the browser tab and uses observed recording transitions; it is not a durable global notification service. The initial ready history does not create notifications.

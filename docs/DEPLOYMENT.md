@@ -62,3 +62,10 @@ The root Dockerfile remains the portable full build. The runtime-reuse recipe is
 ## Completion email
 
 Optional SMTP completion notifications: [MAIL.md](MAIL.md). Configure SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, SMTP_FROM and APP_URL in the hosting environment. Invitation links remain manual. No SMTP credentials are included.
+
+
+## 0.9.3 storage and runtime checks
+
+Optional S3 uses MNEMA_S3_BUCKET, MNEMA_S3_PREFIX, MNEMA_S3_ENDPOINT, MNEMA_S3_REGION, and secret MNEMA_S3_ACCESS_KEY_ID / MNEMA_S3_SECRET_ACCESS_KEY. Keep the bucket private; do not put credentials in source files. Existing originals are retained locally until a separate cache/retention policy is approved.
+
+The runtime must include app/material-activity.ts, imported by server code. Check runtime imports as well as TypeScript/build. After release, verify /healthz version 0.9.3, deployed JS/CSS, access controls, the 8 px workspace frame and the completion favicon. Interface news content is intentionally unchanged.

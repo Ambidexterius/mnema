@@ -523,3 +523,12 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .pdf-extracted-text{margin-top:24px;border-top:1px solid var(--g-color-line-generic);padding-top:16px}.pdf-extracted-text>summary{cursor:pointer;font:var(--g-text-subheader-1-font);margin-bottom:16px}.study-title-row h1{margin-top:0}
 
 @media(max-width:374px){.panel-tabs>button>svg{display:none}.panel-tabs>button{padding-inline:4px}}
+
+/* Workspace frame: 8 px top/right/bottom and corners. */
+.app-shell{height:100dvh;overflow:hidden;background:var(--g-color-base-generic-ultralight)}.sidebar{background:transparent}.content-shell{height:calc(100dvh - 16px);margin:8px 8px 8px 0;border-radius:8px;background:var(--g-color-base-background);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;position:relative}.content-shell>.topbar{border-start-start-radius:8px;border-start-end-radius:8px}
+
+/* Shared canvas for the menu and the inset workspace surface. */
+.sidebar{border-inline-end:0}
+
+html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-solid)}.sidebar .app-version,.sidebar .project-list-label,.sidebar .nav-group-label,.sidebar .nav-item:not([aria-current="page"]){color:var(--g-color-text-complementary)}
+.sidebar a:focus-visible,.sidebar button:focus-visible,.sidebar .g-button:focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:2px}

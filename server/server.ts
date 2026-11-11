@@ -32,7 +32,7 @@ const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
 const cookieValue=(req:any,name:string)=>String(req.headers.cookie||'').split(';').map((c:string)=>c.trim()).find((c:string)=>c.startsWith(name+'='))?.slice(name.length+1)||'';
 
 process.umask(0o077);
-const VERSION='0.9.2';
+const VERSION='0.9.3';
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';

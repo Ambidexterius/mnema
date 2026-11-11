@@ -16,6 +16,7 @@ RUN node -e "const fs=require('node:fs');const old=JSON.parse(fs.readFileSync('/
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/dist ./public
 COPY server ./server
+COPY app/material-activity.ts ./app/material-activity.ts
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod 755 /app/docker-entrypoint.sh
 ENV NODE_ENV=production PORT=3000 MNEMA_DATA_DIR=/data MNEMA_PUBLIC_DIR=/app/public ASR_MODEL_DIR=/app/models/whisper-small OCR_LANGUAGES=rus+eng HF_HUB_OFFLINE=1
