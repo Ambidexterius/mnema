@@ -66,6 +66,7 @@ export interface Study {
   fileName?: string;
   mime?: string;
   addedBy?: string;
+  uploadedById?: string;
   conducted?: string;
   method?: string;
   audience?: string;

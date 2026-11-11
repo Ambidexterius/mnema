@@ -57,3 +57,8 @@ For initial owner provisioning, use POST /api/register with email, password and 
 `deploy/Dockerfile.amvera-runtime` builds the current application on a previously verified runtime image that already contains Node, Whisper and OCR. Supply your own immutable image reference through the required build argument `MNEMONIO_RUNTIME_IMAGE`. The recipe checks that production dependency declarations are unchanged and replaces the application code and public files. If dependencies, the model or system packages change, use the root full-build Dockerfile instead. No private registry credentials are included in this repository.
 
 The root Dockerfile remains the portable full build. The runtime-reuse recipe is a deployment option; it does not change the application version or replace the current server code with the old version.
+
+
+## Completion email
+
+Optional SMTP completion notifications: [MAIL.md](MAIL.md). Configure SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, SMTP_FROM and APP_URL in the hosting environment. Invitation links remain manual. No SMTP credentials are included.
