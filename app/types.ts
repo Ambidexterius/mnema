@@ -7,6 +7,7 @@ export type FindingKind = 'Проблема' | 'Инсайт' | 'Рекомен�
 export type SourceType = 'Интервью' | 'Юзабилити-тест' | 'Встреча' | 'Отчёт';
 export type ReportStatus = 'ready' | 'none';
 export type Basis = 'report' | 'raw';
+export interface MaterialActivity {state:'queued'|'running'|'ready'|'error'|'uploaded'|'cancelled';label:string;detail?:string}
 
 export interface Segment {
   id: string;
@@ -60,6 +61,7 @@ export interface Study {
   color: string;
   findings: number;
   drafts?: number;
+  activity?: MaterialActivity;
   summaryInfo?: {state:'queued'|'running'|'ready'|'error'; review:'draft'|'verified'; revision:string; modelId:string; model?:string; requestedBy:string; startedAt:number; finishedAt?:number; progress?:string; errorCode?:string; error?:string};
   summary: { title: string; text: string; segments: string[] }[];
   segments: Segment[];

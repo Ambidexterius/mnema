@@ -373,7 +373,7 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 @media(hover:hover) and (prefers-reduced-motion:no-preference){.player-start:hover .player-start-icon{scale:1.06}}
 @media(prefers-reduced-motion:no-preference){.player-start:active .player-start-icon{scale:.96}}
 /* Видео и резерв под него — одна пропорция, без серого хвоста под кадром */
-.study-player-placeholder{aspect-ratio:auto;max-height:none;max-width:640px;background:none}
+.study-player-placeholder{aspect-ratio:auto;max-height:none;max-width:100%;width:100%;background:none}
 .study-player-placeholder:has(.mini-player){aspect-ratio:16/9}
 .study-player video{aspect-ratio:16/9;max-height:none;object-fit:contain}
 .study-layer{z-index:25}.source-panel{z-index:30}
@@ -508,3 +508,10 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 
 /* Keyboard focus needs 3:1 against the dark composer surface. */
 .g-root_theme_dark{--g-color-line-focus:#7c9bb7}
+
+/* Public server progress; never infer analysis from a loaded transcript. */
+.material-status{display:grid;justify-items:start;gap:4px;max-width:240px}.material-status .g-label__content{display:flex;align-items:center;gap:4px}.material-status small{font:var(--g-text-caption-2-font);color:var(--g-color-text-secondary);line-height:1.5;overflow-wrap:anywhere}.activity-spinner{flex-shrink:0;animation:material-spin 1.2s linear infinite}.material-analysis{display:flex;align-items:flex-start;gap:12px;padding:16px;margin-bottom:24px;background:var(--g-color-base-info-light);border:1px solid var(--g-color-line-info);border-radius:var(--g-border-radius-l)}.material-analysis p{margin:4px 0 0;color:var(--g-color-text-secondary);line-height:1.5}.material-analysis>svg{margin-top:2px}.document-preview h2{font:var(--g-text-subheader-2-font);margin-bottom:8px}.document-preview-name{font:var(--g-text-body-1-font);overflow-wrap:anywhere}.document-preview-caption{font:var(--g-text-caption-2-font);line-height:1.5;color:var(--g-color-text-secondary);margin:8px 0 16px}.document-preview-frame{display:block;width:100%;height:65dvh;min-height:360px;border:1px solid var(--g-color-line-generic);border-radius:var(--g-border-radius-m);background:#fff}.document-preview-message{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:24px 0;line-height:1.5}.document-preview-message p{width:100%}.document-preview-message strong{width:100%}.document-preview-message[role=alert]{color:var(--g-color-text-danger)}
+@keyframes material-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.activity-spinner{animation:none}}
+@media(min-width:1101px){.study-sheet .study-workspace.with-file-preview{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}}
+@media(max-width:767px){.document-preview-frame{height:65dvh;min-height:320px}.material-analysis{padding:12px}.material-status{min-width:148px}}

@@ -1,3 +1,5 @@
+import {documentPreview} from './document-preview.ts';
+import {materialActivity} from '../app/material-activity.ts';
 import {collectGlobalResearch,globalEvidence} from './global-research.ts';
 import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
@@ -120,7 +122,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const view=person=>{const {state:raw,version}=getState();const full=person.role==='full';
   // Readers never receive drafts or rejected findings: not in the list, counters or any other field.
   const findings=raw.findings.map(legacyFinding).filter(f=>full||f.status==='verified').map(f=>({...f,basis:reportOf(raw.studies.find(s=>s.id===f.studyId))==='ready'?'report':'raw'}));
-  const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
+  const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,activity:materialActivity(s),...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
   const state={...raw,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
   return {version,state:{...state,workspace:{id:currentWs(),name:q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name},models:state.models.map(m=>({...m,builtin:isBuiltin(m),keyConfigured:slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.admin?users():[]},user:person}};
  const globalResearch=(person:Person)=>collectGlobalResearch(person,project=>wsStore.run(project.id,()=>view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state));
@@ -273,6 +275,12 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;if(used+size>quota)fail(413,'Недостаточно места в хранилище. Увеличьте лимит или удалите ненужные материалы.');const id=randomUUID();const tmp=join(dir,'uploads',id+'.part'),dest=join(dir,'uploads',id);const mime=req.headers['content-type']||'application/octet-stream';q('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run(id,name,mime,size,'uploading');let received=0;
      try{await pipeline(req,new Transform({transform(chunk,enc,cb){received+=chunk.length;if(received>size)cb(new Error('Превышен размер файла.'));else cb(null,chunk)}}),createWriteStream(tmp,{flags:'wx',mode:0o600}));if(received!==size)throw new Error('Загрузка прервана. Повторите её.');await rename(tmp,dest);q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id)}catch(e){await unlink(tmp).catch(()=>{});q('DELETE FROM mnema_uploads WHERE id=?').run(id);throw e}
      const createdStudy=addStudy(id,name,mime,{title:url.searchParams.get('title'),type:url.searchParams.get('type'),project:url.searchParams.get('project')},person);return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+    }
+    if(/^\/api\/files\/[^/]+\/preview$/.test(path)&&req.method==='GET'){
+     const id=path.split('/')[3];const study=view(person).state.studies.find(s=>s.fileId===id);const file=study&&q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);if(!file)fail(404,'Файл не найден.');
+     let html;try{html=/\.pdf$/i.test(file.name)?null:await documentPreview(join(dir,'uploads',id),file.name)}catch{fail(422,'Не удалось открыть предпросмотр. Исходный файл сохранён.')}
+     const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||!view(current).state.studies.some(s=>s.fileId===id))fail(403,'Доступ к файлу закрыт.');
+     return json(res,200,{html});
     }
     if(/^\/api\/files\/[^/]+$/.test(path)&&['GET','HEAD'].includes(req.method)){
      const id=path.split('/').at(-1);const study=getState().state.studies.find(s=>s.fileId===id);const file=study&&q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);if(!file)fail(404,'Файл не найден.');const isPDF=/\.pdf$/i.test(file.name),isText=/\.txt$/i.test(file.name);const mime=isPDF?'application/pdf':isText?'text/plain; charset=utf-8':/^video\//.test(file.mime)||/^audio\//.test(file.mime)?file.mime:'application/octet-stream';

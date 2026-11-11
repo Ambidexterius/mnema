@@ -59,7 +59,7 @@ export async function transcribeRecording({filePath,fileId,onProgress=()=>{},run
   onProgress('Подготовка аудио');const audio=join(working,'audio-%05d.flac'),output=join(working,'transcript.json');
   await prepareAudio(run,filePath,audio,maximum);
   onProgress('Локальное распознавание речи');const script=join(dirname(fileURLToPath(import.meta.url)),'transcribe.py');
-  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(6*3600000,Math.max(10*60000,duration*5000)),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
+  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
   const result=JSON.parse(await readFile(output,'utf8'));
   if(!result.segments?.length)throw new Error('В записи не удалось распознать речь. Проверьте качество звука.');
   result.segments=result.segments.map((s,i)=>({...s,id:id(fileId,String(i),s.text)}));
@@ -86,7 +86,7 @@ export async function detectSpeakers({filePath,segments,onProgress=()=>{},run=ex
   const input=join(working,'segments.json'),output=join(working,'speakers.json');
   await writeFile(input,JSON.stringify(segments.map(s=>({id:s.id,time:s.time,end:s.end,speaker:s.speaker}))),{mode:0o600});
   onProgress('Определяем спикеров');const script=join(dirname(fileURLToPath(import.meta.url)),'diarize.py');
-  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(4*3600000,Math.max(10*60000,duration*3000)),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
+  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1))],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'}});
   const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};
   if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
