@@ -594,3 +594,64 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .finding-reason>p{margin-top:4px;line-height:22px;max-width:70ch;overflow-wrap:anywhere}
 .finding-reason>small{display:block;margin-top:8px;font-size:12px;line-height:18px;color:var(--g-color-text-secondary)}
 @media(max-width:639px){.panel-search{flex-direction:column;align-items:stretch}.panel-search .g-button{min-height:44px}}
+
+/* Material window as in Dovetail: icon rail on the right, the panel collapses, documents open as pages. */
+.study-workspace{grid-template-columns:minmax(0,1fr) 360px 40px;gap:24px}
+.study-workspace.panel-collapsed{grid-template-columns:minmax(0,1fr) 40px}
+.study-workspace.panel-collapsed>.study-source{width:100%;max-width:880px;justify-self:center}
+.panel-rail-wrap{position:sticky;top:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.panel-rail{display:flex;flex-direction:column;gap:4px}
+.panel-rail [role=tab],.panel-toggle{position:relative;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--g-color-text-secondary);cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out}
+.panel-rail [role=tab][aria-selected=true]{background:var(--g-color-base-generic);color:var(--g-color-text-primary)}
+.panel-rail [role=tab] small{position:absolute;top:1px;right:0;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--g-color-base-background);box-shadow:0 0 0 1px var(--g-color-line-generic);font-size:10px;line-height:16px;font-weight:600;color:var(--g-color-text-secondary);font-variant-numeric:tabular-nums}
+.panel-toggle{border-top:1px solid var(--g-color-line-generic);border-radius:0 0 8px 8px;padding-top:4px;height:40px}
+:where(.panel-rail [role=tab],.panel-toggle):focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:1px}
+@media(hover:hover){.panel-rail [role=tab]:hover,.panel-toggle:hover{background:var(--g-color-base-simple-hover);color:var(--g-color-text-primary)}}
+.panel-title{font:var(--g-text-subheader-3-font);margin-bottom:16px}
+@media(max-width:1100px){.study-workspace{grid-template-columns:minmax(0,1fr) 312px 40px}}
+@media(min-width:1101px){.study-sheet .study-workspace{grid-template-columns:minmax(0,1fr) 360px 40px}.study-sheet .study-workspace.panel-collapsed{grid-template-columns:minmax(0,1fr) 40px}}
+@media(max-width:767px){.study-workspace,.study-workspace.panel-collapsed,.study-sheet .study-workspace{grid-template-columns:minmax(0,1fr)}.panel-rail-wrap{position:static;grid-row:1;flex-direction:row;justify-content:flex-start}.panel-rail{flex-direction:row}.panel-toggle{border-top:0;border-left:1px solid var(--g-color-line-generic);border-radius:0 8px 8px 0;height:36px}.study-workspace .study-summary{grid-row:2}.panel-rail [role=tab],.panel-toggle{width:44px;height:44px}}
+
+.document-pages{margin-bottom:24px;border:1px solid var(--g-color-line-generic);border-radius:12px;background:var(--g-color-base-generic-ultralight);overflow:clip}
+.document-pages-bar{position:sticky;top:-32px;z-index:2;display:flex;align-items:center;gap:8px;min-height:48px;padding:6px 8px 6px 16px;border-bottom:1px solid var(--g-color-line-generic);background:var(--g-color-base-background)}
+.document-pages-name{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.document-pages-name>svg{flex:none;color:var(--g-color-text-secondary)}
+.document-pages-count{font-size:13px}
+.document-pages-body{display:grid;gap:16px;padding:16px}
+.document-pages-body[hidden]{display:none}
+.document-page{position:relative;width:100%;aspect-ratio:1/var(--page-ratio,1.414);background:#fff;border-radius:6px;box-shadow:0 0 0 1px var(--g-color-line-generic),0 1px 2px rgb(0 0 0 / .06);overflow:hidden}
+.document-page:not(.rendered)::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgb(0 0 0 / .03),transparent);background-size:200% 100%}
+.document-page-canvas{position:absolute;inset:0}.document-page-canvas>canvas{display:block;width:100%;height:100%}
+.document-pages-message{display:grid;justify-items:start;gap:8px;padding:24px 16px}.document-pages-message[role=status]{display:flex;align-items:center;gap:8px;color:var(--g-color-text-secondary)}
+.document-pages-actions{display:flex;gap:8px;flex-wrap:wrap}.document-pages-download{display:inline-flex;align-items:center;gap:6px;padding:0 12px;min-height:36px;border-radius:8px}
+.docx-host{display:grid;gap:16px;justify-items:center;overflow:hidden}
+.docx-host section.docx{background:#fff;color:#000;box-shadow:0 0 0 1px var(--g-color-line-generic),0 1px 2px rgb(0 0 0 / .06);border-radius:6px;margin:0;flex:none}
+.docx-host a{color:#0645ad;text-decoration:underline}
+/* pdf.js text layer (from pdf_viewer.css, flattened): transparent text over the canvas, selectable. */
+.textLayer{color-scheme:only light;position:absolute;inset:0;text-align:initial;overflow:clip;opacity:1;line-height:1;letter-spacing:normal;word-spacing:normal;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;caret-color:CanvasText;z-index:0;--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));--min-font-size-inv:calc(1 / var(--min-font-size))}
+.textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%;user-select:text}
+.textLayer>:not(.markedContent),.textLayer .markedContent span:not(.markedContent){z-index:1;--font-height:0;font-size:calc(var(--text-scale-factor) * var(--font-height));--scale-x:1;--rotate:0deg;transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.textLayer .markedContent{display:contents}
+.textLayer span[role=img]{user-select:none;cursor:default}
+.textLayer ::selection{background:rgb(0 90 255 / .28)}
+.textLayer br::selection{background:transparent}
+.textLayer .endOfContent{display:block;position:absolute;inset:100% 0 0;z-index:0;cursor:default;user-select:none}
+
+/* Highlights are painted with the CSS Custom Highlight API; the flash marks a quote reached from a citation. */
+::highlight(mnema-quote),::highlight(mnema-quote-text){background-color:rgb(255 196 0 / .38)}
+::highlight(mnema-flash){background-color:rgb(255 122 0 / .5)}
+.selection-toolbar{position:fixed;z-index:1100;display:flex;align-items:center;gap:2px;height:40px;padding:4px;border-radius:10px;background:var(--g-color-base-float);box-shadow:0 0 0 1px var(--g-color-line-generic),0 8px 24px -8px rgb(0 0 0 / .3)}
+.selection-toolbar>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;min-width:32px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--g-color-text-primary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.selection-toolbar>button:focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:-2px}
+@media(hover:hover){.selection-toolbar>button:hover{background:var(--g-color-base-simple-hover)}}
+@media(prefers-reduced-motion:no-preference){.selection-toolbar{animation:mn-fade 120ms ease-out}}
+.panel-highlights>ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.highlight-card{border:1px solid var(--g-color-line-generic);border-radius:8px;overflow:hidden}
+.highlight-quote{display:block;width:100%;padding:12px 12px 8px;border:0;background:transparent;color:inherit;text-align:start;cursor:pointer;font:inherit}
+.highlight-quote:focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:-2px}
+.highlight-where{display:block;margin-bottom:4px;font-size:12px;line-height:16px;color:var(--g-color-text-secondary);font-variant-numeric:tabular-nums}
+.highlight-text{line-height:22px;background:rgb(255 196 0 / .28);box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;overflow-wrap:anywhere}
+.highlight-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 4px 12px;font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
+.highlight-actions{display:flex;align-items:center}
+@media(hover:hover){.highlight-quote:hover .highlight-text{background:rgb(255 196 0 / .42)}}
+@media(forced-colors:active){::highlight(mnema-quote),::highlight(mnema-quote-text),::highlight(mnema-flash){background-color:Highlight;color:HighlightText}.highlight-text{outline:1px solid CanvasText}}

@@ -131,9 +131,22 @@ export interface ChatSource extends Segment {
   basis?: Basis;
 }
 
+/** A quote a person marked in a material. Unlike a finding, it is evidence without a conclusion. */
+export interface Highlight {
+  id: string;
+  studyId: string;
+  segmentId: string;
+  text: string;
+  page?: number;
+  by: string;
+  byId?: string;
+  at: number;
+}
+
 export interface WorkspaceState {
   studies: Study[];
   findings: Finding[];
+  highlights?: Highlight[];
   models: ModelConnection[];
   processors: Processor[];
   users: WorkspaceUser[];

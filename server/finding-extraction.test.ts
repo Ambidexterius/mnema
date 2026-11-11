@@ -46,8 +46,10 @@ import {dedupeWithModel,planDedupe,validGroups} from './finding-extraction.ts';
 const cand=(title:string,importance='Средняя',segments=['x'])=>({title,description:'',kind:'Проблема' as const,importance:importance as any,reason:'',segments});
 const known=(id:string,title:string,status='draft',origin='ai',importance='Средняя')=>({id,title,kind:'Проблема',importance,status,origin,segmentId:'seg-'+id});
 
-test('dedupe: groups are validated — range, no reuse, 2–8 members',()=>{
- assert.deepEqual(validGroups({groups:[[1,2],[2,3],[4],[5,99,6],['7','8']]},8),[[0,1],[4,5],[6,7]]);
+test('dedupe: groups are validated and overlapping groups merge into one',()=>{
+ assert.deepEqual(validGroups({groups:[[1,2],[2,3],[4],[5,99,6],['7','8']]},8),[[0,1,2],[4,5],[6,7]]);
+ assert.deepEqual(validGroups({groups:[[1,4],[2,4]]},5),[[0,1,3]],'two old drafts tied to one new candidate become one group');
+ assert.deepEqual(validGroups({groups:[Array.from({length:13},(_,i)=>i+1)]},20),[],'oversized groups are not trusted');
  assert.deepEqual(validGroups({summary:[]},3),[]);
 });
 

@@ -149,6 +149,20 @@ test('service derives its own draft findings from imported originals and does no
  for(let i=0;i<80;i++){state=(await req('/api/state',{cookie})).data;if(state.state.studies.find(s=>s.id===source.id).summaryInfo?.state==='ready')break;await new Promise(r=>setTimeout(r,50))}const findings=state.state.findings.filter(f=>f.studyId===source.id&&f.origin==='ai');assert.equal(findings.length,1);assert.equal(findings[0].title,'New service conclusion');assert.equal(findings[0].status,'draft');assert.equal(findings[0].segmentId,source.segments[0].id);assert.equal(findings[0].importSource,undefined);assert.equal((await req('/api/imports/source/analyze',{cookie,body:{}})).data.queued,0);
  }finally{reply='OK';if(prior===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=prior}
 });
+test('highlights: only text from the material, full access to change, readers see them',async()=>{
+ const up=await req('/api/uploads?title=Highlights&type=Отчёт',{cookie:ownerCookie,body:'Нейтральная тестовая запись. Участник проверяет выбранные даты.',headers:{'x-file-name':'highlights.txt','Content-Type':'text/plain'}});assert.equal(up.response.status,201,JSON.stringify(up.data));
+ let study;for(let i=0;i<40;i++){study=(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.id===up.data.createdStudyId);if(study?.status==='ready')break;await new Promise(r=>setTimeout(r,100))}assert(study?.segments?.length,JSON.stringify(study?.status));
+ const path='/api/studies/'+study.id+'/highlights';
+ assert.equal((await req(path,{cookie:viewerCookie,body:{text:'Участник проверяет выбранные даты'}})).response.status,403);
+ assert.equal((await req(path,{cookie:ownerCookie,body:{text:'Этого текста нет в материале'}})).response.status,400);
+ assert.equal((await req(path,{cookie:ownerCookie,body:{text:'ок'}})).response.status,400);
+ const created=await req(path,{cookie:ownerCookie,body:{text:'  Участник  проверяет\nвыбранные даты '}});assert.equal(created.response.status,201,JSON.stringify(created.data));
+ const item=created.data.state.highlights.find(h=>h.id===created.data.createdHighlightId);assert.equal(item.text,'Участник проверяет выбранные даты');assert.equal(item.segmentId,study.segments.find(s=>s.text.includes('Участник')).id);assert.equal(item.by,'Owner');
+ const seen=(await req('/api/state',{cookie:viewerCookie})).data.state.highlights||[];assert(seen.some(h=>h.id===item.id),'readers see highlights');
+ assert.equal((await req(path+'/'+item.id,{cookie:viewerCookie,method:'DELETE'})).response.status,403);
+ const removed=await req(path+'/'+item.id,{cookie:ownerCookie,method:'DELETE'});assert.equal(removed.response.status,200);assert(!(removed.data.state.highlights||[]).some(h=>h.id===item.id));
+ assert.equal((await req(path+'/'+item.id,{cookie:ownerCookie,method:'DELETE'})).response.status,404);
+});
 test('file preview is escaped and requires an active membership in the source project',async()=>{
  const uploaded=await req('/api/uploads',{cookie:ownerCookie,body:'<script>fixture</script>',headers:{'x-file-name':'preview-fixture.txt','Content-Type':'text/plain'}});assert.equal(uploaded.response.status,201);const id=uploaded.data.state.studies.find(s=>s.id===uploaded.data.createdStudyId).fileId;
  const path='/api/files/'+id+'/preview';assert.equal((await req(path)).response.status,401);
