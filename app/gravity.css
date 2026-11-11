@@ -401,3 +401,17 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 
 /* Shared beta mark stays optically centered beside the authentication wordmark. */
 .auth-brand-text{display:inline-flex;align-items:center;gap:8px}
+
+/* Authentication: a single centered product heading above the credentials. */
+.auth-minimal .auth-header{justify-content:flex-end}
+.auth-form-heading{margin-bottom:32px;text-align:center}
+.auth-brand-centered{justify-content:center;gap:12px}
+.auth-minimal .auth-form h1.auth-product-name{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:28px;line-height:36px;font-weight:600;letter-spacing:-.02em}
+.auth-description{max-width:336px;margin:12px auto 0;color:var(--g-color-text-secondary);font-size:14px;line-height:22px;text-align:center;text-wrap:balance}
+.auth-invite-help{display:flex;justify-content:center;margin-top:12px}
+.auth-invite-link{min-height:44px;color:var(--g-color-text-link)}
+.auth-invite-link .g-button__text{text-decoration:underline;text-underline-offset:3px}
+.auth-help-intro,.auth-help-note{line-height:24px}
+.auth-help-steps{display:grid;gap:12px;margin:20px 0;padding-inline-start:24px;line-height:24px}
+.auth-help-note{color:var(--g-color-text-secondary);font-size:13px;line-height:20px}
+@media(max-width:480px){.auth-minimal .auth-form h1.auth-product-name{font-size:26px;line-height:36px}.auth-form-heading{margin-bottom:28px}}

@@ -1,9 +1,9 @@
-<p align="center"><img src="docs/assets/logo.svg" width="64" alt="Мнемония"></p>
-<h1 align="center">Мнемония</h1>
+<p align="center"><img src="docs/assets/logo.svg" width="64" alt="Мнемоника"></p>
+<h1 align="center">Мнемоника</h1>
 <p align="center">Память команды: материалы, находки и ответы с источниками.</p>
 <p align="center"><a href="https://github.com/Ambidexterius/mnema/actions/workflows/ci.yml"><img src="https://github.com/Ambidexterius/mnema/actions/workflows/ci.yml/badge.svg" alt="CI"></a></p>
 
-Мнемония — база исследований для небольшой команды. Храните интервью и документы, сохраняйте находки с цитатами и задавайте вопросы по доступным материалам. Источники и действия защищены серверными правами пространства.
+Мнемоника — база исследований для небольшой команды. Храните интервью и документы, сохраняйте находки с цитатами и задавайте вопросы по доступным материалам. Источники и действия защищены серверными правами пространства.
 
 <p align="center"><img src="docs/assets/project.png" width="1000" alt="Обзор проекта: вопрос по материалам и карточки исследований"></p>
 
