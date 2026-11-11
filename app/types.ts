@@ -30,10 +30,14 @@ export interface Finding {
   id: string;
   studyId: string;
   segmentId: string;
+  /** Further evidence fragments from the same material, besides `segmentId`. */
+  evidence?: string[];
   title: string;
   description: string;
   kind: FindingKind;
   importance: Importance;
+  /** Why the model chose this importance; dropped when a person changes the importance. */
+  reason?: string;
   significant: boolean;
   status: FindingStatus;
   origin: 'human' | 'ai' | 'import';
@@ -77,6 +81,7 @@ export interface Study {
   reportExpected?: string;
   processing?: { pages?: number; ocrPages?: number; engine?: string; model?: string; processingSeconds: number; duration?: number };
   transcriptEdits?: {segmentId:string;before:string;after:string;by:string;at:number}[];
+  findingsInfo?: {state:'queued'|'running'|'ready'|'error'; progress?:string|null; found?:number; added?:number; model?:string; error?:string; errorCode?:string; startedAt?:number; finishedAt?:number};
   speakerInfo?: {state:'queued'|'running'|'ready'|'error'; count?:number; engine?:string; progress?:string|null; error?:string; startedAt?:number; finishedAt?:number};
   speakerEdits?: {action:'detected'|'renamed'|'reassigned'; from?:string; to?:string; count?:number; changed:number; by:string; at:number}[];
   processingStartedAt?: number;
