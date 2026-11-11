@@ -46,7 +46,7 @@
 
 Проверьте HTTPS, /healthz, настройку владельца, приглашение читателя, запрет изменения и доступа после отзыва, загрузку документа и переход к исходнику. Перезапустите контейнер и убедитесь, что данные сохранились. Затем настройте резервные копии /data и проверьте восстановление на отдельном тестовом экземпляре.
 
-## Release 0.7.0 acceptance
+## Release 0.9.1 acceptance
 
 After deploying, check the two-field login, SVG logo and /healthz version, then request a summary from an existing recording with the real configured provider. Verify waiting/running/ready states, citations and persistence after a browser reload. Keep the generated summary as a draft until a human checks it. Summary creation sends the full allowed transcript in chunks to the selected LLM and counts toward request/token limits. A chat request sends only selected fragments.
 

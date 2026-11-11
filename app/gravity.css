@@ -398,3 +398,6 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 /* В окне материала панель шире: вкладки со счётчиком и сводка без узкой колонки */
 @media(min-width:1101px){.study-sheet .study-workspace{grid-template-columns:minmax(0,1fr) 340px}}
 @media(min-width:768px) and (max-width:1100px){.panel-tabs>button>svg{display:none}}
+
+/* Shared beta mark stays optically centered beside the authentication wordmark. */
+.auth-brand-text{display:inline-flex;align-items:center;gap:8px}
