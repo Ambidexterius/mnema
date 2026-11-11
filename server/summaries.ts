@@ -5,6 +5,7 @@ export class SummaryFailure extends Error{code:string;constructor(code:string,me
 const knownSpeaker=(speaker:string)=>Boolean(speaker)&&!['Запись','Документ'].includes(speaker)&&!speaker.startsWith('Страница ');
 export interface SummaryBlock {title:string;text:string;segments:string[]}
 export const transcriptRevision=(segments:Segment[])=>createHash('sha256').update(JSON.stringify(segments.map(s=>[s.id,s.text,s.correctedText,s.time,s.page]))).digest('hex');
+export function resumePendingSummaries(studies:any[]){let resumed=0;for(const study of studies)if(study.summaryInfo?.state==='running'){study.summaryInfo={...study.summaryInfo,state:'queued',progress:'В очереди после перезапуска',error:null,errorCode:null};resumed++}return resumed}
 const parse=(value:string)=>{
  const raw=String(value||'').trim();
  if(!raw)throw new SummaryFailure('empty','Модель вернула пустую сводку. Повторите создание.');
