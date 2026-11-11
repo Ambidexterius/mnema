@@ -6,7 +6,7 @@ COPY app ./app
 RUN npm run build && npm prune --omit=dev --ignore-scripts --no-fund --no-audit
 
 FROM node:24.15.0-bookworm-slim@sha256:4e6b70dd6cbfc88c8157ba19aa3d9f9cce6ba4703576d55459e45efcbc9c5f5d
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils ffmpeg gosu ca-certificates python3 python3-venv tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils antiword ffmpeg gosu ca-certificates python3 python3-venv tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY server/requirements-asr.txt /tmp/requirements-asr.txt
 RUN python3 -m venv /opt/asr && /opt/asr/bin/pip install --no-cache-dir -r /tmp/requirements-asr.txt

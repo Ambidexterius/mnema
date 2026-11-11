@@ -34,6 +34,7 @@
 | ASR_CPU_THREADS / OCR_LANGUAGES | 1 / rus+eng |
 | MNEMA_LLM_PRESET | amvera-deepseek-v4 для купленного пакета Amvera |
 | LLM_MONTHLY_TOKEN_LIMIT | 2 800 000 токенов за календарный UTC-месяц |
+| MNEMA_IMPORT_SOURCE_ORIGIN | Адрес внешней системы исследований для импорта, например https://research.example.com. Пусто — импорт выключен |
 
 Настройка LLM выполняется владельцем: URL API, идентификатор модели и имя серверного ключа. Поддерживается формат Chat Completions; прямой Anthropic Messages API в эту версию не входит. Произвольные адреса внутренней сети не разрешаются.
 

@@ -35,7 +35,8 @@ export interface Finding {
   importance: Importance;
   significant: boolean;
   status: FindingStatus;
-  origin: 'human' | 'ai';
+  origin: 'human' | 'ai' | 'import';
+  importSource?: {provider:string;url:string;originalStatus:string;confidence:string;originalImportance:string;evidence:string[];exactQuoteMatched:boolean};
   createdAt?: number;
   createdBy?: string;
   history: HistoryEntry[];
@@ -50,7 +51,7 @@ export interface Study {
   description: string;
   project: string;
   type: SourceType;
-  format: 'PDF' | 'TXT' | 'Видео';
+  format: 'PDF' | 'TXT' | 'Word' | 'XLSX' | 'Видео';
   date: string;
   duration: number;
   participants: number;

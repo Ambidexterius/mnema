@@ -13,7 +13,7 @@ flowchart LR
   Queue --> OCR[Poppler + Tesseract · локально]
 ```
 
-Один контейнер обслуживает интерфейс, API и worker. База использует WAL, исходники отдаются через проверку сессии. Секреты провайдеров берутся только из окружения сервера. Поддерживается одно пространство с общей библиотекой и двумя ролями; управление подключениями и участниками остаётся у владельца.
+Один контейнер обслуживает интерфейс, API и worker. База использует WAL, исходники отдаются через проверку сессии. Секреты провайдеров берутся только из окружения сервера. Проекты используют существующие workspace, изолируют библиотеку, модели и две роли; управление подключениями и участниками остаётся у владельца.
 
 Документы разбиваются на текстовые фрагменты. Поиск в первой версии лексический; для ответа выбираются подходящие фрагменты и передаются настроенной модели. Ссылки в интерфейсе ведут к исходным сегментам. Сам ответ модели может ошибаться — первоисточник нужно проверять.
 
@@ -26,3 +26,7 @@ flowchart LR
 A summary is requested explicitly on the material page. The server reads the full permitted transcript in bounded chunks, validates source segment IDs and stores the result with transcript revision, model and review state. Only verified summaries are returned to read-only members. Queued/running tasks interrupted by a server restart become retryable errors; no automatic additional provider call is made.
 
 Transcript corrections preserve the original text and append an audit entry. A correction invalidates the old summary. Upload completion is idempotent; upload sessions are scoped to their user and workspace. With local ASR installed, recording uploads enter the processing queue automatically.
+
+## Import and project context (0.8.0)
+
+The client pins each API request to a workspace header and each file URL to a validated workspace parameter. Membership is checked before selecting it. The import API is admin-only and disabled unless `MNEMA_IMPORT_SOURCE_ORIGIN` names the source system; provenance URLs must belong to that origin. It accepts bounded source records, never roles or model settings, checks file SHA-256 and stores provenance. The import dialog transfers originals, transcripts and passports, then calls the analyze endpoint: the server queues each imported material for the project's selected model, so imported text is sent to that provider. Generated summaries and findings are drafts. The API can also store source finding cards as drafts in a separate catalog; the dialog does not use it. Readers see only verified material; uploaded originals remain protected by server membership.

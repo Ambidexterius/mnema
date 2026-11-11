@@ -19,7 +19,15 @@ export function processingReadiness(){return {
 export async function extractDocument({filePath,fileName='',fileId,onProgress=()=>{},run=execute,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
  const segments=[];let pages=0,ocrPages=0,total=0;
  const add=(content,page)=>{const paras=content.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);let index=0;for(const paragraph of paras)for(let offset=0;offset<paragraph.length;offset+=1200){const value=paragraph.slice(offset,offset+1200);total+=value.length;if(total>10*1024**2||segments.length>=5000)throw new Error('Документ слишком большой. Разделите его на части.');segments.push({id:id(fileId,page+':'+index++,value),time:0,page,speaker:page?'Страница '+page:'Документ',text:value})}};
- if(!/\.pdf$/i.test(fileName)){const value=await readFile(filePath);if(value.length>10*1024**2)throw new Error('Текстовый файл больше 10 МБ. Разделите документ.');add(value.toString('utf8'),null)}
+ if(/\.xlsx$/i.test(fileName)){
+  onProgress('Читаем листы таблицы');
+  try{add((await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-xlsx.py'),filePath],{timeout:30000,maxBuffer:12*1024**2})).stdout,null)}catch{throw new Error('Не удалось прочитать XLSX. Сохраните таблицу как XLSX или PDF и загрузите снова.')}
+ }
+ else if(/\.docx?$/i.test(fileName)){
+  onProgress('Извлекаем текст документа Word');
+  try{const extracted=/\.docx$/i.test(fileName)?await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-word.py'),filePath],{timeout:30000,maxBuffer:10*1024**2}):process.platform==='darwin'?await run('textutil',['-convert','txt','-stdout',filePath],{timeout:30000,maxBuffer:10*1024**2}):await run('antiword',['-m','UTF-8.txt',filePath],{timeout:30000,maxBuffer:10*1024**2});add(extracted.stdout,null)}catch{throw new Error('Не удалось прочитать документ Word. Сохраните его как DOCX или PDF и загрузите снова.')}
+ }
+ else if(!/\.pdf$/i.test(fileName)){const value=await readFile(filePath);if(value.length>10*1024**2)throw new Error('Текстовый файл больше 10 МБ. Разделите документ.');add(value.toString('utf8'),null)}
  else{
   const info=await run('pdfinfo',[filePath],{timeout:30000,maxBuffer:1024**2});pages=Number(info.stdout.match(/^Pages:\s+(\d+)/m)?.[1]);
   if(!Number.isInteger(pages)||pages<1)throw new Error('Не удалось определить страницы PDF. Проверьте, не защищён ли файл паролем.');
@@ -36,7 +44,7 @@ export async function extractDocument({filePath,fileName='',fileId,onProgress=()
   }}finally{await rm(working,{recursive:true,force:true})}
  }
  if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
- return {segments,pages,ocrPages,engine:ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
+ return {segments,pages,ocrPages,engine:/\.xlsx$/i.test(fileName)?'XLSX stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
 export async function transcribeRecording({filePath,fileId,onProgress=()=>{},run=execute}:JobArgs){
  const readiness=processingReadiness();if(!readiness.asr)throw new Error('Локальная модель речи ещё не установлена. Дождитесь обновления сервера.');

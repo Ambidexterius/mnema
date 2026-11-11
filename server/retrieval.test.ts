@@ -1,0 +1,7 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {selectEvidence} from './retrieval.ts';
+const study=(id:string,count:number)=>({id,title:id,status:'ready',segments:Array.from({length:count},(_,i)=>({id:id+i,text:i===count-1?'Последний фрагмент про цены':'Материал '+i,time:i}))}) as any;
+test('project overview samples every eligible material, including late transcript excerpts',()=>{const result=selectEvidence([study('a',100),study('b',4),{...study('pending',2),status:'processing'}],'Какие основные идеи есть в этом проекте?');assert.equal(result.coverage.materials,2);assert.equal(result.coverage.included,2);assert(result.sources.some(s=>s.studyId==='a'&&s.time>80));assert(result.sources.length<=24);assert.equal(result.coverage.sampled,true)});
+test('single-material scope never widens for an overview or unknown material',()=>{const docs=[study('a',4),study('b',4)];assert(selectEvidence(docs,'Какие основные идеи?','b').sources.every(s=>s.studyId==='b'));assert.equal(selectEvidence(docs,'Какие основные идеи?','missing').sources.length,0);assert.equal(selectEvidence(docs,'неизвестно').sources.length,0)});
+test('ordinary questions retain text matching and corrected text',()=>{const doc=study('a',3);doc.segments[0].correctedText='Аванс';const result=selectEvidence([doc],'Аванс');assert.equal(result.sources.length,1);assert.equal(result.sources[0].text,'Аванс')});
