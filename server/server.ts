@@ -32,11 +32,11 @@ const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
 const cookieValue=(req:any,name:string)=>String(req.headers.cookie||'').split(';').map((c:string)=>c.trim()).find((c:string)=>c.startsWith(name+'='))?.slice(name.length+1)||'';
 
 process.umask(0o077);
-const VERSION='0.9.1';
+const VERSION='0.9.2';
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
-const fail=(status,message)=>{throw Object.assign(new Error(message),{status})};
+const fail=(status,message,extra={})=>{throw Object.assign(new Error(message),{status,...extra})};
 const roles=new Set(['view','full']);
 // Stage 1 of the UX brief: findings are reviewed by a person; readers only ever receive verified ones.
 const findingStatuses=new Set(['draft','verified','rejected']);
@@ -155,8 +155,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const reserve=Buffer.byteLength(JSON.stringify(payload))+payload.max_tokens+256;
   if(count>=Number(process.env.LLM_MONTHLY_REQUEST_LIMIT||1200)||used+reserve>Number(process.env.LLM_MONTHLY_TOKEN_LIMIT||2800000))fail(429,'Месячный лимит модели исчерпан.');
   const reservation=randomUUID();q('INSERT INTO mnema_usage VALUES(?,?,?,?,?)').run(reservation,person.id,'llm_tokens',reserve,Date.now());q('INSERT INTO mnema_usage VALUES(?,?,?,?,?)').run(randomUUID(),person.id,'llm',1,Date.now());
-  let response;const started=Date.now();try{response=await (options.providerFetch||fetch)(providerURL(model),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify({...payload,stream:false}),signal:AbortSignal.timeout(240000)})}catch(e){console.error('LLM transport',model.model,e.name,e.cause?.code||'no-code',Math.round((Date.now()-started)/1000));if(['TimeoutError','AbortError'].includes(e.name))fail(504,'Провайдер модели не ответил вовремя. Попробуйте позже.');fail(502,'Не удалось связаться с моделью. Повторите запрос позже.')}
-  if(!response.ok)fail(502,'Модель вернула ошибку '+response.status+'. Проверьте ключ, баланс и идентификатор модели.');
+  let response;const started=Date.now();try{response=await (options.providerFetch||fetch)(providerURL(model),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify({...payload,stream:false}),signal:AbortSignal.timeout(240000)})}catch(e){console.error('LLM transport',model.model,e.name,e.cause?.code||'no-code',Math.round((Date.now()-started)/1000));if(['TimeoutError','AbortError'].includes(e.name))fail(504,'Провайдер модели не ответил вовремя. Попробуйте позже.',{retryable:true});fail(502,'Не удалось связаться с моделью. Повторите запрос позже.',{retryable:true})}
+  if(!response.ok){console.error('LLM rejected',model.model,'HTTP',response.status);fail(502,'Модель вернула ошибку '+response.status+'. Проверьте ключ, баланс и идентификатор модели.',{retryable:[429,502,503,504].includes(response.status)})}
   const result=await response.json();console.log('LLM completed',model.model,'HTTP',response.status,'ms',Date.now()-started,'finish',result.choices?.[0]?.finish_reason||'unknown','chars',typeof result.choices?.[0]?.message?.content==='string'?result.choices[0].message.content.length:0,'reasoningChars',String(result.choices?.[0]?.message?.reasoning_content||'').length,'completionTokens',result.usage?.completion_tokens||0);const actual=result.usage?.total_tokens;if(Number.isSafeInteger(actual)&&actual>=0)q('UPDATE mnema_usage SET amount=? WHERE id=?').run(actual,reservation);
   return result;
  };
