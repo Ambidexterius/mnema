@@ -2,7 +2,6 @@
 <h1 align="center">Мнемонио</h1>
 <p align="center">Память команды: материалы, находки и ответы с источниками.</p>
 <p align="center"><a href="https://github.com/Ambidexterius/mnema/actions/workflows/ci.yml"><img src="https://github.com/Ambidexterius/mnema/actions/workflows/ci.yml/badge.svg" alt="CI"></a></p>
-<p align="center"><img src="docs/assets/material.png" width="1000" alt="Материал в окне: запись, расшифровка со спикерами и панель «Сводка / Находки / Спикеры»"></p>
 
 Мнемонио — база исследований для небольшой команды. Храните интервью и документы, сохраняйте находки с цитатами и задавайте вопросы по доступным материалам. Источники и действия защищены серверными правами пространства.
 
