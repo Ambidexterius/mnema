@@ -114,6 +114,8 @@ export interface WorkspaceUser {
 }
 
 export interface ChatSource extends Segment {
+  workspaceId?: string;
+  workspaceName?: string;
   number: number;
   studyId: string;
   segmentId: string;

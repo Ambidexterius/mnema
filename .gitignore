@@ -12,3 +12,5 @@ dist/
 
 # Production notification sound is supplied separately.
 /app/public/sounds/transcription-complete.mp3
+
+/app/__design/

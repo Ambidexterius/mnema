@@ -3,7 +3,7 @@ import type {Study} from '../app/types.ts';
 /** Balanced evidence for project questions; a summary is a sample, never a claim to cover every word. */
 export function selectEvidence(studies:Study[],question:string,scope='all'){
  const eligible=studies.filter(s=>(scope==='all'||scope===s.id)&&s.status==='ready'&&s.segments?.length);
- const overview=/основн\S* (иде|мысл|вывод)|инсайт|итог|что.{0,16}(узнал|нашл|выясн)|проблем\S* повтор|осталось невыясн/i.test(question);
+ const overview=/основн\S* (иде|мысл|вывод)|инсайт|итог|что.{0,16}(узнал|нашл|выясн)|проблем\S* повтор|осталось невыясн|общ\S* (информац|вывод|картин)|все\S* (исследован|проект)|что.{0,10}исследова/i.test(question);
  const terms=question.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
  const groups=eligible.map(s=>(s.segments||[]).map(seg=>({studyId:s.id,title:s.title,...seg,text:seg.correctedText??seg.text,score:terms.filter(t=>(s.title+' '+(seg.correctedText??seg.text)).toLowerCase().includes(t)).length})));
  let sources:typeof groups[number]=[];

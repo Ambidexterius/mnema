@@ -421,7 +421,7 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .processor-row .setting-main{min-width:0}
 @media(max-width:600px){.processor-row{grid-template-columns:40px minmax(0,1fr);align-items:start}.processor-row>.g-label{grid-column:2;justify-self:start}}
 
-/* Version sits above the shared brand; overview contains the complete research list. */
+/* Shared version label; overview contains the complete research list. */
 .brand-lockup{min-width:0;flex:1}
 .app-version{display:block;font-size:12px;line-height:16px;font-weight:400;letter-spacing:0;color:var(--g-color-text-secondary)}
 .research-heading{flex-wrap:wrap}
@@ -429,13 +429,82 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 
 /* The version aligns with the wordmark; the shape aligns with the product name. */
 .brand{display:grid;grid-template-columns:36px minmax(0,1fr);column-gap:8px;row-gap:4px}
-.brand>:first-child{grid-column:1;grid-row:2}
-.brand>.app-version{grid-column:2;grid-row:1}
-.brand>.brand-text{grid-column:2;grid-row:2}
+.brand>:first-child{grid-column:1;grid-row:1}
+.brand>.app-version{grid-column:2;grid-row:2}
+.brand>.brand-text{grid-column:2;grid-row:1}
 .rail-collapsed .brand>.app-version{display:none}
 .rail-collapsed .brand{grid-template-columns:36px}
 .rail-collapsed .brand>:first-child{grid-row:1}
 .auth-brand-centered{display:grid;grid-template-columns:36px auto;column-gap:12px;row-gap:4px;justify-content:center}
-.auth-brand-centered>:first-child{grid-column:1;grid-row:2}
-.auth-brand-centered>.app-version{grid-column:2;grid-row:1;text-align:left}
-.auth-brand-centered>.auth-product-name{grid-column:2;grid-row:2}
+.auth-brand-centered>:first-child{grid-column:1;grid-row:1}
+.auth-brand-centered>.app-version{grid-column:2;grid-row:2;text-align:left}
+.auth-brand-centered>.auth-product-name{grid-column:2;grid-row:1}
+
+/* Version is below the wordmark, per the final placement decision. */
+.brand>:first-child,.brand>.brand-text{grid-row:1}
+.brand>.app-version{grid-row:2}
+.auth-brand-centered>:first-child,.auth-brand-centered>.auth-product-name{grid-row:1}
+.auth-brand-centered>.app-version{grid-row:2}
+.global-chat{margin-bottom:48px}
+.global-chat>.section-heading{margin-top:0;margin-bottom:12px;flex-wrap:wrap}
+.global-chat-intro,.global-chat-model{color:var(--g-color-text-secondary);font-size:13px;line-height:20px}
+.global-chat-intro{margin-bottom:20px}
+.global-chat-progress{margin:16px 0;color:var(--g-color-text-secondary)}
+.global-chat .composer-help{margin-top:12px;color:var(--g-color-text-secondary);font-size:12px;line-height:20px}
+.global-chat .messages{padding-bottom:0}
+.global-chat .answer-sources button{text-align:left;white-space:normal}
+.global-chat .composer-footer{justify-content:flex-end}
+.project-findings{margin-top:48px}
+@media(max-width:639px){.global-chat{margin-bottom:32px}.project-findings{margin-top:32px}.global-chat-model{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+
+.brand{grid-template-rows:20px 16px;row-gap:4px}
+.rail-collapsed .brand{grid-template-rows:32px;row-gap:0}
+.global-chat h1{font-size:28px;line-height:36px;font-weight:600;letter-spacing:-.02em}
+.projects-heading{flex-wrap:wrap}
+.projects-heading h2{font-size:22px;line-height:32px}
+@media(max-width:639px){.global-chat h1{font-size:24px;line-height:32px}}
+
+/* Findings are the result of research: keep their empty state compact above the sources. */
+.project-findings{margin-top:0;margin-bottom:40px}
+.project-findings>.section-heading{margin-top:0}
+.project-findings .empty{display:grid;grid-template-columns:28px minmax(0,1fr);column-gap:12px;row-gap:4px;padding:20px;text-align:left;align-items:start}
+.project-findings .empty>svg{grid-column:1;grid-row:1 / span 2;margin-top:2px}
+.project-findings .empty>h2{grid-column:2;font-size:16px;line-height:24px}
+.project-findings .empty>p{grid-column:2;max-width:70ch;line-height:22px}
+.project-findings .empty>.g-button{grid-column:2;justify-self:start}
+@media(max-width:639px){.project-findings{margin-bottom:32px}}
+
+.global-context-error{margin:16px 0}
+.global-context-error .form-error{margin-bottom:12px}
+@media(max-width:639px){.composer .g-text-area__control{font-size:16px;line-height:24px}.global-chat button:not(.footnote),.project-findings .g-button{min-height:44px;min-width:44px}.project-findings .g-checkbox{min-height:44px;min-width:44px;justify-content:center}}
+
+/* Confirmed by the finding-card stress harness: user-supplied titles must fit at 320px. */
+.finding-card h3{min-width:0}
+.finding-card .text-action{max-width:100%;overflow-wrap:anywhere;text-align:start}
+.finding-card p{max-width:70ch;overflow-wrap:anywhere}
+
+/* Measured AA fixes for text on tinted labels, retaining Gravity's semantic roles. */
+.g-root_theme_light{--g-color-text-info-heavy:#2b67a1;--g-color-text-positive-heavy:#26764f;--g-color-text-warning-heavy:#a14e09}
+.g-root_theme_dark{--g-color-text-danger-heavy:#f27492;--g-color-text-misc-heavy:#96abc0}
+.footnote{color:var(--g-color-text-primary)}
+
+/* Alternative structures compile only for the isolated design workbench. */
+.finding-collection{display:grid;gap:12px}
+.finding-collection-select{margin-bottom:16px}
+.finding-collection-item{display:flex;align-items:center;gap:20px;padding:16px;border:1px solid var(--g-color-line-generic);border-radius:12px;min-width:0}
+.finding-collection-leading{display:flex;align-items:flex-start;gap:12px;flex:1;min-width:0}
+.finding-collection-leading>.g-checkbox{margin-top:4px;flex:none}
+.finding-collection .finding-card{padding:0;min-width:0;flex:1}
+.finding-collection-cards{grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));gap:16px}
+.finding-collection-cards .finding-collection-item{flex-direction:column;align-items:stretch}
+.finding-collection-cards .row-actions{margin-top:auto;padding-top:12px}
+@media(max-width:767px){.finding-collection-item{flex-direction:column;align-items:stretch;gap:12px}.finding-collection .row-actions{flex-wrap:wrap}}
+
+/* Match the wordmark's actual 24px line box and override the sidebar's older gap shorthand. */
+.brand{grid-template-rows:24px 16px;row-gap:4px}
+.sidebar .brand{row-gap:4px}
+.rail-collapsed .sidebar .brand{row-gap:0}
+@media(max-width:639px){.global-chat .composer-footer .scope{flex-basis:100%;max-width:100%;margin-inline-end:0}.global-chat-model{flex:1 1 140px;min-width:0;max-width:calc(100% - 56px);white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}}
+
+/* Keyboard focus needs 3:1 against the dark composer surface. */
+.g-root_theme_dark{--g-color-line-focus:#7c9bb7}
