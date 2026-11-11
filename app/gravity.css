@@ -393,3 +393,8 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .toolbar>.g-segmented-radio-group:last-child:not(:first-child){margin-inline-start:auto}
 .panel-tabs>button{min-width:0;padding:0 6px;gap:4px}
 .panel-tabs>button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Ширина вкладок по содержимому: «Находки» со счётчиком длиннее остальных */
+.panel-tabs>button{flex:1 1 auto}
+/* В окне материала панель шире: вкладки со счётчиком и сводка без узкой колонки */
+@media(min-width:1101px){.study-sheet .study-workspace{grid-template-columns:minmax(0,1fr) 340px}}
+@media(min-width:768px) and (max-width:1100px){.panel-tabs>button>svg{display:none}}
