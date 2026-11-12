@@ -16,7 +16,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {mkdir,readFile,writeFile,rename,unlink,stat,appendFile,truncate} from 'node:fs/promises';
-import {createReadStream,createWriteStream,readFileSync} from 'node:fs';
+import {createReadStream,createWriteStream,readFileSync,readdirSync} from 'node:fs';
 import {pipeline} from 'node:stream/promises';
 import {Transform,Readable} from 'node:stream';
 import {extractDocument,transcribeRecording,processingReadiness,detectSpeakers} from './processing.ts';
@@ -36,7 +36,12 @@ const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
 const cookieValue=(req:any,name:string)=>String(req.headers.cookie||'').split(';').map((c:string)=>c.trim()).find((c:string)=>c.startsWith(name+'='))?.slice(name.length+1)||'';
 
 process.umask(0o077);
-const VERSION:string=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
+const packageInfo=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+const VERSION:string=packageInfo.version;
+// Identify the loaded backend even when several fixes share one product version.
+const sourceBuild=createHash('sha256').update(JSON.stringify({version:VERSION,dependencies:Object.fromEntries(Object.entries(packageInfo.dependencies).sort(([a],[b])=>a<b?-1:a>b?1:0))}));
+for(const name of readdirSync(new URL('.',import.meta.url)).filter(name=>name.endsWith('.ts')&&!name.endsWith('.test.ts')).sort())sourceBuild.update(name).update('\0').update(readFileSync(new URL(name,import.meta.url)));
+const BUILD_ID=sourceBuild.digest('hex').slice(0,16);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -237,7 +242,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','SAMEORIGIN');
    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
    const url=new URL(req.url,'http://localhost');const path=url.pathname;
-   if(path==='/healthz')return json(res,200,{ok:true,version:VERSION});
+   if(path==='/healthz')return json(res,200,{ok:true,version:VERSION,build:BUILD_ID});
    if(path==='/mcp')return await mcpNodeHandler(req,res);
    if(['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-authorization-server/api/auth','/.well-known/oauth-authorization-server','/.well-known/openid-configuration/api/auth','/api/auth/.well-known/openid-configuration','/api/auth/.well-known/oauth-authorization-server'].includes(path)){
     res.setHeader('Access-Control-Allow-Origin','*');if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET, HEAD, OPTIONS'});return res.end()}return await toNodeHandler(auth)(req,res);
@@ -452,7 +457,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(path==='/api/chat'&&req.method==='POST'){
      limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');const {state}=getState();const model=state.models.find(m=>m.id===(b.modelId||state.modelId)&&m.enabled);if(!model)fail(400,'Выберите включённую модель.');const key=modelKey(model);if(!key||!model.model)fail(503,'Модель ещё не подключена. Владелец должен указать её идентификатор и API-ключ.');
-     const {sources,coverage}=selectEvidence(view(person).state.studies,question,b.scope||'all');if(!sources.length)return json(res,200,{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемонике ещё нет.',sources:[],model:model.name});
+     const corpus=view(person).state;const {sources,coverage}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемонике ещё нет.',sources:[],model:model.name});
      const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},payload=>callModel(person,model,payload));const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:model.name,coverage,usage:result.usage});
     }
     fail(404,'Метод не найден.');
