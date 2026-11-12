@@ -19,3 +19,7 @@ Original Shape 69: Monika Michalczyk, https://www.shapes.gallery/. Geometry reta
 ## Декоративная рамка чата
 
 Conic-gradient border adapted from Liquid Multimodal Input by Wensity Labs (MIT), https://21st.dev/@wensity/components/liquid-multimodal-input. See app/licenses/21st-liquid-input.md.
+
+## Matrix
+
+Matrix rain renderer: Copyright (c) 2026 mishanaer, MIT, https://github.com/mishanaer/matrix. Revision 291b7bfa4682b8518837dfb3eb846a6f1a4f4433. Renderer copied unchanged; theme, mask and pause controls supplied by the application. Full license: app/vendor/matrix/LICENSE.

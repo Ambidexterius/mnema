@@ -1,3 +1,4 @@
+process.env.MNEMA_IMPORT_SOURCE_ORIGIN='https://source.example.com';
 import {test,after} from 'node:test';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -5,7 +6,6 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import {createMnemaServer} from './server.ts';
-process.env.MNEMA_IMPORT_SOURCE_ORIGIN='https://source.example.com';
 const dir=await mkdtemp(join(tmpdir(),'mnema-test-'));
 await mkdir(join(dir,'public'));await writeFile(join(dir,'public','brand-mark.svg'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>');
 const setup=randomBytes(32).toString('hex');

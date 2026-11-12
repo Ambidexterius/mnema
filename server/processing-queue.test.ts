@@ -64,7 +64,7 @@ test('blocked ASR does not block analysis; queued documents keep honest status a
   };
   seedReady('main','SYNTHETIC_MAIN_ONLY');seedReady(projectB,'SYNTHETIC_PROJECT_B_ONLY');
   const recording=await upload('first-fixture.wav','synthetic-recording-one');
-  const running=await until(()=>state(),value=>value.studies.some(study=>study.id===recording.id&&study.processingState==='running')&&asrCalls===1,'first recording did not enter blocked ASR');
+  const running=await until(()=>state(),value=>value.studies.some(study=>study.id===recording.id&&study.processingState==='running'&&study.progress==='Синтетическое распознавание ждёт разрешения теста')&&asrCalls===1,'first recording did not enter blocked ASR');
   const firstJob:any=app.db.prepare('SELECT id FROM mnema_jobs WHERE study_id=?').get(recording.id);assert.equal(firstCheckpointDir,join(dir,'processing',firstJob.id));assert(existsSync(join(firstCheckpointDir,'asr.json')),'active ASR checkpoint must survive while the processor is blocked');
   const active=running.studies.find(study=>study.id===recording.id);assert.equal(active.activity.label,'Распознаём запись');assert.equal(active.activity.state,'running');assert(active.processingStartedAt>0);assert(active.processingUpdatedAt>=active.processingStartedAt);
   // The next recording is enqueued before the document, making document priority observable.
