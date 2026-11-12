@@ -11,3 +11,8 @@ Use Gravity UI and Lucide. Home and project chat share ChatComposer; keep their 
 
 
 Current release 0.9.13: the owner explicitly authorized code-only release packaging and push/deployment to Amvera. GitHub main/master remains on hold. Use Gravity UI defaults outside the home chat and project folders.
+
+
+## Release 0.9.14
+
+Owner-authorized publication of this release to GitHub main and Amvera. Navigation labels are 14 px, the sidebar wordmark is 20 px; the new-chat action has no persistent selected state. Global chat histories are personal, stored by the server, and revalidated against current source visibility and original role grants. Source citations open above the conversation. Keep prototype/__design, work, outputs, user data and secrets out of the release.

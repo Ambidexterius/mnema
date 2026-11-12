@@ -197,7 +197,7 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .sidebar .brand small{font-size:11px}
 .sidebar .brand-mark{width:28px;height:28px}
 .project-navigation{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
-.project-navigation .nav-item{width:100%;border:0;background:transparent;text-align:left;cursor:pointer;font-size:13px;gap:12px;min-height:40px;margin:0 0 4px;padding:8px 12px;color:var(--g-color-text-primary)}
+.project-navigation .nav-item{width:100%;border:0;background:transparent;text-align:left;cursor:pointer;font-size:14px;gap:12px;min-height:40px;margin:0 0 4px;padding:8px 12px;color:var(--g-color-text-primary)}
 .project-navigation .nav-item[aria-current=page]{background:var(--g-color-base-generic-medium);font-weight:600}
 @media(hover:hover){.project-navigation .nav-item:not([aria-current=page]):hover{background:var(--g-color-base-generic-hover)}.project-navigation .nav-item[aria-current=page]:hover{background:var(--g-color-base-generic-medium-hover)}}
 .project-navigation .nav-item span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -932,3 +932,41 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .messages .footnote{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:36px;min-height:24px;padding:2px 7px;border:0;border-radius:var(--g-border-radius-l);background:var(--g-color-base-warning-light);color:var(--g-color-text-warning-heavy);font-size:12px;line-height:20px;white-space:nowrap;vertical-align:baseline;text-decoration:none}
 .messages .footnote svg{flex:none}.messages .footnote:hover{background:var(--g-color-base-warning-light-hover)}
 @media(pointer:coarse){.messages .footnote{min-width:44px;min-height:44px}}
+
+/* Research hub: conversation first, shared library and private recent chats. */
+.hub-topbar-title{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--g-color-text-secondary);font-size:13px}
+.recent-chat-row{display:flex;align-items:center;min-width:0}.recent-chat-row>.g-tooltip,.recent-chat-row>a{flex:1;min-width:0}.recent-chat-row .nav-item{margin:0;min-width:0}.recent-chat-row>.recent-chat-delete{flex-shrink:0}.recent-chat-row .nav-item span{max-width:182px}.recent-chat-row .nav-item svg{flex-shrink:0}
+.recent-chats-empty{font-size:12px;line-height:20px;color:var(--g-color-text-secondary);margin:0 12px}.recent-chats{display:flex;flex-direction:column;gap:4px}.rail-collapsed .recent-chat-row>.recent-chat-delete{display:none}
+.research-chat-page{box-sizing:border-box!important;width:100%;max-width:920px;min-height:calc(100dvh - 88px);padding:32px 48px 24px!important;display:flex;flex-direction:column}
+.research-chat{margin:0;width:100%;flex:1;display:flex;flex-direction:column;min-height:0}.research-chat.is-new{justify-content:center;padding-bottom:8vh}.research-chat .chat-welcome{margin-bottom:28px}.research-chat h1{font-size:36px;line-height:44px;font-weight:550;letter-spacing:-.035em}.research-chat .global-chat-intro{font-size:14px;line-height:22px;margin:16px 0 0}.research-chat .shared-composer{margin:0}.research-chat .composer .g-text-area__control{min-height:88px;font-size:15px;line-height:24px}.research-chat .composer-footer{flex-wrap:wrap}.research-chat .composer-footer .scope{margin-right:auto;font-size:12px}
+.research-chat-suggestions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.research-chat-suggestions button{display:flex;align-items:center;gap:8px;min-height:36px;border:1px solid var(--g-color-line-generic);border-radius:var(--mn-radius,12px);padding:8px 12px;background:transparent;color:var(--g-color-text-secondary);font:inherit;font-size:12px;text-align:left;cursor:pointer}.research-chat-suggestions button:hover{background:var(--g-color-base-generic-hover);color:var(--g-color-text-primary)}.research-chat-suggestions button:focus-visible,.catalog-link:focus-visible{outline:2px solid var(--g-color-text-link);outline-offset:3px}
+.chat-evidence-note{font-size:12px;line-height:20px;color:var(--g-color-text-secondary);margin:16px 0 0}.research-chat.has-messages .chat-welcome{display:none}.research-chat.has-messages .messages{flex:1;padding:0 0 24px}.research-chat.has-messages .research-chat-compose{position:sticky;bottom:-24px;padding:16px 0 24px;background:var(--g-color-base-background);z-index:2}.research-chat .message.user{max-width:85%;margin-left:auto;overflow-wrap:anywhere}.research-chat .message.assistant{max-width:100%;overflow-wrap:anywhere}.research-chat .assistant-label{font-size:13px}.research-chat .messages{font-size:14px;line-height:1.65}.research-chat .assistant-label span{font-size:12px}
+.catalog-filters{display:flex;gap:12px;flex-wrap:wrap}.catalog-filters>.g-text-input{max-width:400px;flex:1;min-width:180px}.catalog-table .g-table__table{width:100%;min-width:100%}.catalog-link{display:flex;align-items:flex-start;gap:12px;border:0;background:none;color:var(--g-color-text-primary);font:inherit;font-weight:500;text-align:left;cursor:pointer;padding:8px 0;min-height:44px}.catalog-link svg{flex-shrink:0;color:var(--g-color-text-secondary);margin-top:2px}.catalog-link span{min-width:180px;overflow-wrap:anywhere}.catalog-link:hover span{color:var(--g-color-text-link)}
+@media(max-width:639px){.research-chat-page{padding:24px 16px 16px!important;min-height:calc(100dvh - 72px)}.research-chat.is-new{padding-bottom:6vh}.research-chat h1{font-size:28px;line-height:36px}.research-chat .global-chat-intro{font-size:14px;max-width:280px}.research-chat .composer .g-text-area__control{font-size:16px}.research-chat .chat-welcome{margin-bottom:24px}.research-chat-suggestions{gap:8px}.research-chat-suggestions button{min-height:44px;width:100%;justify-content:space-between}.research-chat .composer-footer .scope{flex-basis:100%}.research-chat.has-messages .research-chat-compose{bottom:-16px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}.recent-chat-row .g-button{min-width:44px;min-height:44px}.chat-title-break{display:none}}
+
+/* Copilot reference: centered question, compact composer, examples below. */
+.research-chat-page{max-width:864px}
+.research-chat.is-new{padding-bottom:4vh}
+.research-chat.is-new .chat-welcome{text-align:center;margin-bottom:32px}
+.research-chat h1{font-size:28px;line-height:36px;font-weight:550;letter-spacing:-.025em}
+.research-chat .composer{padding:16px}
+.research-chat .composer .g-text-area__control{min-height:48px}
+.research-chat .composer-footer{justify-content:flex-end;gap:12px;margin-top:8px}
+.research-chat .composer-footer>.g-button{width:36px;min-width:36px;height:36px;border-radius:50%}
+.research-chat-suggestions{justify-content:center;max-width:680px;margin:32px auto 0}
+.research-chat-suggestions button{min-height:36px;justify-content:center}
+@media(max-width:639px){.research-chat h1{font-size:24px;line-height:32px}.research-chat.is-new .chat-welcome{margin-bottom:24px}.research-chat .composer-footer>.g-button{width:44px;min-width:44px;height:44px}.research-chat-suggestions{margin-top:24px}.research-chat-suggestions button{min-height:44px;width:auto;max-width:100%;font-size:12px}.research-chat.is-new{padding-bottom:4vh}}
+.research-chat .composer-footer>.g-button{--g-button-border-radius:50%}
+
+/* Navigation labels use one size in the sidebar and mobile menu. */
+.sidebar .nav-item,.mobile-nav .nav-item{font-size:14px}
+
+/* Keep chat actions quiet for a mouse and available to keyboard/touch users. */
+@media(hover:hover) and (pointer:fine){
+ .recent-chat-row>.recent-chat-delete{opacity:0;pointer-events:none}
+ .recent-chat-row:hover>.recent-chat-delete,
+ .recent-chat-row:focus-within>.recent-chat-delete{opacity:1;pointer-events:auto}
+}
+
+/* Product name in the navigation lockup. */
+.sidebar .brand-text strong,.mobile-nav .brand-text strong{font-size:20px;line-height:24px}

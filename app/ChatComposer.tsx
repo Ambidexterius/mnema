@@ -10,7 +10,7 @@ interface ChatComposerProps {
   placeholder: string;
   inputLabel: string;
   sendLabel: string;
-  scopeLabel: string;
+  scopeLabel?: string;
   scopeAction?: React.ReactNode;
   modelControl?: React.ReactNode;
   available: boolean;
@@ -33,7 +33,7 @@ export default function ChatComposer({value,onChange,onSubmit,placeholder,inputL
       disabled={loading} placeholder={placeholder} minRows={2} maxRows={6}
       controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':'Enter Shift+Enter',maxLength:2000}}/>
     <div className="composer-footer">
-      <span className="scope"><Library size={14} aria-hidden="true"/>{scopeLabel}</span>
+      {scopeLabel?<span className="scope"><Library size={14} aria-hidden="true"/>{scopeLabel}</span>:null}
       {scopeAction}
       {modelControl?<div className="composer-model">{modelControl}</div>:null}
       <Button type="submit" view="action" size="m" loading={loading}

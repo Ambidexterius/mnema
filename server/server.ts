@@ -1,3 +1,4 @@
+import {createChatHistory} from './chat-history.ts';
 import {fileNameKey,existingFileMessage,uploadingFileMessage} from '../app/file-name.ts';
 import {createAnswerFeedback} from './answer-feedback.ts';
 import {requestSummary} from './summary-request.ts';
@@ -112,6 +113,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  CREATE TABLE IF NOT EXISTS mnema_usage(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,kind TEXT NOT NULL,amount INTEGER NOT NULL,created INTEGER NOT NULL);`);
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,created INTEGER NOT NULL,created_by TEXT);
  CREATE TABLE IF NOT EXISTS mnema_members(workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(workspace_id,user_id));`);
+ const chats=createChatHistory(db,(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]});
  const feedback=createAnswerFeedback(db,authSecret,BUILD_ID);
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
   const references=reply.sources.map(source=>({
@@ -391,16 +393,40 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       });
      }
      if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(initialState()),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');return json(res,201,{id,name})}
+     if(path==='/api/chats'&&req.method==='GET')return json(res,200,{chats:chats.list(person)});
+     if(path==='/api/chats'&&req.method==='POST'){await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest))}
+     if(/^\/api\/chats\/[^/]+$/.test(path)){
+      const id=path.split('/')[3];
+      if(req.method==='GET')return json(res,200,chats.get(person,id));
+      if(req.method==='DELETE'){chats.remove(person,id);return json(res,200,{ok:true})}
+      fail(405,'Метод недоступен.');
+     }
+     if(path==='/api/research-library'&&req.method==='GET'){
+      const projects=person.workspaces.map(project=>wsStore.run(project.id,()=>{const state=view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state;return {...project,studies:state.studies.map(study=>({...study,segments:[],summary:[]})),findings:state.findings}}));
+      return json(res,200,{projects});
+     }
      if(path==='/api/research-context'&&req.method==='GET'){
       limit('global-context:'+person.id,30);const research=globalResearch(person);return json(res,200,{projects:research.projects,materials:research.materials,model:research.model?.name||null});
      }
      if(path==='/api/chat/global'&&req.method==='POST'){
       limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');
-      const research=globalResearch(person);const {sources,coverage,reviewedFindings}=globalEvidence(research,question);
-      if(!sources.length)return json(res,200,ratedReply(person,question,'global',{answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемоника'},research.model?.model));
+      const current=await session(req);if(!current)fail(401,'Войдите в Мнемонику.');
+      const chatId=typeof b.chatId==='string'?b.chatId:null;
+      const chat=chatId?chats.acquire(current,chatId):null;
+      try{
+      const prior=(chat?.messages||[]).slice(-12).map(m=>({role:m.role,content:String(m.role==='user'?m.text:m.answer).slice(0,3000)}));
+      const retrievalQuestion=[...(chat?.messages||[]).filter(m=>m.role==='user').slice(-2).map(m=>m.text),question].join(' ');
+      const research=globalResearch(current);const {sources,coverage,reviewedFindings}=globalEvidence(research,retrievalQuestion);
+      const finish=async(reply:any)=>{const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');
+       if(current.workspaces.some(before=>{const access=latest.workspaces.find(w=>w.id===before.id);return !access||(before.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Начните новый чат.');
+       const rated=ratedReply(latest,question,'global',reply,research.model?.model);
+       return json(res,200,chatId?{...rated,chat:chats.append(latest,chatId,question,rated)}:rated);
+      };
+      if(!sources.length)return await finish({answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемоника'});
       if(!research.model)fail(503,'Модель ещё не подключена. Попросите владельца проекта настроить подключение.');
-      const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!current.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=current.workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
-      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'global',{answer,sources,coverage,model:research.model.name,usage:result.usage},research.model?.model));
+      const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Предыдущие сообщения нужны для понимания уточнений. Доказательства и номера сносок для нового ответа бери только из текущего набора sources; номера в прошлых ответах относятся к прошлым наборам. Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},...prior,{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!current.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=current.workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
+      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return await finish({answer,sources,coverage,model:research.model.name,usage:result.usage});
+      }finally{if(chatId)chats.release(chatId)}
      }
      if(!person.workspaceId){if(path==='/api/state'&&req.method==='GET')return json(res,200,{version:0,state:{studies:[],findings:[],models:[],processors:[],users:[],modelId:''},user:person});fail(409,'Сначала создайте проект.')}
      // Everything below reads and writes the workspace chosen by the mnema_ws cookie.
