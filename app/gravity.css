@@ -970,3 +970,32 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 
 /* Product name in the navigation lockup. */
 .sidebar .brand-text strong,.mobile-nav .brand-text strong{font-size:20px;line-height:24px}
+
+/* Recent-chat selection covers the action area as well as the title. */
+.recent-chat-row{width:100%;box-sizing:border-box;border-radius:var(--g-border-radius-l)}
+.recent-chat-row.is-selected{background:var(--g-color-base-generic-medium)}
+.project-navigation .recent-chat-row .nav-item[aria-current=page],
+.project-navigation .recent-chat-row .nav-item:hover{background:transparent}
+@media(hover:hover) and (pointer:fine){
+ .recent-chat-row:hover{background:var(--g-color-base-generic-hover)}
+ .recent-chat-row.is-selected:hover{background:var(--g-color-base-generic-medium-hover)}
+}
+/* State indication while an actual chat request is pending. Stars cycle follows BoardUI. */
+.thinking-indicator{display:flex;align-items:center;gap:8px;min-height:24px;margin:16px 0;color:var(--g-color-text-secondary);font-size:14px;line-height:24px}
+.thinking-stars{position:relative;display:block;flex:none;width:24px;height:24px}
+.thinking-star{position:absolute;transform-origin:center;animation:thinking-twinkle 1.4s cubic-bezier(.77,0,.175,1) infinite;opacity:.25}
+.thinking-star-0{width:16px;height:16px;left:4px;top:3px}
+.thinking-star-1{width:8px;height:8px;left:0;top:1px;animation-delay:.196s}
+.thinking-star-2{width:7px;height:7px;right:0;top:2px;animation-delay:.392s}
+.thinking-star-3{width:8px;height:8px;right:1px;bottom:0;animation-delay:.588s}
+.thinking-star-4{width:6px;height:6px;left:1px;bottom:0;animation-delay:.784s}
+.thinking-label{color:var(--g-color-text-secondary);animation:thinking-label-pulse 2.6s linear infinite}
+.thinking-elapsed{font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+@keyframes thinking-twinkle{0%,100%{opacity:.25;transform:scale(.9)}50%{opacity:1;transform:scale(1)}}
+@keyframes thinking-label-pulse{0%,100%{opacity:.65}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.thinking-star,.thinking-label{animation:none;transform:none;opacity:1}}
+
+/* Only a newly received answer enters; restored history is rendered immediately. */
+.message-arrive{animation:message-arrive 200ms cubic-bezier(.23,1,.32,1) both}
+@keyframes message-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.message-arrive{animation:none}}

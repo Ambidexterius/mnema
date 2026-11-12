@@ -16,3 +16,8 @@ Current release 0.9.13: the owner explicitly authorized code-only release packag
 ## Release 0.9.14
 
 Owner-authorized publication of this release to GitHub main and Amvera. Navigation labels are 14 px, the sidebar wordmark is 20 px; the new-chat action has no persistent selected state. Global chat histories are personal, stored by the server, and revalidated against current source visibility and original role grants. Source citations open above the conversation. Keep prototype/__design, work, outputs, user data and secrets out of the release.
+
+
+## Release 0.9.15
+
+Owner follow-up during the authorized release: omit the sampled-material coverage sentence below global and project answers. Keep server-side coverage, source citations and access controls.

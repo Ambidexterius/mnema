@@ -4,12 +4,13 @@ type Chat={id:string;title:string;messages:any[];updated:number};
 const demoKey='mnemonika.local-research-chats.v1';
 export function useResearchChats({demo,userId,route,go,notify,state,accessKey}:{demo:boolean;userId?:string;route:string;go:(path:string)=>void;notify:(text:string)=>void;state:any;accessKey:string}){
  const [chats,setChats]=useState<Chat[]>([]),[messages,setMessages]=useState<any[]>([]),[typing,setTyping]=useState(false),[error,setError]=useState(''),[loading,setLoading]=useState(false);
+ const [latestReplyId,setLatestReplyId]=useState<string|null>(null);
  const activeId=route.startsWith('conversation/')?route.slice(13):null;
  const pendingChat=useRef<string|null>(null);
  const epoch=useRef(0),busy=useRef(false),active=useRef(activeId),loaded=useRef<string|null>(null);active.current=activeId;
  const refresh=useCallback(async()=>{const requestEpoch=epoch.current;const result=demo?JSON.parse(localStorage.getItem(demoKey)||'[]'):(await api('/api/chats',undefined,'GET',false)).chats;if(requestEpoch===epoch.current)setChats(result);return result},[demo,userId,accessKey]);
- useEffect(()=>{epoch.current++;setChats([]);setMessages([]);setError('');loaded.current=null;refresh().catch(e=>setError(e.message))},[refresh]);
- useEffect(()=>{let live=true;if(busy.current&&pendingChat.current===activeId){setLoading(false);return}setError('');setMessages([]);loaded.current=null;if(!activeId){setLoading(false);return}setLoading(true);
+ useEffect(()=>{epoch.current++;setLatestReplyId(null);setChats([]);setMessages([]);setError('');loaded.current=null;refresh().catch(e=>setError(e.message))},[refresh]);
+ useEffect(()=>{let live=true;if(busy.current&&pendingChat.current===activeId){setLoading(false);return}setLatestReplyId(null);setError('');setMessages([]);loaded.current=null;if(!activeId){setLoading(false);return}setLoading(true);
  (demo?Promise.resolve(JSON.parse(localStorage.getItem(demoKey)||'[]').find(c=>c.id===activeId)):api('/api/chats/'+encodeURIComponent(activeId),undefined,'GET',false)).then(chat=>{if(!chat)throw Error('Чат не найден.');if(live){setMessages(chat.messages);loaded.current=chat.id}}).catch(e=>{if(live)setError(e.message)}).finally(()=>{if(live)setLoading(false)});return()=>{live=false}
  },[activeId,demo,userId,accessKey]);
  const saveDemo=(chat:Chat)=>{const list=JSON.parse(localStorage.getItem(demoKey)||'[]').filter(c=>c.id!==chat.id);list.unshift(chat);localStorage.setItem(demoKey,JSON.stringify(list));setChats(list)};
@@ -28,9 +29,9 @@ export function useResearchChats({demo,userId,route,go,notify,state,accessKey}:{
     const sources=findings.map(({f},i)=>{const study=state.studies.find(s=>s.id===f.studyId);const seg=study?.segments?.find(s=>s.id===f.segmentId);return {...seg,number:i+1,studyId:f.studyId,segmentId:f.segmentId,title:study?.title,workspaceId:'local-demo',workspaceName:'Демонстрационный проект'}}).filter(s=>s.text);
     chat={id,title:previous.length?chats.find(c=>c.id===id)?.title||question.slice(0,80):question.slice(0,80),updated:Date.now(),messages:[...previous,{id:crypto.randomUUID(),role:'user',text:question},{id:crypto.randomUUID(),role:'assistant',model:'Локальный пример',answer:'Демонстрационный ответ по тестовым данным.\n\n'+(sources.length?findings.slice(0,sources.length).map(({f},i)=>`${i+1}. ${f.title} [${i+1}]`).join('\n'):'В тестовой подборке нет совпадений. Попробуйте спросить о календаре или цене.'),sources}]};saveDemo(chat);
    }else{const answer=await api('/api/chat/global',{question,chatId:id},'POST',false);chat=answer.chat;await refresh()}
-   if(requestEpoch===epoch.current&&active.current===id){loaded.current=id;setMessages(chat.messages)}return true;
+   if(requestEpoch===epoch.current&&active.current===id){loaded.current=id;setLatestReplyId(chat.messages.at(-1)?.id||null);setMessages(chat.messages)}return true;
   }catch(e){if(requestEpoch===epoch.current){setError(e.message);if(e.status===409){setMessages([]);loaded.current=null}await refresh().catch(()=>{})}return false}finally{pendingChat.current=null;busy.current=false;setTyping(false)}
  }
  async function remove(id:string){try{if(!demo)await api('/api/chats/'+encodeURIComponent(id),undefined,'DELETE',false);else localStorage.setItem(demoKey,JSON.stringify(JSON.parse(localStorage.getItem(demoKey)||'[]').filter(c=>c.id!==id)));await refresh();if(activeId===id)go('chat');notify('Чат удалён.')}catch(e){notify(e.message)}}
- return {chats,messages,setMessages,typing,error,loading,ask,remove,activeId,newChat:()=>go('chat'),refresh};
+ return {chats,messages,setMessages,typing,error,loading,ask,remove,activeId,latestReplyId:loaded.current===activeId?latestReplyId:null,newChat:()=>go('chat'),refresh};
 }
