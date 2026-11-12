@@ -1,3 +1,4 @@
+import {createAnswerFeedback} from './answer-feedback.ts';
 import {requestSummary} from './summary-request.ts';
 import {mcpPlugins,createMcpService} from './mcp.ts';
 import {keySlot,modelBase,cleanModel,modelKeyStore,providerHeaders,providerRequest,providerResult,availableModels,answerSystem,requestChatAnswer} from './model-connections.ts';
@@ -110,6 +111,17 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  CREATE TABLE IF NOT EXISTS mnema_usage(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,kind TEXT NOT NULL,amount INTEGER NOT NULL,created INTEGER NOT NULL);`);
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,created INTEGER NOT NULL,created_by TEXT);
  CREATE TABLE IF NOT EXISTS mnema_members(workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(workspace_id,user_id));`);
+ const feedback=createAnswerFeedback(db,authSecret,BUILD_ID);
+ const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
+  const references=reply.sources.map(source=>({
+   workspaceId:source.workspaceId||person.workspaceId,studyId:source.studyId,segmentId:source.segmentId||source.id
+  }));
+  const projectIds=scope==='project'?[person.workspaceId]:references.length
+   ?references.map(ref=>ref.workspaceId):person.workspaces.map(project=>project.id);
+  const feedbackToken=feedback.issue(person,{scope,question,answer:reply.answer,model:reply.model,
+   modelId,projectIds:[...new Set<string>(projectIds)],references,kind:references.length?'generated':'no-evidence'});
+  return {...reply,feedbackToken};
+ };
  const modelKeys=modelKeyStore(db,authSecret);
  const columns=(table:string)=>q('PRAGMA table_info('+table+')').all().map((c:any)=>c.name);
  if(!columns('mnema_invites').includes('workspace_id'))db.exec("ALTER TABLE mnema_invites ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
@@ -266,6 +278,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),version:VERSION})}
    if(path.startsWith('/api/')){
     const person=await session(req);if(!person)fail(401,'Войдите в Мнемонику.');
+     if(path==='/api/chat/feedback'&&req.method==='POST'){
+      limit('answer-feedback:'+person.id,60);
+      const input=await body(req);
+      const current=await session(req);
+      if(!current)fail(401,'Войдите в Мнемонику.');
+      return json(res,200,feedback.rate(current,input.token,input.rating));
+     }
      if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
      if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}
      if(path==='/api/mcp/consent'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);return json(res,200,await mcpService.consent(person,await body(req),fromNodeHeaders(req.headers)))}
@@ -279,10 +298,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(path==='/api/chat/global'&&req.method==='POST'){
       limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');
       const research=globalResearch(person);const {sources,coverage,reviewedFindings}=globalEvidence(research,question);
-      if(!sources.length)return json(res,200,{answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемоника'});
+      if(!sources.length)return json(res,200,ratedReply(person,question,'global',{answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемоника'},research.model?.model));
       if(!research.model)fail(503,'Модель ещё не подключена. Попросите владельца проекта настроить подключение.');
       const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!current.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=current.workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
-      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return json(res,200,{answer,sources,coverage,model:research.model.name,usage:result.usage});
+      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'global',{answer,sources,coverage,model:research.model.name,usage:result.usage},research.model?.model));
      }
      if(!person.workspaceId){if(path==='/api/state'&&req.method==='GET')return json(res,200,{version:0,state:{studies:[],findings:[],models:[],processors:[],users:[],modelId:''},user:person});fail(409,'Сначала создайте проект.')}
      // Everything below reads and writes the workspace chosen by the mnema_ws cookie.
@@ -385,7 +404,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       const latest=await session(req);if(!latest||latest.workspaceId!==workspaceId||latest.role!=='full')fail(403,'Доступ изменился. Удаление недоступно.');
       if(q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status='running'").get(id,workspaceId))fail(409,'Не удалось остановить обработку. Повторите удаление позже.');
       const discardedJobs=q('SELECT id FROM mnema_jobs WHERE study_id=? AND workspace_id=?').all(id,workspaceId);
-      q('DELETE FROM mnema_jobs WHERE study_id=? AND workspace_id=?').run(id,workspaceId);mutate(s=>{s.studies=s.studies.filter(x=>x.id!==id);s.findings=s.findings.filter(f=>f.studyId!==id);s.highlights=(s.highlights||[]).filter(h=>h.studyId!==id)});
+      feedback.forgetStudy(workspaceId,id);q('DELETE FROM mnema_jobs WHERE study_id=? AND workspace_id=?').run(id,workspaceId);mutate(s=>{s.studies=s.studies.filter(x=>x.id!==id);s.findings=s.findings.filter(f=>f.studyId!==id);s.highlights=(s.highlights||[]).filter(h=>h.studyId!==id)});
       for(const job of discardedJobs)await rm(join(dir,'processing',job.id),{recursive:true,force:true});
       if(study.fileId){await unlink(join(dir,'uploads',study.fileId)).catch(()=>{});q('DELETE FROM mnema_uploads WHERE id=?').run(study.fileId)}return json(res,200,view(latest));
      }finally{deletingStudies.delete(key)}
@@ -476,8 +495,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(path==='/api/chat'&&req.method==='POST'){
      limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');const {state}=getState();const model=state.models.find(m=>m.id===(b.modelId||state.modelId)&&m.enabled);if(!model)fail(400,'Выберите включённую модель.');const key=modelKey(model);if(!key||!model.model)fail(503,'Модель ещё не подключена. Владелец должен указать её идентификатор и API-ключ.');
-     const corpus=view(person).state;const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемонике ещё нет.',sources:[],model:model.name});
-     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||person.role==='full'&&current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return callModel(person,model,payload)});const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:model.name,coverage,usage:result.usage});
+     const corpus=view(person).state;const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,ratedReply(person,question,'project',{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемонике ещё нет.',sources:[],model:model.name},model.model));
+     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||person.role==='full'&&current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return callModel(person,model,payload)});const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'project',{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:model.name,coverage,usage:result.usage},model.model));
     }
     fail(404,'Метод не найден.');
    }
