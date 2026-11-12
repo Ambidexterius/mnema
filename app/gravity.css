@@ -700,6 +700,56 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .model-field-label{display:block;font-size:13px;font-weight:500;margin-bottom:8px}
 .model-catalog-actions{display:flex;flex-wrap:wrap;gap:8px}
 .model-connection-form>.g-button{justify-self:start;max-width:100%}
+.mcp-settings{display:grid;gap:28px;min-width:0}
+.mcp-settings .page-heading{margin-bottom:0}
+.mcp-settings h2,.mcp-consent h2{font-size:18px;line-height:24px;margin:0 0 16px}
+.mcp-connect,.mcp-access{border:1px solid var(--g-color-line-generic);border-radius:8px;padding:24px;min-width:0}
+.mcp-steps{padding-inline-start:20px;line-height:24px;margin:0 0 20px}
+.mcp-steps li+li{margin-top:8px}
+.mcp-address{display:flex;align-items:center;gap:12px;min-width:0;margin-bottom:12px}
+.mcp-address>.g-text-input{flex:1;min-width:0}
+.mcp-address>.g-button{flex:none}
+.mcp-connect>.muted,.mcp-capabilities p,.mcp-bots p,.mcp-example{font-size:13px;line-height:20px}
+.mcp-capabilities ul{list-style:none;display:grid;gap:12px;margin:0 0 16px;padding:0}
+.mcp-capabilities li,.mcp-capabilities p{display:flex;align-items:start;gap:12px}
+.mcp-capabilities svg{margin-top:2px;color:var(--g-color-text-secondary)}
+.mcp-access>.section-heading{margin:0 0 12px}.mcp-access h2{margin:0}
+.mcp-grants{list-style:none;margin:0;padding:0}
+.mcp-grants>li{display:flex;align-items:center;gap:16px;padding:16px 0;min-width:0}
+.mcp-grants>li+li{border-top:1px solid var(--g-color-line-generic)}
+.mcp-grants>li>div{flex:1;min-width:0}
+.mcp-grants strong,.mcp-grants p,.mcp-grants small{display:block;overflow-wrap:anywhere;line-height:20px}
+.mcp-grants p,.mcp-grants small{color:var(--g-color-text-secondary)}
+.mcp-grants small{font-size:12px}
+.mcp-bots{border-top:1px solid var(--g-color-line-generic);padding-top:20px;min-width:0}
+.mcp-bots summary{cursor:pointer;font-weight:500;line-height:24px}
+.mcp-bots p{margin:16px 0}
+.mcp-bots pre{padding:12px;background:var(--g-color-base-generic);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.mcp-example{color:var(--g-color-text-secondary)}
+.mcp-project-choices{display:grid;gap:8px;min-width:0}
+.mcp-project-choice{display:flex;padding:12px;border:1px solid var(--g-color-line-generic);border-radius:8px;min-width:0;min-height:44px}
+.mcp-project-choice .g-checkbox__content{min-width:0;white-space:normal}
+.mcp-project-choice strong,.mcp-project-choice small{display:block;overflow-wrap:anywhere;line-height:20px}
+.mcp-project-choice small{font-size:12px;color:var(--g-color-text-secondary)}
+.mcp-picker-label{font-weight:500;margin:20px 0 12px}
+.mcp-token-dialog .muted{font-size:13px;line-height:20px;margin-top:16px}
+.mcp-secret{display:grid;gap:16px}.mcp-secret p{line-height:24px}
+.mcp-consent{width:min(100%,720px);margin:0 auto;padding:40px 24px;min-height:100dvh;background:var(--g-color-base-background);color:var(--g-color-text-primary)}
+.mcp-consent h1{font-size:28px;line-height:36px;margin:24px 0 12px}
+.mcp-consent-brand{display:inline-flex;align-items:center;gap:8px;font-size:16px}
+.mcp-consent>p{line-height:24px;margin-bottom:20px}
+.mcp-client{display:flex;gap:16px;align-items:center;padding:20px;border:1px solid var(--g-color-line-generic);border-radius:8px;margin:24px 0}
+.mcp-client>div{min-width:0}.mcp-client strong,.mcp-client p{overflow-wrap:anywhere;line-height:24px}.mcp-client p{color:var(--g-color-text-secondary);font-size:13px}
+.mcp-consent-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
+@media(max-width:639px){
+ .mcp-settings{gap:24px}.mcp-connect,.mcp-access{padding:16px}
+ .mcp-address{align-items:stretch;flex-direction:column}
+ .mcp-settings .g-button,.mcp-consent .g-button,.mcp-token-dialog .g-button{min-height:44px}
+ .mcp-grants>li{flex-wrap:wrap;gap:12px}.mcp-grants>li>div{flex-basis:calc(100% - 36px)}.mcp-grants>li>.g-button{margin-inline-start:32px}
+ .mcp-consent{padding:24px 16px}.mcp-consent-actions{flex-direction:column}.mcp-consent-actions>.g-button{width:100%}
+ .mcp-token-dialog .g-dialog-footer__bts-wrapper{flex-direction:column;align-items:stretch;gap:8px;width:100%}.mcp-token-dialog .g-dialog-footer__button{width:100%;min-width:0;margin:0}
+ .mcp-token-dialog .g-dialog-btn-close__btn{min-width:44px}
+}
 @media(max-width:639px){
  .model-connection-dialog .g-dialog-footer__bts-wrapper{flex-direction:column;align-items:stretch;gap:8px;width:100%}
  .model-connection-dialog .g-dialog-footer__button{width:100%;min-width:0;margin:0}

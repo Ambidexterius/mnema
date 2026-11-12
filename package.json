@@ -12,13 +12,19 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@better-auth/cimd": "1.7.19",
+    "@better-auth/mcp": "1.7.19",
+    "@better-auth/oauth-provider": "1.7.19",
     "@gravity-ui/uikit": "7.47.1",
+    "@modelcontextprotocol/server": "2.4.0",
     "better-auth": "1.7.19",
     "lucide-react": "1.71.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "24.10.0",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",

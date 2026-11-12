@@ -1,4 +1,5 @@
 import {requestSummary} from './summary-request.ts';
+import {mcpPlugins,createMcpService} from './mcp.ts';
 import {keySlot,modelBase,cleanModel,modelKeyStore,providerHeaders,providerRequest,providerResult,availableModels,answerSystem,requestChatAnswer} from './model-connections.ts';
 import {createS3Mirror,s3Config} from './s3-storage.ts';
 import {documentPreview} from './document-preview.ts';
@@ -26,7 +27,7 @@ import {fromNodeHeaders,toNodeHandler} from 'better-auth/node';
 import {getMigrations} from 'better-auth/db/migration';
 import type {Finding} from '../app/types.ts';
 
-export interface MnemaServerOptions{sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
+export interface MnemaServerOptions{sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean}
 interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;workspaceId:string|null;workspaces:WorkspaceRef[]}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
@@ -93,7 +94,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  // node:sqlite returns loosely typed rows; the schema below is the source of truth.
  const q=(sql:string)=>db.prepare(sql) as unknown as {get:(...a:unknown[])=>any;all:(...a:unknown[])=>any[];run:(...a:unknown[])=>unknown};
  db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
- const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],emailAndPassword:{enabled:true,minPasswordLength:12,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production},rateLimit:{enabled:true,window:60,max:20}});
+ const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],disabledPaths:['/token'],plugins:mcpPlugins(baseURL),emailAndPassword:{enabled:true,minPasswordLength:12,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production,...(options.authCookiePrefix?{cookiePrefix:options.authCookiePrefix}:{})},rateLimit:{enabled:true,window:60,max:20}});
  await (await getMigrations(auth.options)).runMigrations();
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_access(user_id TEXT PRIMARY KEY,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS mnema_workspace(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,data TEXT NOT NULL);
@@ -140,6 +141,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   return {version,state:{...state,workspace:{id:currentWs(),name:q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.admin?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const globalResearch=(person:Person)=>collectGlobalResearch(person,project=>wsStore.run(project.id,()=>view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state));
+ const mcpService=createMcpService({db,auth,baseURL,version:VERSION,
+  getPerson:id=>{const user=q('SELECT u.id,u.name,u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0').get(id);if(!user)return null;
+   const workspaces=q('SELECT w.id,w.name,m.role FROM mnema_workspaces w JOIN mnema_members m ON m.workspace_id=w.id WHERE m.user_id=? AND m.revoked=0').all(id).map(w=>({...w,admin:false}));return {...user,workspaces,workspaceId:workspaces[0]?.id||null,role:workspaces[0]?.role||'view',admin:false,owner:false};},
+  readProject:(person,project)=>wsStore.run(project.id,()=>view(person).state),
+ });
+ const mcpNodeHandler=toNodeHandler(mcpService.fetch);
+
  const json=(res,status,data,extra={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra});res.end(JSON.stringify(data))};
  const body=async req=>{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>2*1024**2)fail(413,'Слишком большой запрос.');chunks.push(chunk)}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}')}catch{fail(400,'Не удалось прочитать запрос.')}};
  const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();if(cookies.length)headers['set-cookie']=cookies;res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
@@ -230,6 +238,14 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
    const url=new URL(req.url,'http://localhost');const path=url.pathname;
    if(path==='/healthz')return json(res,200,{ok:true,version:VERSION});
+   if(path==='/mcp')return await mcpNodeHandler(req,res);
+   if(['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-authorization-server/api/auth','/.well-known/oauth-authorization-server','/.well-known/openid-configuration/api/auth','/api/auth/.well-known/openid-configuration','/api/auth/.well-known/oauth-authorization-server'].includes(path)){
+    res.setHeader('Access-Control-Allow-Origin','*');if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET, HEAD, OPTIONS'});return res.end()}return await toNodeHandler(auth)(req,res);
+   }
+   if(['/api/auth/jwks','/api/auth/oauth2/authorize','/api/auth/oauth2/token','/api/auth/oauth2/register','/api/auth/oauth2/userinfo','/api/auth/oauth2/revoke','/api/auth/oauth2/introspect'].includes(path)){
+    if(path.endsWith('/register'))limit('mcp-register:'+req.socket.remoteAddress,10);
+    return await toNodeHandler(auth)(req,res);
+   }
    if(path.startsWith('/api/')&&!['GET','HEAD'].includes(req.method)){if(req.headers.origin&&req.headers.origin!==origin)fail(403,'Запрос с другого сайта запрещён.');if(req.headers['x-mnema-request']!=='1')fail(403,'Некорректный запрос приложения.')}
    if(path==='/api/register'&&req.method==='POST')return await register(req,res);
    if(['/api/auth/sign-in/email','/api/auth/sign-out','/api/auth/get-session'].includes(path)){if(req.method==='POST')limit('auth:'+req.socket.remoteAddress,20);return toNodeHandler(auth)(req,res)}
@@ -237,6 +253,12 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),version:VERSION})}
    if(path.startsWith('/api/')){
     const person=await session(req);if(!person)fail(401,'Войдите в Мнемонику.');
+     if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
+     if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}
+     if(path==='/api/mcp/consent'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);return json(res,200,await mcpService.consent(person,await body(req),fromNodeHeaders(req.headers)))}
+     if(path==='/api/mcp/tokens'&&req.method==='POST'){limit('mcp-token:'+person.id,5);return json(res,201,mcpService.createToken(person,await body(req)))}
+     if(/^\/api\/mcp\/grants\/[^/]+\/revoke$/.test(path)&&req.method==='POST'){await body(req);return json(res,200,await mcpService.revoke(person,path.split('/')[4],fromNodeHeaders(req.headers)))}
+
      if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(initialState()),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');return json(res,201,{id,name})}
      if(path==='/api/research-context'&&req.method==='GET'){
       limit('global-context:'+person.id,30);const research=globalResearch(person);return json(res,200,{projects:research.projects,materials:research.materials,model:research.model?.name||null});
@@ -437,10 +459,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    }
    if(!['GET','HEAD'].includes(req.method))fail(405,'Метод недоступен.');
    const name=path==='/'||!path.split('/').at(-1).includes('.')?'index.html':path.replace(/^\//,'');const abs=resolve(publicDir,name);if(!abs.startsWith(publicDir+'/'))fail(404,'Страница не найдена.');let data;try{data=await readFile(abs)}catch{fail(404,'Страница не найдена.')}const suffix=name.slice(name.lastIndexOf('.'));res.writeHead(200,{'Content-Type':mimes[suffix]||'application/octet-stream','Cache-Control':name==='index.html'?'no-cache':'public, max-age=3600'});res.end(req.method==='HEAD'?undefined:data);
-  }catch(e){if(res.headersSent){res.destroy();return}json(res,e.status||500,{error:e.status?e.message:'Не удалось выполнить действие. Повторите попытку.'});if(!e.status)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
+  }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.'});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
  };
  const server=http.createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)json(res,500,{error:'Не удалось выполнить запрос.'})})});
- server.once('close',()=>{storageMirror.close();clearInterval(worker)});
+ server.once('close',()=>{storageMirror.close();clearInterval(worker);mcpService.close().catch(()=>{})});
  server.requestTimeout=30*60*1000;server.headersTimeout=30000;
  return {server,db,auth,storage:storageMirror,notifications:completionMail,close:()=>{storageMirror.close();completionMail.close();clearInterval(worker);server.close();db.close()}};
 }
