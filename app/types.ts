@@ -100,6 +100,9 @@ export interface ModelConnection {
   enabled: boolean;
   description: string;
   keyConfigured?: boolean;
+  hasStoredKey?: boolean;
+  apiType?: 'compatible'|'openai'|'anthropic';
+  instructions?: string;
 }
 
 export interface Processor {

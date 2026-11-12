@@ -2,14 +2,14 @@ import type {Study} from '../app/types.ts';
 import {selectEvidence} from './retrieval.ts';
 interface Project{id:string;name:string;role:'view'|'full';admin:boolean}
 export function collectGlobalResearch(person:{workspaceId:string|null;workspaces:Project[]},read:(project:Project)=>any){
- const studies:any[]=[];const groups:any[][]=[];let model:any=null;
+ const studies:any[]=[];const groups:any[][]=[];let model:any=null,modelWorkspaceId:string|null=null;
  const projects=[...person.workspaces].sort((a,b)=>Number(b.id===person.workspaceId)-Number(a.id===person.workspaceId));
- for(const project of projects){const state=read(project);const selected=state.models.find(m=>m.id===state.modelId&&m.enabled&&m.keyConfigured)||state.models.find(m=>m.enabled&&m.keyConfigured);if(!model&&selected)model=selected;
+ for(const project of projects){const state=read(project);const selected=state.models.find(m=>m.id===state.modelId&&m.enabled&&m.keyConfigured)||state.models.find(m=>m.enabled&&m.keyConfigured);if(!model&&selected){model=selected;modelWorkspaceId=project.id}
   groups.push(state.studies.map(study=>({...study,actualStudyId:study.id,id:project.id+':'+study.id,workspaceId:project.id,workspaceName:project.name})));
  }
  // Interleave projects before evidence sampling so a large project cannot take every slot.
  for(let index=0;groups.some(group=>group[index]);index++)for(const group of groups)if(group[index])studies.push(group[index]);
- return{studies,model,projects:projects.length,materials:studies.filter(s=>s.status==='ready'&&s.segments?.length).length};
+ return{studies,model,modelWorkspaceId,projects:projects.length,materials:studies.filter(s=>s.status==='ready'&&s.segments?.length).length};
 }
 export function globalEvidence(research:ReturnType<typeof collectGlobalResearch>,question:string){
  const selected=selectEvidence(research.studies as Study[],question,'all');
