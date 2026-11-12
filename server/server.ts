@@ -14,7 +14,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {mkdir,readFile,writeFile,rename,unlink,stat,appendFile,truncate} from 'node:fs/promises';
-import {createReadStream,createWriteStream} from 'node:fs';
+import {createReadStream,createWriteStream,readFileSync} from 'node:fs';
 import {pipeline} from 'node:stream/promises';
 import {Transform,Readable} from 'node:stream';
 import {extractDocument,transcribeRecording,processingReadiness,detectSpeakers} from './processing.ts';
@@ -34,7 +34,7 @@ const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
 const cookieValue=(req:any,name:string)=>String(req.headers.cookie||'').split(';').map((c:string)=>c.trim()).find((c:string)=>c.startsWith(name+'='))?.slice(name.length+1)||'';
 
 process.umask(0o077);
-const VERSION='0.9.7';
+const VERSION:string=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
