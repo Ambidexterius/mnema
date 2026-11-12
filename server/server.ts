@@ -157,7 +157,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const pendingJobs=new Map(q("SELECT study_id,status FROM mnema_jobs WHERE workspace_id=? AND status IN ('queued','running') AND kind!='speakers'").all(currentWs()).map(job=>[job.study_id,job.status]));
   const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
   const state={...raw,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
-  return {version,state:{...state,workspace:{id:currentWs(),name:q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.admin?users():[]},user:person}};
+  return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{}},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.admin?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const globalResearch=(person:Person)=>collectGlobalResearch(person,project=>wsStore.run(project.id,()=>view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state));
  const mcpService=createMcpService({db,auth,baseURL,version:VERSION,
@@ -326,6 +326,23 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/storage'&&req.method==='GET'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');return json(res,200,storageMirror.status())}
     if(path==='/api/storage/verify-backup'&&req.method==='POST'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');await body(req);try{return json(res,200,await storageMirror.verifyBackup())}catch{fail(503,'Не удалось проверить резервную копию. Дождитесь завершения копирования и повторите.')}}
     if(path==='/api/storage/sync'&&req.method==='POST'){if(!person.owner)fail(403,'Доступно владельцу сервиса.');await body(req);void storageMirror.tick();return json(res,202,storageMirror.status())}
+    if(path==='/api/workspaces/'+currentWs()+'/profile'&&req.method==='PATCH'){
+     const input=await body(req),latest=await session(req);
+     if(!latest||latest.workspaceId!==currentWs()||latest.role!=='full')fail(403,'Редактировать сведения может участник с полным доступом.');
+     const limits={category:80,conducted:100,method:200,audience:10000,contact:200,report:10};
+     const fields=input?.fields;
+     if(!fields||typeof fields!=='object'||Array.isArray(fields)||Object.keys(fields).some(key=>!Object.hasOwn(limits,key)))fail(400,'Проверьте поля проекта.');
+     for(const [key,max] of Object.entries(limits)){
+      if(typeof fields[key]!=='string'||fields[key].length>max)fail(400,'Проверьте значение поля проекта.');
+     }
+     if(!['','ready','none'].includes(fields.report))fail(400,'Выберите статус отчёта.');
+     mutate(state=>{
+      const revision=state.projectProfile?.revision||0;
+      if(input.revision!==revision)fail(409,'Сведения изменились. Откройте редактирование заново.');
+      state.projectProfile={...Object.fromEntries(Object.keys(limits).map(key=>[key,fields[key].trim()])),revision:revision+1};
+     });
+     return json(res,200,view(latest));
+    }
     if(path==='/api/state'&&req.method==='GET')return json(res,200,view(person));
     if(path==='/api/state'&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'У вас доступ только для просмотра.');const b=await body(req);const current=getState();if(b.version!==current.version)fail(409,'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.');const changes=b.changes||{};
