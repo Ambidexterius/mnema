@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {answerTemplate} from './server.ts';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {modelKeyStore,modelBase,cleanModel,providerHeaders,providerRequest,providerResult,availableModels,answerSystem,requestChatAnswer} from './model-connections.ts';
@@ -48,4 +49,34 @@ test('chat rules keep source constraints, disable DeepSeek thinking and never ac
  assert.equal(calls.length,2);assert.deepEqual(calls.map(p=>p.max_tokens),[4096,8192]);assert.deepEqual(calls[0].thinking,{type:'disabled'});assert.equal(result.choices[0].message.content.length,17000);
  let count=0;await assert.rejects(()=>requestChatAnswer({model:'fixture'},{},async()=>{count++;return {choices:[{finish_reason:'length',message:{content:'partial'}}]}}),/лимиту/);assert.equal(count,2);
  await assert.rejects(()=>requestChatAnswer({model:'fixture'},{},async()=>({choices:[{finish_reason:'stop',message:{content:'x'.repeat(32001)}}]})),/более узкий/);
+});
+
+
+test('default research instructions separate participant experience from the mentioned counterparty and raw evidence from verification',()=>{
+ const custom='Сохраняй наш исследовательский стиль и пиши коротко.';
+ const prompt=answerSystem(answerTemplate,custom),mandatory=prompt.slice(prompt.indexOf('Обязательные правила сервиса имеют приоритет:'));
+ // The previous rule treated every guest/host mention as a transfer. The actual service
+ // template must now ground an unspecified audience in the available participants.
+ assert(!answerTemplate.includes('Хозяева и гости, экстранет и гостевой продукт — разные аудитории.'));
+ for(const text of [
+  'Если аудитория или интерфейс в вопросе не названы явно, отвечай об опыте участников доступных материалов',
+  'Рассказ гостя об ответе хозяина — прямые данные о пережитом гостем взаимодействии',
+  'не доказывает причины действий хозяина или проблемы его внутреннего интерфейса',
+  'basis=raw обозначает исходные реплики, а не отсутствие прямых данных',
+  'Статус проверки сводки или находки не меняет происхождение исходной цитаты',
+ ])assert(answerTemplate.includes(text),text);
+ assert(mandatory.includes('Собственный эпизод участника в basis=raw — прямые данные по теме вопроса'));
+ assert(mandatory.includes('другую явно запрошенную аудиторию или продукт'));
+ assert(mandatory.includes('Каждое содержательное утверждение и вывод должны иметь ссылку на переданный источник'));
+ assert(mandatory.includes('Вопрос интервьюера не является доказательством события'));
+ assert(prompt.includes(custom));assert(prompt.indexOf(custom)<prompt.indexOf('Обязательные правила сервиса имеют приоритет:'));
+ for(const heading of ['Прямые данные','Перенос и аналогии','Выводы','Что осталось невыясненным'])assert(prompt.includes(heading));
+ assert(prompt.includes('только по приложенным фрагментам'));assert(prompt.includes('(по сырым данным)'));assert(prompt.includes('ограничения выборки'));
+ // All native adapters must preserve the same grounding and privacy contract.
+ const payload={model:'fixture',max_tokens:4096,messages:[{role:'system',content:prompt},{role:'user',content:JSON.stringify({question:'Какие трудности описаны?',sources:[{number:1,basis:'raw',text:'Синтетическая реплика участника.'}]})}]};
+ for(const apiType of ['compatible','openai','anthropic']){
+  const request=providerRequest({apiType,url:'https://api.deepseek.com/v1'},payload);
+  const system=apiType==='anthropic'?request.body.system:apiType==='openai'?request.body.input[0].content:request.body.messages[0].content;
+  assert.equal(system,prompt);assert(JSON.stringify(request.body).includes('Синтетическая реплика участника.'));
+ }
 });
