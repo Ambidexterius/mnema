@@ -99,3 +99,23 @@ test('consistency review is source-bound, negative-only, at most once, and may r
  let negativeCalls=0;const negative=await requestChatAnswer({model:'fixture'},make([reviewed]),async()=>{negativeCalls++;return{choices:[{finish_reason:'stop',message:{content:'Прямых данных нет: оригинал не описывает запрошенное событие [1].'}}]}});assert.equal(negativeCalls,2);assert(negative.choices[0].message.content.startsWith('Прямых данных нет'));
  let truncatedCalls=0;await assert.rejects(()=>requestChatAnswer({model:'fixture'},make([reviewed]),async()=>{truncatedCalls++;return{choices:[{finish_reason:truncatedCalls===1?'stop':'length',message:{content:'Прямых данных нет.'}}]}}),/лимиту/);assert.equal(truncatedCalls,2,'the one consistency review must not start another truncation/review loop');
 });
+
+
+test('final grouped citations split only when every safe number exists in the original nonsequential source set',async()=>{
+ const original='Синтетический факт [1, 3,9]. Неизвестная ссылка [1,2]. Одиночная [3]. Ноль [0,1]. Небезопасное число [9007199254740993,1]. Диапазон [1–3].';
+ const payload={messages:[{role:'user',content:JSON.stringify({question:'Синтетический вопрос',sources:[{number:1,text:'Источник один'},{number:3,text:'Источник три'},{number:9,text:'Источник девять'}]})}]};
+ const snapshot=JSON.stringify(payload);const reply=()=>({choices:[{finish_reason:'stop',message:{content:original}}]});
+ const result=await requestChatAnswer({model:'fixture'},payload,async()=>reply());
+ assert.equal(result.choices[0].message.content,original.replace('[1, 3,9]','[1] [3] [9]'));assert.equal(JSON.stringify(payload),snapshot);
+ for(const content of ['Обычный текст без JSON',JSON.stringify({question:'Нет источников'}),JSON.stringify({sources:[{number:'1'},{number:3}]})]){
+  const unchanged=await requestChatAnswer({model:'fixture'},{messages:[{role:'user',content}]},async()=>reply());assert.equal(unchanged.choices[0].message.content,original);
+ }
+});
+
+test('citation normalization happens after consistency review and leaves the original assistant answer and source payload unchanged',async()=>{
+ const context={question:'Синтетический вопрос',sources:[{number:1,basis:'raw',text:'Первый синтетический исходник.'},{number:3,basis:'raw',text:'Второй синтетический исходник.'}],reviewed_findings:[{title:'Синтетический проверенный вывод',sourceNumbers:[1,3]}]};
+ const messages=[{role:'user',content:JSON.stringify(context)}],calls:any[]=[];
+ const initial='Прямых данных нет [1,3].';const final='Синтетический эпизод описан в исходниках [3, 1].';
+ const result=await requestChatAnswer({model:'fixture'},{messages},async payload=>{calls.push(structuredClone(payload));return{choices:[{finish_reason:'stop',message:{content:calls.length===1?initial:final}}]}});
+ assert.equal(calls.length,2);assert.equal(calls[1].messages.at(-2).content,initial);assert.equal(calls[1].messages[0].content,messages[0].content);assert.equal(result.choices[0].message.content,'Синтетический эпизод описан в исходниках [3] [1].');
+});

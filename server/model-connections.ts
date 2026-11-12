@@ -97,12 +97,18 @@ export async function requestChatAnswer(model:any,payload:any,call:(payload:any)
  const complete=(result:any)=>{const choice=result.choices?.[0];if(choice?.finish_reason==='length')return false;if(choice?.finish_reason==='error'||typeof choice?.message?.content!=='string'||!choice.message.content.trim())invalid('Модель не вернула полный ответ. Повторите вопрос.',502);if(choice.message.content.length>32000)invalid('Ответ получился слишком длинным. Задайте более узкий вопрос.',502);return true};
  let result:any;
  for(let attempt=0;attempt<2;attempt++){result=await invoke({...payload,max_tokens:attempt?8192:4096});if(complete(result))break;if(attempt===1)invalid('Ответ остановился по лимиту модели. Сократите вопрос или выберите другую модель.',502)}
- let hasReviewedSources=false;
- try{const context=JSON.parse(payload.messages?.filter(message=>message.role==='user').at(-1)?.content||'null');const numbers=new Set((context?.sources||[]).map(source=>source.number).filter(number=>Number.isSafeInteger(number)&&number>0));hasReviewedSources=Array.isArray(context?.reviewed_findings)&&context.reviewed_findings.some(finding=>typeof finding?.title==='string'&&finding.title.trim()&&Array.isArray(finding.sourceNumbers)&&finding.sourceNumbers.length>0&&finding.sourceNumbers.every(number=>numbers.has(number)))}catch{}
+ let hasReviewedSources=false;let sourceNumbers:Set<number>|null=null;
+ try{const context=JSON.parse(payload.messages?.filter(message=>message.role==='user').at(-1)?.content||'null');const numbers=new Set<number>((context?.sources||[]).map(source=>source.number).filter(number=>Number.isSafeInteger(number)&&number>0));sourceNumbers=numbers;hasReviewedSources=Array.isArray(context?.reviewed_findings)&&context.reviewed_findings.some(finding=>typeof finding?.title==='string'&&finding.title.trim()&&Array.isArray(finding.sourceNumbers)&&finding.sourceNumbers.length>0&&finding.sourceNumbers.every(number=>numbers.has(number)))}catch{}
  if(hasReviewedSources&&/^\s*(?:#{1,6}\s*)?(?:\*\*)?Прямых\s+данных\s+нет(?:\*\*)?(?=$|[\s.!?:,])/iu.test(result.choices[0].message.content)){
   const review='Проверь согласованность предыдущего ответа с исходным вопросом, reviewed_findings и теми же sources из исходного сообщения. Источники, их номера, охват и вопрос не изменились. Названия проверенных находок — интерпретация команды, а не новые наблюдения. Сверь каждое относящееся к вопросу утверждение с указанными оригиналами, проверь участника и упомянутого контрагента и устрани противоречие первого абзаца доказательствам, если оно есть. Не обязан находить положительный ответ: если оригиналы не подтверждают вывод или не отвечают на вопрос, сохрани обоснованное «Прямых данных нет» и назови конкретный пробел. Не додумывай факты и не используй название как raw-цитату. Верни только полный окончательный ответ в прежней структуре и с теми же правилами ссылок.';
   result=await invoke({...payload,max_tokens:8192,messages:[...(payload.messages||[]),{role:'assistant',content:result.choices[0].message.content},{role:'user',content:review}]});
   if(!complete(result))invalid('Ответ остановился по лимиту модели. Сократите вопрос или выберите другую модель.',502);
+ }
+ // Format only the final answer. Never alter review messages or resolve a number
+ // that was not present in the original source payload.
+ if(sourceNumbers?.size){
+  const content=result.choices[0].message.content.replace(/\[\s*\d+(?:\s*,\s*\d+)+\s*\]/g,(group:string)=>{const numbers=group.slice(1,-1).split(',').map(value=>Number(value.trim()));return numbers.every(number=>Number.isSafeInteger(number)&&sourceNumbers!.has(number))?numbers.map(number=>'['+number+']').join(' '):group});
+  if(content!==result.choices[0].message.content)result={...result,choices:result.choices.map((choice:any,index:number)=>index?choice:{...choice,message:{...choice.message,content}})};
  }
  return Object.keys(usage).length?{...result,usage:{...result.usage,...usage}}:result;
 }
