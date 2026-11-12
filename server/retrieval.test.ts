@@ -77,3 +77,15 @@ test('many matched findings in one interview cannot crowd out another interview 
  const result=selectEvidence(docs,'Возврат депозита','all',hints);
  assert(result.sources.some(source=>source.studyId==='small'&&source.id==='small2'));assert.equal(result.sources.length,24);
 });
+
+
+test('competing same-study finding primaries cannot displace the fifth quote of the top verified critical finding',()=>{
+ const large=study('large',40),small=study('small',1);
+ large.segments[39].text='После долгого ожидания подтверждения выбрал гостиницу.';
+ const hints=[{studyId:'large',segmentId:'large0',evidence:['large1','large2','large3','large39','large5'],title:'Хозяин долго отвечает',status:'verified',importance:'Критично'},...Array.from({length:20},(_,i)=>({studyId:'large',segmentId:'large'+(10+i),title:'Хозяин отвечает',status:'verified',importance:'Высокая'})),{studyId:'small',segmentId:'small0',title:'Хозяин отвечает',status:'verified',importance:'Высокая'}];
+ const result=selectEvidence([large,small],'Что известно про ответы хозяина?','all',hints);
+ for(const id of ['large0','large1','large2','large3','large39','large5'])assert(result.sources.some(source=>source.id===id),id+' must retain its original evidence');
+ assert(result.sources.some(source=>source.studyId==='small'));assert.equal(result.sources.length,24);assert.equal(result.coverage.linkedFragments,27);assert.equal(result.coverage.includedLinkedFragments,24);
+ const scoped=selectEvidence([large,small],'Что известно про ответы хозяина?','small',hints);
+ assert.deepEqual(scoped.sources.map(source=>source.id),['small0']);assert.equal(scoped.coverage.linkedFragments,1);
+});

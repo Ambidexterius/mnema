@@ -20,18 +20,20 @@ test('complete ASR checkpoint survives interrupted optional speaker stage; parti
  const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const {join}=await import('node:path');const {tmpdir}=await import('node:os');
  const dir=await mkdtemp(join(tmpdir(),'mnema-asr-checkpoint-')),before=process.env.ASR_MODEL_DIR;process.env.ASR_MODEL_DIR=dir;
  try{
-  await writeFile(join(dir,'model.bin'),'fixture');const progress:string[]=[];let complete=true;
+  await writeFile(join(dir,'model.bin'),'fixture');const progress:string[]=[];let complete=true,cancelAfterCheckpoint=false;const controller=new AbortController();
   const run=async(cmd:string,args:string[],options:any)=>{
    if(cmd==='ffprobe')return{stdout:JSON.stringify({format:{duration:1000,format_name:'webm'}})};
    if(args[0]?.endsWith('transcribe.py')){
     options.onStdoutLine(JSON.stringify({event:'progress',phase:'diarization',processedSeconds:0,totalSeconds:1000,chunk:1,chunks:2}));
     await writeFile(args[2],JSON.stringify({transcriptionComplete:complete,diarizationError:'NotCompleted',segments:[{time:0,end:2,speaker:'Запись',text:'Complete fixture speech'}],duration:1000}));
+    if(cancelAfterCheckpoint)controller.abort();
     throw Object.assign(new Error('fixture process killed'),{signal:'SIGKILL'});
    }return{stdout:''};
   };
   const result=await transcribeRecording({filePath:'fixture.webm',fileId:'checkpoint',run,onProgress:p=>progress.push(p)});
   assert.equal(result.segments[0].text,'Complete fixture speech');assert.equal(result.diarization,false);assert.equal(result.diarizationError,'Interrupted');assert(progress.some(p=>p.startsWith('Определяем спикеров')));
   complete=false;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'partial',run}),/fixture process killed/);
+  complete=true;cancelAfterCheckpoint=true;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'cancelled',run,signal:controller.signal}),{name:'AbortError'},'explicit cancellation must not return the complete-ASR fallback');
  }finally{if(before===undefined)delete process.env.ASR_MODEL_DIR;else process.env.ASR_MODEL_DIR=before;await rm(dir,{recursive:true,force:true})}
 });
 

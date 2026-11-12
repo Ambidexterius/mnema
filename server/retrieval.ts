@@ -37,7 +37,8 @@ export function selectEvidence(studies:Study[],question:string,scope='all',hints
  const relevant=linkedHints.sort((a,b)=>b.boost-a.boost).map(hint=>({boost:hint.boost,sources:hint.keys.map(key=>byKey.get(key)).filter((source):source is Source=>Boolean(source))})).filter(hint=>hint.sources.length);
  const linked=groups.map(group=>{
   const hints=relevant.filter(hint=>hint.sources[0].studyId===group[0].studyId),originals:Source[]=[];
-  for(let round=0;hints.some(hint=>hint.sources[round]);round++)for(const hint of hints)if(hint.sources[round])originals.push(hint.sources[round]);
+  // Keep each finding together: many weaker primary quotes must not displace its late evidence.
+  for(const hint of hints)originals.push(...hint.sources);
   return {boost:hints[0]?.boost||0,sources:[...new Map(originals.map(source=>[source.id,source])).values()]};
  }).filter(plan=>plan.sources.length).sort((a,b)=>b.boost-a.boost).map(plan=>plan.sources);
  const linkedKeys=new Set(linked.flat().map(source=>source.studyId+'\0'+source.id));

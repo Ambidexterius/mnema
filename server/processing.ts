@@ -9,18 +9,26 @@ import {createHash} from 'node:crypto';
 import type {Segment} from '../app/types.ts';
 
 type Run=(cmd:string,args:string[],options?:Record<string,unknown>)=>Promise<{stdout:string;stderr?:string}>;
-interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
+interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;signal?:AbortSignal;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
 // execFile still bounds captured output; progress lines contain measurements only.
 // Reading them while the child runs avoids waiting hours for its final stdout.
-const execute:Run=(cmd,args,options={})=>new Promise((resolve,reject)=>{
- const {onStdoutLine,...execOptions}=options;let listenerError:unknown;
+export const runProcessingCommand:Run=(cmd,args,options={})=>new Promise((resolve,reject)=>{
+ const {onStdoutLine,...execOptions}=options;const signal=execOptions.signal as AbortSignal|undefined;let listenerError:unknown,closed=false,completed:{error:any;stdout:any;stderr:any}|undefined,killTimer:ReturnType<typeof setTimeout>|undefined;
+ const finish=()=>{if(!closed||!completed)return;signal?.removeEventListener('abort',terminate);if(killTimer)clearTimeout(killTimer);const {error,stdout,stderr}=completed;if(error||listenerError)reject(error||listenerError);else resolve({stdout:String(stdout),stderr:String(stderr)})};
+ // execFile's AbortError callback can run before the process actually exits.
+ // A deleting request must wait for close before removing its input/cache.
  const child=execFile(cmd,args,execOptions as any,(error,stdout,stderr)=>{
-  if(error||listenerError)reject(error||listenerError);else resolve({stdout:String(stdout),stderr:String(stderr)});
+  completed={error,stdout,stderr};finish();
  });
+ const terminate=()=>{if(!closed&&!killTimer){killTimer=setTimeout(()=>{if(!closed)child.kill('SIGKILL')},5000);killTimer.unref()}};
+ signal?.addEventListener('abort',terminate,{once:true});if(signal?.aborted)terminate();
+ child.once('close',()=>{closed=true;finish()});
  if(typeof onStdoutLine==='function')createInterface({input:child.stdout}).on('line',line=>{
-  try{onStdoutLine(line)}catch(error){listenerError=error;child.kill()}
+  if(signal?.aborted)return;try{onStdoutLine(line)}catch(error){listenerError=error;child.kill()}
  });
 });
+const interruptibleRun=(run:Run,signal?:AbortSignal):Run=>async(cmd,args,options={})=>{signal?.throwIfAborted();const result=await run(cmd,args,{...options,...(signal?{signal}:{})});signal?.throwIfAborted();return result};
+const interruptibleProgress=(progress:(value:string)=>void,signal?:AbortSignal)=>(value:string)=>{if(!signal?.aborted)progress(value)};
 const clock=(value:number)=>{const seconds=Math.floor(value);return seconds>=3600?Math.floor(seconds/3600)+':'+String(Math.floor(seconds/60)%60).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0'):Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')};
 /** Accept only structured numeric progress, never arbitrary subprocess output. */
 export function processingProgress(line:string):string|null{
@@ -40,16 +48,17 @@ export function processingReadiness(){return {
  diarization:existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','segmentation.onnx'))&&existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','embedding.onnx'))&&process.env.ASR_DIARIZATION!=='0',
  model:'Whisper Small int8',ocrLanguages:process.env.OCR_LANGUAGES||'rus+eng'
 }}
-export async function extractDocument({filePath,fileName='',fileId,onProgress=()=>{},run=execute,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
+export async function extractDocument({filePath,fileName='',fileId,signal,onProgress=()=>{},run=runProcessingCommand,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
+ signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  const segments=[];let pages=0,ocrPages=0,total=0;
  const add=(content,page)=>{const paras=content.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);let index=0;for(const paragraph of paras)for(let offset=0;offset<paragraph.length;offset+=1200){const value=paragraph.slice(offset,offset+1200);total+=value.length;if(total>10*1024**2||segments.length>=5000)throw new Error('Документ слишком большой. Разделите его на части.');segments.push({id:id(fileId,page+':'+index++,value),time:0,page,speaker:page?'Страница '+page:'Документ',text:value})}};
  if(/\.xlsx$/i.test(fileName)){
   onProgress('Читаем листы таблицы');
-  try{add((await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-xlsx.py'),filePath],{timeout:30000,maxBuffer:12*1024**2})).stdout,null)}catch{throw new Error('Не удалось прочитать XLSX. Сохраните таблицу как XLSX или PDF и загрузите снова.')}
+  try{add((await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-xlsx.py'),filePath],{timeout:30000,maxBuffer:12*1024**2})).stdout,null)}catch{signal?.throwIfAborted();throw new Error('Не удалось прочитать XLSX. Сохраните таблицу как XLSX или PDF и загрузите снова.')}
  }
  else if(/\.docx?$/i.test(fileName)){
   onProgress('Извлекаем текст документа Word');
-  try{const extracted=/\.docx$/i.test(fileName)?await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-word.py'),filePath],{timeout:30000,maxBuffer:10*1024**2}):process.platform==='darwin'?await run('textutil',['-convert','txt','-stdout',filePath],{timeout:30000,maxBuffer:10*1024**2}):await run('antiword',['-m','UTF-8.txt',filePath],{timeout:30000,maxBuffer:10*1024**2});add(extracted.stdout,null)}catch{throw new Error('Не удалось прочитать документ Word. Сохраните его как DOCX или PDF и загрузите снова.')}
+  try{const extracted=/\.docx$/i.test(fileName)?await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-word.py'),filePath],{timeout:30000,maxBuffer:10*1024**2}):process.platform==='darwin'?await run('textutil',['-convert','txt','-stdout',filePath],{timeout:30000,maxBuffer:10*1024**2}):await run('antiword',['-m','UTF-8.txt',filePath],{timeout:30000,maxBuffer:10*1024**2});add(extracted.stdout,null)}catch{signal?.throwIfAborted();throw new Error('Не удалось прочитать документ Word. Сохраните его как DOCX или PDF и загрузите снова.')}
  }
  else if(!/\.pdf$/i.test(fileName)){const value=await readFile(filePath);if(value.length>10*1024**2)throw new Error('Текстовый файл больше 10 МБ. Разделите документ.');add(value.toString('utf8'),null)}
  else{
@@ -67,10 +76,11 @@ export async function extractDocument({filePath,fileName='',fileId,onProgress=()
    add(value,page);
   }}finally{await rm(working,{recursive:true,force:true})}
  }
- if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
+ signal?.throwIfAborted();if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
  return {segments,pages,ocrPages,engine:/\.xlsx$/i.test(fileName)?'XLSX stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
-export async function transcribeRecording({filePath,fileId,checkpointDir,onProgress=()=>{},run=execute}:JobArgs){
+export async function transcribeRecording({filePath,fileId,checkpointDir,signal,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
+ signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  const readiness=processingReadiness();if(!readiness.asr)throw new Error('Локальная модель речи ещё не установлена. Дождитесь обновления сервера.');
  const probe=await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration,format_name','-of','json',filePath],{timeout:30000,maxBuffer:1024**2});const info=JSON.parse(probe.stdout).format||{};
  const duration=Number(info.duration),maximum=Number(process.env.ASR_MAX_AUDIO_SECONDS||14400);
@@ -86,6 +96,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,onProgr
   try{
    await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   }catch(error){
+   signal?.throwIfAborted();
    // The Python checkpoint is written only after ALL speech chunks finish.
    // Losing optional speaker detection must not discard a complete transcript.
    try{result=JSON.parse(await readFile(output,'utf8'))}catch{}
@@ -94,7 +105,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,onProgr
    console.error('ASR speaker stage interrupted; completed transcript preserved');
   }
   result??=JSON.parse(await readFile(output,'utf8'));
-  if(!result.segments?.length)throw new Error('В записи не удалось распознать речь. Проверьте качество звука.');
+  signal?.throwIfAborted();if(!result.segments?.length)throw new Error('В записи не удалось распознать речь. Проверьте качество звука.');
   result.segments=result.segments.map((s,i)=>({...s,id:id(fileId,String(i),s.text)}));
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
  }finally{await rm(working,{recursive:true,force:true});if(checkpointDir)await rm(checkpointDir,{recursive:true,force:true})}
@@ -110,7 +121,8 @@ function prepareAudio(run:Run,filePath:string,audio:string,maximum:number){
  return run('ffmpeg',['-nostdin','-v','error','-protocol_whitelist','file,pipe','-threads','1','-i',filePath,'-map','0:a:0','-vn','-ac','1','-ar','16000','-c:a','flac','-threads','1','-t',String(maximum),'-f','segment','-segment_time','900','-reset_timestamps','1',audio],{timeout:15*60000,maxBuffer:1024**2});
 }
 /** Labels speakers of an existing transcript without running speech recognition again. */
-export async function detectSpeakers({filePath,segments,onProgress=()=>{},run=execute}:{filePath:string;segments:Segment[];onProgress?:(p:string)=>void;run?:Run}){
+export async function detectSpeakers({filePath,segments,signal,onProgress=()=>{},run=runProcessingCommand}:{filePath:string;segments:Segment[];signal?:AbortSignal;onProgress?:(p:string)=>void;run?:Run}){
+ signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  if(!processingReadiness().diarization)throw new Error('Определение спикеров не установлено на этом сервере.');
  const {duration,maximum}=await probeRecording(run,filePath);
  const working=await mkdtemp(join(tmpdir(),'mnema-speakers-'));const started=Date.now();
@@ -121,7 +133,7 @@ export async function detectSpeakers({filePath,segments,onProgress=()=>{},run=ex
   onProgress('Определяем спикеров');const script=join(dirname(fileURLToPath(import.meta.url)),'diarize.py');
   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration)],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};
-  if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
+  signal?.throwIfAborted();if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
  }finally{await rm(working,{recursive:true,force:true})}
 }

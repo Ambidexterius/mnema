@@ -29,3 +29,17 @@ test('S3 copies retry durably, preserve originals, support ranges, and restore a
   db.prepare("DELETE FROM mnema_uploads WHERE id='file-id'").run();await mirror.tick();assert.equal(objects.has('/fixture-bucket/mnemonika/uploads/file-id'),false);assert.equal(objects.has('/fixture-bucket/mnemonika/backups/latest.sqlite'),true);
  }finally{mirror?.close();db.close();await rm(dir,{recursive:true,force:true})}
 });
+
+
+test('explicit local-only mode ignores retained S3 config and copy records without network traffic',async()=>{
+ const disabled=s3Config({...env,MNEMA_S3_ENABLED:'0'});assert.equal(disabled,null);assert.equal(s3Config({MNEMA_S3_ENABLED:'0',MNEMA_S3_BUCKET:'fixture-bucket'}),null);
+ const dir=await mkdtemp(join(tmpdir(),'mnema-local-only-')),db=new DatabaseSync(join(dir,'db.sqlite'));let mirror:any,calls=0;
+ try{
+  await mkdir(join(dir,'uploads'));await writeFile(join(dir,'uploads','local-source'),'local original');
+  db.exec("CREATE TABLE mnema_uploads(id TEXT PRIMARY KEY,size INTEGER,status TEXT);INSERT INTO mnema_uploads VALUES('local-source',14,'ready')");
+  mirror=createS3Mirror(db,dir,disabled,(async()=>{calls++;throw new Error('S3 must stay disabled')}) as typeof fetch);
+  db.prepare("INSERT INTO mnema_s3_copies VALUES('local-source','ready','old-remote-checksum',14,1,NULL)").run();
+  await mirror.tick();await mirror.backup();assert.equal(mirror.status().enabled,false);assert.equal(mirror.has('local-source'),false);assert.equal(mirror.objects,null);assert.equal(calls,0);
+  assert.equal(await readFile(join(dir,'uploads','local-source'),'utf8'),'local original');assert.equal((db.prepare('SELECT count(*) AS n FROM mnema_s3_copies').get() as any).n,1,'old remote-copy metadata is retained');
+ }finally{mirror?.close();db.close();await rm(dir,{recursive:true,force:true})}
+});

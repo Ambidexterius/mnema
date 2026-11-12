@@ -12,7 +12,7 @@ const digest=(v:string)=>createHash('sha256').update(v).digest('hex');
 const hmac=(key:any,v:string)=>createHmac('sha256',key).update(v).digest();
 const encode=(s:string)=>encodeURIComponent(s).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase());
 export function s3Config(env=process.env):Config|null{
- if(!env.MNEMA_S3_BUCKET)return null;
+ if(env.MNEMA_S3_ENABLED==='0'||!env.MNEMA_S3_BUCKET)return null;
  const config={endpoint:env.MNEMA_S3_ENDPOINT||'https://storage.yandexcloud.net',region:env.MNEMA_S3_REGION||'ru-central1',bucket:env.MNEMA_S3_BUCKET,prefix:(env.MNEMA_S3_PREFIX||'mnemonika/').replace(/^\/+|\/+$/g,'')+'/',accessKey:env.MNEMA_S3_ACCESS_KEY_ID||'',secretKey:env.MNEMA_S3_SECRET_ACCESS_KEY||''};
  if(!config.accessKey||!config.secretKey)throw new Error('S3 credentials are not configured');
  if(!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(config.bucket)||!/^[-a-zA-Z0-9_]+(?:\/[-a-zA-Z0-9_]+)*\/$/.test(config.prefix)||config.prefix.includes('..'))throw new Error('Invalid S3 namespace');
