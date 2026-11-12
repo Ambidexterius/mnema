@@ -22,4 +22,8 @@ Conic-gradient border adapted from Liquid Multimodal Input by Wensity Labs (MIT)
 
 ## Matrix
 
-Matrix rain renderer: Copyright (c) 2026 mishanaer, MIT, https://github.com/mishanaer/matrix. Revision 291b7bfa4682b8518837dfb3eb846a6f1a4f4433. Renderer copied unchanged; theme, mask and pause controls supplied by the application. Full license: app/vendor/matrix/LICENSE.
+Matrix rain renderer: Copyright (c) 2026 mishanaer, MIT, https://github.com/mishanaer/matrix. Revision 291b7bfa4682b8518837dfb3eb846a6f1a4f4433. Renderer adaptation from the shipped MatrixRain implementation; theme, mask and pause controls supplied by the application. Full license: app/vendor/matrix/LICENSE.
+
+## Project folders
+
+Visual reference: Glassmorphism Folder Cards by Kedhareswer Naidu, https://21st.dev/@kedhareswer/components/glass-folder-cards. Folder geometry and interaction are implemented for this application with a shared radius and project access controls.
