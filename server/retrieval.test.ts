@@ -29,3 +29,51 @@ test('one matching interview cannot consume the entire source budget while anoth
  const make=(id:string,n:number)=>({id,title:id,status:'ready',segments:Array.from({length:n},(_,i)=>({id:id+i,time:i,speaker:i%2?'Участник':'Модератор',text:i%2?'Ждал полтора часа, потом отменил бронь.':'Когда хозяин отвечает?'}))}) as any;
  const result=selectEvidence([make('a',40),make('b',2)],'Как быстро хозяева отвечают?');assert.deepEqual(new Set(result.sources.map(s=>s.studyId)),new Set(['a','b']));assert(result.sources.some(s=>s.id==='b1'));assert(result.sources.length<=12);assert.equal(result.coverage.sampled,true);
 });
+
+test('all linked originals precede noisy interview windows, including distant secondary evidence',()=>{
+ const make=(id:string,segments:any[])=>({id,title:'Исследование чатов',status:'ready',segments:segments.map((segment,i)=>({id:id+i,time:i,speaker:'Участник',...segment}))}) as any;
+ const preference=make('preference',[{text:'Ожидаю, что хозяин ответит в чате сразу.'},{text:'Обычно отвечают сразу.'}]);
+ const critical=make('critical',Array.from({length:32},(_,i)=>({text:i===28?'Ждала два часа. Затем выбрала гостиницу, потому что подтверждения не было.':'Хозяин ответил в чате сразу, ответ хозяина был быстрым.'})));
+ const hints=[
+  {studyId:preference.id,segmentId:'preference0',title:'Участник ожидает мгновенного ответа хозяина в чате',status:'verified',importance:'Высокая',kind:'Инсайт'},
+  {studyId:critical.id,segmentId:'critical0',evidence:['critical4','critical8','critical16','critical28'],title:'Хозяйка долго подтверждала бронь',status:'verified',importance:'Критично',kind:'Проблема'},
+ ];
+ const noise=Array.from({length:5},(_,i)=>make('noise'+i,[{speaker:'Модератор',text:'Какие проблемы с ответом хозяина в чате?'},{text:'Обычно всё хорошо.'}]));
+ const question='Какие проблемы с ответом хозяина есть в исследовании чатов? Сформулируй коротко и конкретно.';
+ const result=selectEvidence([preference,critical,...noise],question,'all',hints);
+ for(const id of ['preference0','critical0','critical4','critical8','critical16','critical28'])assert(result.sources.some(source=>source.id===id),id+' must retain its original evidence');
+ assert.equal(result.sources.find(source=>source.id==='critical28').text,critical.segments[28].text);
+ assert.equal(result.coverage.linkedFragments,6);assert.equal(result.coverage.includedLinkedFragments,6);
+ assert(result.sources.length<=12);assert(result.sources.some(source=>source.studyId.startsWith('noise')));
+ // Reproduce the old failure without any boost for the fifth linked excerpt.
+ assert(!selectEvidence([preference,critical,...noise],question,'all',hints.map(hint=>({...hint,evidence:hint.evidence?.slice(0,3)}))).sources.some(source=>source.id==='critical28'));
+});
+
+test('a larger linked set uses a bounded budget and reports dropped evidence honestly',()=>{
+ const docs=Array.from({length:4},(_,i)=>study('linked'+i,20));
+ const hints=docs.map(doc=>({studyId:doc.id,segmentId:doc.id+'0',evidence:Array.from({length:8},(_,i)=>doc.id+(i+1)),title:'Подтверждение бронирования задерживается',status:'verified',importance:'Критично',kind:'Проблема'}));
+ const result=selectEvidence(docs,'Почему подтверждение бронирования задерживается?','all',hints);
+ assert.equal(result.sources.length,24);assert.equal(result.coverage.linkedFragments,36);assert.equal(result.coverage.includedLinkedFragments,24);
+ assert.equal(result.coverage.included,4);assert.equal(result.coverage.sampled,true);
+ const smaller=selectEvidence(docs.slice(0,2),'Почему подтверждение бронирования задерживается?','all',hints);
+ assert.equal(smaller.coverage.linkedFragments,18);assert.equal(smaller.coverage.includedLinkedFragments,18);assert(smaller.sources.length<=24);
+});
+
+test('linked evidence reservation cannot cross material scope or revive rejected, imported or inaccessible findings',()=>{
+ const docs=[study('allowed',3),study('other',3),{...study('pending',3),status:'processing'}];
+ const hint={studyId:'allowed',segmentId:'allowed0',evidence:['allowed1'],title:'Возврат депозита задерживается',status:'verified',importance:'Критично'};
+ const hints=[hint,{...hint,studyId:'other',segmentId:'other0',evidence:['other1']},{...hint,studyId:'pending',segmentId:'pending0',evidence:['pending1']},{...hint,studyId:'missing',segmentId:'missing0'}];
+ const result=selectEvidence(docs,'Возврат депозита','allowed',hints);
+ assert.deepEqual(new Set(result.sources.map(source=>source.studyId)),new Set(['allowed']));assert.equal(result.coverage.linkedFragments,2);
+ for(const blocked of [{status:'rejected'},{origin:'import'}])assert.equal(selectEvidence(docs,'Возврат депозита','allowed',[{...hint,...blocked}]).sources.length,0);
+ const forged=selectEvidence(docs,'Возврат депозита','allowed',[{...hint,evidence:['other1']}]);
+ assert(forged.sources.every(source=>source.studyId==='allowed'));assert.equal(forged.coverage.linkedFragments,1);
+});
+
+test('many matched findings in one interview cannot crowd out another interview evidence',()=>{
+ const docs=[study('large',50),study('small',3)];
+ const hints=Array.from({length:30},(_,i)=>({studyId:'large',segmentId:'large'+i,title:'Задержка возврата депозита',status:'verified',importance:'Высокая'}));
+ hints.push({studyId:'small',segmentId:'small2',title:'Задержка возврата депозита',status:'verified',importance:'Высокая'});
+ const result=selectEvidence(docs,'Возврат депозита','all',hints);
+ assert(result.sources.some(source=>source.studyId==='small'&&source.id==='small2'));assert.equal(result.sources.length,24);
+});

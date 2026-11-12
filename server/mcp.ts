@@ -8,12 +8,15 @@ import {createMcpHandler,McpServer} from '@modelcontextprotocol/server';
 import * as z from 'zod';
 
 const scopes=['openid','profile','email','offline_access','mcp:read'];
-export const mcpPlugins=(baseURL:string)=>[
+export const mcpPlugins=(baseURL:string,db:any)=>[
  jwt({disableSettingJwtHeader:true}),
  mcp({loginPage:'/mcp/login',consentPage:'/mcp/consent',resource:baseURL+'/mcp',scopes,
   accessTokenExpiresIn:900,refreshTokenExpiresIn:30*86400,refreshTokenReuseInterval:0,
   allowDynamicClientRegistration:true,allowUnauthenticatedClientRegistration:true,
-  clientRegistrationDefaultApplicationType:'infer',clientRegistrationDefaultScopes:scopes}),
+  clientRegistrationDefaultApplicationType:'infer',clientRegistrationDefaultScopes:scopes,
+  // Bind each signed access token to one consent generation. Looking up only
+  // user/client would revive previously revoked JWTs when a client reconnects.
+  extensions:[{claims:{accessToken:({user,client})=>({mnema_grant_id:user?db.prepare("SELECT id FROM mnema_mcp_grants WHERE user_id=? AND client_id=? AND kind='oauth' AND revoked=0").get(user.id,client.clientId)?.id||'':''})}}]}),
  cimd({fetchClientMetadataResource,metadataProfile:'mcp-2026-07-28'}),
 ];
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
@@ -78,13 +81,13 @@ export function createMcpService({db,auth,baseURL,version,getPerson,readProject}
  const serve=(request:Request,id:string)=>{const {grant}=resolveGrant(id);rate(grant.user_id);db.prepare('UPDATE mnema_mcp_grants SET last_used=? WHERE id=?').run(Date.now(),id);return handler.fetch(request,{authInfo:{token:'',clientId:grant.client_id,scopes:['mcp:read'],extra:{grantId:id}}})};
  const protectedHandler=requireMcpAuth(auth,async(request,claims)=>{
   const grant=db.prepare("SELECT id FROM mnema_mcp_grants WHERE user_id=? AND client_id=? AND kind='oauth'").get(String(claims.sub||''),String(claims.azp||''));
-  if(!grant)return challenge('Подтвердите доступ к проектам в Мнемонике.');return serve(request,grant.id);
+  if(!grant||claims.mnema_grant_id!==grant.id)return challenge('Подтвердите доступ к проектам в Мнемонике.');return serve(request,grant.id);
  },{resource,requiredScopes:['mcp:read']});
  const cors=(response:Response,origin:string|null)=>{const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');if(origin){headers.set('Access-Control-Allow-Origin',origin);headers.set('Vary','Origin');headers.set('Access-Control-Expose-Headers','WWW-Authenticate, MCP-Protocol-Version, MCP-Session-Id')}return new Response(response.body,{status:response.status,statusText:response.statusText,headers})};
  const fetchMcp=async(request:Request)=>{
   const origin=request.headers.get('Origin');if(origin&&!allowedOrigins.has(origin))return challenge('Этот сайт не может обращаться к MCP.',403);
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...(origin?{'Access-Control-Allow-Origin':origin}:{}),'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, MCP-Client-Info, MCP-Client-Capabilities'}});
-  try{const token=request.headers.get('Authorization')?.match(/^Bearer (mnm_[a-zA-Z0-9_-]{43})$/)?.[1];
+  try{const token=request.headers.get('Authorization')?.match(/^Bearer (mnm_[a-zA-Z0-9_-]{43})$/i)?.[1];
    if(token){const grant=db.prepare("SELECT id FROM mnema_mcp_grants WHERE token_hash=? AND kind='token'").get(hash(token));return cors(grant?await serve(request,grant.id):challenge('Токен MCP недействителен.'),origin)}
    return cors(await protectedHandler(request),origin);
   }catch(error){return cors(challenge(error.status?error.message:'Не удалось выполнить запрос MCP.',error.status||500),origin)}
@@ -95,6 +98,7 @@ export function createMcpService({db,auth,baseURL,version,getPerson,readProject}
   let client:any;try{client=await auth.api.getOAuthClientPublic({query:{client_id:clientId},headers})}catch{denied('Клиент подключения не найден или отключён.',400)}let host:string;try{host=new URL(params.get('redirect_uri')).host}catch{denied('Некорректный адрес возврата.',400)}
   return {signed,params,clientId,name:String(client.client_name||'MCP-клиент').slice(0,100),origin:host};
  };
+ const activeCount=(person:any)=>db.prepare('SELECT count(*) AS count FROM mnema_mcp_grants WHERE user_id=? AND revoked=0 AND (expires=0 OR expires>?)').get(person.id,Date.now()).count;
  const list=(person:any)=>db.prepare('SELECT id,client_id,kind,name,origin,roles,created,last_used,expires,revoked FROM mnema_mcp_grants WHERE user_id=? AND revoked=0 ORDER BY created DESC').all(person.id).map(g=>({...g,roles:undefined,projects:Object.keys(JSON.parse(g.roles)).map(id=>({id,name:person.workspaces.find(p=>p.id===id)?.name||'Проект недоступен'}))}));
  return {fetch:fetchMcp,close:handler.close,
   settings:(person:any)=>({endpoint:resource,grants:list(person),projects:person.workspaces.map(p=>({id:p.id,name:p.name,role:p.role})),tools:['list_projects','search','fetch','get_findings']}),
@@ -102,21 +106,27 @@ export function createMcpService({db,auth,baseURL,version,getPerson,readProject}
   async consent(person:any,body:any,headers:Headers){
    if(typeof body.accept!=='boolean')denied('Подтвердите или отклоните доступ.',400);
    const v=await verifiedConsent(String(body.query||''),headers),roles=body.accept?projectRoles(person,body.projects):{};
-   if(body.accept&&!db.prepare('SELECT id FROM mnema_mcp_grants WHERE user_id=? AND client_id=?').get(person.id,v.clientId)&&list(person).length>=30)denied('Отзовите один из прежних доступов: максимум 30 активных подключений.',400);
+   if(body.accept&&!db.prepare('SELECT id FROM mnema_mcp_grants WHERE user_id=? AND client_id=?').get(person.id,v.clientId)&&activeCount(person)>=30)denied('Отзовите один из прежних доступов: максимум 30 активных подключений.',400);
    let response:any;try{response=await auth.api.oauth2Consent({body:{accept:body.accept,oauth_query:v.signed},headers})}catch{denied('Не удалось подтвердить подключение. Начните авторизацию заново.',400)}
    if(body.accept){let code:string|null=null;try{code=new URL(response.url).searchParams.get('code')}catch{}if(!response.redirect||!code)denied('Авторизация не завершена. Начните подключение заново.',400);
-    db.prepare("INSERT INTO mnema_mcp_grants(id,user_id,client_id,kind,name,origin,roles,created) VALUES(?,?,?,'oauth',?,?,?,?) ON CONFLICT(user_id,client_id) DO UPDATE SET roles=excluded.roles,name=excluded.name,origin=excluded.origin,revoked=0,created=excluded.created").run(randomUUID(),person.id,v.clientId,v.name,v.origin,JSON.stringify(roles),Date.now());
+    db.prepare("INSERT INTO mnema_mcp_grants(id,user_id,client_id,kind,name,origin,roles,created) VALUES(?,?,?,'oauth',?,?,?,?) ON CONFLICT(user_id,client_id) DO UPDATE SET id=excluded.id,roles=excluded.roles,name=excluded.name,origin=excluded.origin,revoked=0,created=excluded.created,last_used=NULL").run(randomUUID(),person.id,v.clientId,v.name,v.origin,JSON.stringify(roles),Date.now());
    }
    return response;
   },
-  createToken(person:any,body:any){const roles=projectRoles(person,body.projects),name=String(body.name||'').trim();if(!name||name.length>60)denied('Назовите подключение: до 60 символов.',400);if(list(person).length>=30)denied('Отзовите один из прежних доступов: максимум 30 активных подключений.',400);
+  createToken(person:any,body:any){const roles=projectRoles(person,body.projects),name=String(body.name||'').trim();if(!name||name.length>60)denied('Назовите подключение: до 60 символов.',400);if(activeCount(person)>=30)denied('Отзовите один из прежних доступов: максимум 30 активных подключений.',400);
    const id=randomUUID(),token='mnm_'+randomBytes(32).toString('base64url'),expires=Date.now()+30*86400000;
    db.prepare("INSERT INTO mnema_mcp_grants(id,user_id,client_id,kind,name,origin,roles,token_hash,created,expires) VALUES(?,?,?,'token',?,'',?,?,?,?)").run(id,person.id,id,name,JSON.stringify(roles),hash(token),Date.now(),expires);
    return {id,token,expires,endpoint:resource};
   },
   async revoke(person:any,id:string,headers:Headers){const grant=db.prepare('SELECT * FROM mnema_mcp_grants WHERE id=? AND user_id=?').get(id,person.id);if(!grant)denied('Подключение не найдено.',404);
    db.prepare('UPDATE mnema_mcp_grants SET revoked=1 WHERE id=? AND user_id=?').run(id,person.id);
-   if(grant.kind==='oauth'){try{const consents=await auth.api.getOAuthConsents({headers});for(const consent of Array.isArray(consents)?consents:consents.consents||consents.data||[])if(consent.clientId===grant.client_id||consent.client_id===grant.client_id)await auth.api.deleteOAuthConsent({body:{id:consent.id},headers})}catch(error){console.error('MCP consent cleanup',error.name)}}
+   if(grant.kind==='oauth'){
+    // Removing consent alone does not revoke Better Auth refresh tokens. Delete
+    // the entire client/user family before a new consent can be used.
+    const {adapter}=await auth.$context,where=[{field:'userId',value:person.id},{field:'clientId',value:grant.client_id}];
+    await adapter.deleteMany({model:'oauthAccessToken',where});
+    await adapter.deleteMany({model:'oauthRefreshToken',where});
+    try{const consents=await auth.api.getOAuthConsents({headers});for(const consent of Array.isArray(consents)?consents:consents.consents||consents.data||[])if(consent.clientId===grant.client_id||consent.client_id===grant.client_id)await auth.api.deleteOAuthConsent({body:{id:consent.id},headers})}catch(error){console.error('MCP consent cleanup',error.name)}}
    return {ok:true};
   },
  };

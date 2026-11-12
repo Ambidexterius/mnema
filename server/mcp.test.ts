@@ -6,6 +6,8 @@ import {join} from 'node:path';
 import {createHash,randomBytes} from 'node:crypto';
 import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createMnemaServer} from './server.ts';
+import {createMcpService} from './mcp.ts';
+import {DatabaseSync} from 'node:sqlite';
 
 test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants and immediate revocation',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'mnemonika-mcp-')),base='http://127.0.0.1:4299',setup=randomBytes(32).toString('hex');
@@ -29,6 +31,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
   app.db.prepare('UPDATE mnema_workspaces SET data=? WHERE id=?').run(JSON.stringify(state),'main');
   const issued=await req('/api/mcp/tokens',{cookie,body:{name:'Fixture bot',projects:['main']}});assert.equal(issued.response.status,201,JSON.stringify(issued.data));const token=issued.data.token;assert(token.startsWith('mnm_'));
   assert(!JSON.stringify(app.db.prepare('SELECT * FROM mnema_mcp_grants').all()).includes(token));assert(!JSON.stringify((await req('/api/mcp/settings',{cookie})).data).includes(token));
+  const lowercase=await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'bearer '+token,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'case-insensitive-fixture',version:'1'}}})});assert.equal(lowercase.status,200,'Bearer authentication scheme is case insensitive');
   const modern=await connect(token),legacy=await connect(token,false);
   const tools=await modern.listTools();assert.deepEqual(new Set(tools.tools.map(t=>t.name)),new Set(['list_projects','search','fetch','get_findings']));assert(tools.tools.every(t=>t.annotations.readOnlyHint));
   assert.equal((await legacy.listTools()).tools.length,4);
@@ -38,6 +41,10 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
   const denied=await modern.callTool({name:'search',arguments:{query:'даты',project_id:bid}});assert.equal(denied.isError,true);
   assert.equal(content(await modern.callTool({name:'get_findings',arguments:{}})).findings.length,2);
   const ownerId=(await req('/api/session',{cookie})).data.user.id;
+  app.db.prepare('UPDATE mnema_mcp_grants SET expires=? WHERE id=?').run(Date.now()-1,issued.data.id);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,401);app.db.prepare('UPDATE mnema_mcp_grants SET expires=? WHERE id=?').run(Date.now()+86400000,issued.data.id);
+  app.db.prepare("UPDATE mnema_members SET revoked=1 WHERE user_id=? AND workspace_id='main'").run(ownerId);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,403);app.db.prepare("UPDATE mnema_members SET revoked=0 WHERE user_id=? AND workspace_id='main'").run(ownerId);
+  app.db.prepare('UPDATE mnema_access SET revoked=1 WHERE user_id=?').run(ownerId);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,401);app.db.prepare('UPDATE mnema_access SET revoked=0 WHERE user_id=?').run(ownerId);
+
   app.db.prepare("UPDATE mnema_members SET role='view' WHERE user_id=? AND workspace_id='main'").run(ownerId);
   assert.equal(content(await modern.callTool({name:'get_findings',arguments:{}})).findings.length,1);
   const viewGrant=await req('/api/mcp/tokens',{cookie,body:{name:'View-limited fixture',projects:['main']}});assert.equal(viewGrant.response.status,201);
@@ -54,12 +61,21 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
   const accepted=await req('/api/mcp/consent',{cookie,body:{query,accept:true,projects:['main']}});assert.equal(accepted.response.status,200,JSON.stringify(accepted.data));assert.equal(accepted.data.redirect,true);const callback=new URL(accepted.data.url);assert.equal(callback.searchParams.get('state'),'fixture-state');
   const tokenResponse=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:registered.client_id,redirect_uri:'http://127.0.0.1:4309/callback',code:callback.searchParams.get('code'),code_verifier:verifier,resource:base+'/mcp'})});const oauth=await tokenResponse.json();assert.equal(tokenResponse.status,200,JSON.stringify(oauth));assert(oauth.access_token);
   const authorized=await connect(oauth.access_token);assert.equal((await authorized.listTools()).tools.length,4);assert.equal((await fetch(base+'/api/state',{headers:{Authorization:'Bearer '+oauth.access_token}})).status,401,'OAuth MCP credentials must not authenticate the application REST API');
-  const replay=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:registered.client_id,redirect_uri:'http://127.0.0.1:4309/callback',code:callback.searchParams.get('code'),code_verifier:verifier,resource:base+'/mcp'})});assert.equal(replay.status,400);
   const grants=(await req('/api/mcp/settings',{cookie})).data.grants,oauthGrant=grants.find(g=>g.kind==='oauth');assert(oauthGrant);assert.equal((await req('/api/mcp/grants/'+oauthGrant.id+'/revoke',{cookie,body:{}})).response.status,200);
   const afterOAuthRevoke=await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+oauth.access_token,'Content-Type':'application/json'},body:'{}'});assert.equal(afterOAuthRevoke.status,401);
   const needsConsent=await fetch(authorize,{headers:{Cookie:cookie,Accept:'text/html','Sec-Fetch-Mode':'navigate'},redirect:'manual'});const needsJSON=needsConsent.status===200?await needsConsent.json():null;assert.equal(new URL(needsConsent.headers.get('Location')||needsJSON?.url,base).pathname,'/mcp/consent');
+  const reconsentURL=new URL(needsConsent.headers.get('Location')||needsJSON?.url,base);
+  const reaccepted=await req('/api/mcp/consent',{cookie,body:{query:reconsentURL.search.slice(1),accept:true,projects:[bid]}});assert.equal(reaccepted.response.status,200,JSON.stringify(reaccepted.data));
+  const reissued=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:registered.client_id,redirect_uri:'http://127.0.0.1:4309/callback',code:new URL(reaccepted.data.url).searchParams.get('code'),code_verifier:verifier,resource:base+'/mcp'})});const newOAuth=await reissued.json();assert.equal(reissued.status,200,JSON.stringify(newOAuth));
+  assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+oauth.access_token,'Content-Type':'application/json'},body:'{}'})).status,401,'a revoked JWT must stay revoked after reconnecting the same client');
+  const renewed=await connect(newOAuth.access_token);assert.deepEqual(content(await renewed.callTool({name:'list_projects',arguments:{}})).projects.map(p=>p.id),[bid]);
+  const refreshed=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:registered.client_id,refresh_token:newOAuth.refresh_token,resource:base+'/mcp'})});const refreshedOAuth=await refreshed.json();assert.equal(refreshed.status,200,JSON.stringify(refreshedOAuth));assert.equal((await (await connect(refreshedOAuth.access_token)).listTools()).tools.length,4);
+
+  const oldRefresh=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:registered.client_id,refresh_token:oauth.refresh_token,resource:base+'/mcp'})});assert.equal(oldRefresh.status,400,'revoked refresh credentials must not revive after reconnecting');
+  const replay=await fetch(discovery.data.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:registered.client_id,redirect_uri:'http://127.0.0.1:4309/callback',code:callback.searchParams.get('code'),code_verifier:verifier,resource:base+'/mcp'})});assert.equal(replay.status,400);
   assert.equal((await req('/api/mcp/grants/'+issued.data.id+'/revoke',{cookie,body:{}})).response.status,200);
   assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,401);
+  const renewedGrant=(await req('/api/mcp/settings',{cookie})).data.grants.find(g=>g.kind==='oauth');assert.equal((await req('/api/mcp/grants/'+renewedGrant.id+'/revoke',{cookie,body:{}})).response.status,200);
   const freshResponse=await fetch(authorize,{redirect:'manual'}),freshJSON=freshResponse.status===200?await freshResponse.json():null;
   const loginURL=new URL(freshResponse.headers.get('Location')||freshJSON?.url,base);assert.equal(loginURL.pathname,'/mcp/login');
   const signedLogin=loginURL.search.slice(1),login=await req('/api/auth/sign-in/email',{body:{email:'mcp-owner@example.com',password:'fixture-mcp-password',oauth_query:signedLogin}});
@@ -68,4 +84,17 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
  }finally{
   await Promise.allSettled(clients.map(c=>c.close()));const closed=new Promise<void>(resolve=>app.server.once('close',resolve));app.server.closeAllConnections();app.close();await closed;await rm(dir,{recursive:true,force:true});
  }
+});
+
+
+test('MCP: expired bot grants do not permanently exhaust the active connection limit',async()=>{
+ const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE user(id TEXT PRIMARY KEY);INSERT INTO user VALUES('fixture-user')");
+ const person={id:'fixture-user',workspaces:[{id:'fixture-project',name:'Fixture project',role:'full'}]};
+ const service=createMcpService({db,auth:{},baseURL:'http://127.0.0.1:4298',version:'fixture',getPerson:()=>person,readProject:()=>({studies:[],findings:[]})});
+ try{
+  for(let i=0;i<30;i++)service.createToken(person,{name:'Fixture '+i,projects:['fixture-project']});
+  assert.throws(()=>service.createToken(person,{name:'Too many',projects:['fixture-project']}),/30/);
+  db.prepare('UPDATE mnema_mcp_grants SET expires=?').run(Date.now()-1);
+  assert.doesNotThrow(()=>service.createToken(person,{name:'Replacement',projects:['fixture-project']}));
+ }finally{await service.close();db.close()}
 });

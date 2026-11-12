@@ -7,33 +7,43 @@ flowchart LR
   Auth --> DB[(SQLite · /data)]
   API --> DB
   API --> Files[Защищённые исходники · /data/uploads]
-  API --> LLM[Настроенный LLM API]
-  API --> Queue[Постоянная очередь]
-  Queue --> ASR[Whisper Small int8 · локально]
-  Queue --> OCR[Poppler + Tesseract · локально]
+  API --> MCP[MCP · чтение по OAuth или bot token]
+  API --> Local[Очередь локальных файлов · один worker]
+  Local --> ASR[Whisper Small int8]
+  Local --> OCR[Poppler + Tesseract]
+  ASR --> Checkpoints[Приватные части · /data/processing]
+  API --> Analysis[Независимая очередь анализа]
+  Analysis --> LLM[Настроенный LLM API]
 ```
 
-Один контейнер обслуживает интерфейс, API и worker. База использует WAL, исходники отдаются через проверку сессии. Секреты провайдеров берутся только из окружения сервера. Проекты используют существующие workspace, изолируют библиотеку, модели и две роли; управление подключениями и участниками остаётся у владельца.
+Один контейнер и один экземпляр приложения обслуживают интерфейс, API и две независимые фоновые очереди. SQLite использует WAL. Все запросы привязаны к выбранному проекту; права, исходники, настройки моделей и участники изолированы на сервере. Клиент хранит обсуждение только в памяти текущей вкладки.
 
-Документы разбиваются на текстовые фрагменты. Поиск в первой версии лексический; для ответа выбираются подходящие фрагменты и передаются настроенной модели. Ссылки в интерфейсе ведут к исходным сегментам. Сам ответ модели может ошибаться — первоисточник нужно проверять.
+## Права и внешние подключения
 
-Распознавание записей запускается отдельно, в локальной модели Whisper. PDF автоматически проходит постраничное извлечение текста и OCR сканов. Задания сохраняются в SQLite; после перезапуска незавершённые возвращаются в очередь. Исходники загружаются частями по 512 КБ с резервированием квоты и идемпотентным повтором. После перезапуска задача распознаётся заново, сегменты получают детерминированные идентификаторы. Перед массовой эксплуатацией нужны нагрузочные проверки и восстановление из бэкапа.
+Вход и приглашения обслуживает Better Auth. Роль «Просмотр» не получает черновики и отклонённые находки, непроверенные сводки и закрытые импортированные карточки. Глобальный чат применяет роль отдельно в каждом доступном проекте и повторно проверяет доступ после генерации. Чтение исходника требует авторизации и сохраняет Range-запросы.
 
-Ветка app содержит frontend; server — API и интеграционные тесты. Демо-данные — вымышленные примеры для отдельного локального demo-build. Production не создаёт из них материалы, пользователей или ответы. В публичном репозитории нет рабочих исследований команды.
+MCP предоставляет `list_projects`, `search`, `fetch`, `get_findings`. Подключение ограничено явно выбранными проектами, исходной и текущей ролью. OAuth использует PKCE; подписанный access token связан с поколением согласия. Отзыв запрещает старые токены, а повторное согласие не восстанавливает им доступ. Ранее выданным OAuth-подключениям после обновления нужна повторная авторизация. Bot token хранится как хеш и имеет срок 30 дней. MCP не вызывает внутреннюю платную LLM. Проверка официальным SDK на синтетических данных не заменяет проверку внешних ChatGPT/Claude-клиентов.
 
-## Summary and transcript workflow
+LLM поддерживает совместимый Chat Completions API, OpenAI Responses и Anthropic Messages. Сохранённые через интерфейс ключи зашифрованы серверным секретом; отдельные подключения могут ссылаться на секрет окружения. Произвольные адреса внутренней сети запрещены.
 
-A summary is requested explicitly on the material page. The server reads the full permitted transcript in bounded chunks, validates source segment IDs and stores the result with transcript revision, model and review state. Only verified summaries are returned to read-only members. Queued tasks survive a restart; interrupted running summaries return to the queue. Completed summaries and prior failures are not recreated automatically.
+## Обработка файлов в 0.9.10
 
-Transcript corrections preserve the original text and append an audit entry. A correction invalidates the old summary. Upload completion is idempotent; upload sessions are scoped to their user and workspace. With local ASR installed, recording uploads enter the processing queue automatically.
+ASR, OCR и отдельное определение спикеров используют одну последовательную локальную очередь. Ожидающие документы выбираются раньше следующей записи, текущий процесс не вытесняется. Сводки и поиск находок выполняются в другой последовательной очереди и не ждут длинную ASR. Контекст проекта каждой задачи ограничен её запуском; несколько CPU-распознаваний одновременно не создаются.
 
-## Import and project context
+Задания файлов сохраняются в SQLite. После перезапуска running возвращаются в queued. Завершённые 15-минутные части ASR записываются атомарно в `/data/processing/<job.id>/asr.json`. То же задание пропускает готовые части; текущая незавершённая часть повторяется. Явный повтор получает новый ID. Checkpoint проверяет версию пайплайна, модель, длительность и структуру данных; повреждённый результат не принимается. Обычное завершение очищает checkpoint. После внезапного завершения процесса он остаётся для продолжения. Подготовка аудио и определение спикеров могут повторяться.
 
-The client pins each API request to a workspace header and each file URL to a validated workspace parameter. Membership is checked before selecting it. The import API is admin-only and disabled unless `MNEMA_IMPORT_SOURCE_ORIGIN` names the source system; provenance URLs must belong to that origin. It accepts bounded source records, never roles or model settings, checks file SHA-256 and stores provenance. The import dialog transfers originals, transcripts and passports, then calls the analyze endpoint: the server queues each imported material for the project's selected model, so imported text is sent to that provider. Generated summaries and findings are drafts. The API can also store source finding cards as drafts in a separate catalog; the dialog does not use it. Readers see only verified material; uploaded originals remain protected by server membership.
+Прогресс содержит измеренный таймкод/часть, без оценки оставшегося времени. Журнал обработки содержит события и длительности без текста интервью. Полный текст сохраняется до необязательного speaker-этапа, поэтому его отдельный сбой не уничтожает завершённую расшифровку. Checkpoints содержат приватный текст и не должны попадать в Git, публичные логи или тестовые артефакты.
 
+## Источники, ответы и анализ
 
-## Private S3 copies
+Документы и записи разбиваются на фрагменты с устойчивыми идентификаторами. Чат использует лексический отбор и связанные исходные доказательства видимых находок. Поздние дополнительные цитаты получают место до общих окон интервью. Число источников ограничено; охват выборки передаётся модели и интерфейсу. Находки помогают выбрать исходный текст и не заменяют его. Полнотекстовый корпус, embeddings и семантический reranking в эту версию не добавлялись. Реальный повтор контрольного вопроса DeepSeek после исправления отбора ещё предстоит.
 
-When MNEMA_S3_BUCKET and credentials are configured, ready originals are copied to a private prefix with streamed checksums. Source routes keep workspace authorization and support Range reads from S3, with a retained local fallback. The working SQLite database remains on the persistent volume; an hourly consistent backup is stored in S3. The service owner can verify its SHA-256 and SQLite integrity in a temporary database without replacing production.
+Сводка обрабатывает весь допустимый текст материала частями, проверяет идентификаторы цитат и сохраняет ревизию, модель и статус проверки. Поиск находок — отдельный проход по полному допустимому тексту. Результат ИИ остаётся черновиком; исправление расшифровки сохраняет оригинал и историю и требует заново создать сводку. Прерванный анализ возвращается в очередь; готовые результаты и прежние ошибки автоматически не пересоздаются.
 
-Completion favicon state is local to the browser tab and uses observed recording transitions; it is not a durable global notification service. The initial ready history does not create notifications.
+## Импорт и хранение
+
+Загрузка идёт частями по 512 КБ, с резервированием квоты и идемпотентным завершением. Импорт доступен владельцу проекта, проверяет происхождение и SHA-256 исходников; пользовательские роли и конфигурацию модели через него передать нельзя. Загруженный текст может быть отправлен выбранному провайдеру при анализе. Производственные материалы в репозитории отсутствуют.
+
+При настройке закрытого S3 исходники копируются с проверкой суммы, а SQLite получает согласованную резервную копию. Локальные оригиналы сохраняются. Проверка копии во временной БД не равна полному восстановлению рабочего сервиса; отдельный restore drill, нагрузка, качество ASR и поиск на корпусе остаются открытыми проверками.
+
+Frontend находится в `app`, API и тесты — в `server`. Локальные тесты используют вымышленные данные и подмену провайдера. Production не создаёт из демонстраций пользователей, исследования или ответы. Favicon отмечает наблюдаемое завершение записи в текущей вкладке; это не постоянная общая служба уведомлений.

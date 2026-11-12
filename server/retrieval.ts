@@ -17,18 +17,31 @@ export function selectEvidence(studies:Study[],question:string,scope='all',hints
  const broadIssue=/проблем|ошиб|трудност|барьер|неудобств/i.test(question)&&(!specific.size||/(?:топ|top)\s*[-–]?\s*\d+/i.test(question));
  const overview=!terms.size||broadIssue||/основн\S* (иде|мысл|вывод)|инсайт|итог|обзор|резюм|что.{0,16}(узнал|нашл|выясн)|проблем\S* повтор|осталось невыясн|общ\S* (информац|вывод|картин)|все\S* (исследован|проект)|что.{0,10}исследова/i.test(question);
  const boosts=new Map<string,number>();
+ const linkedHints:{boost:number;keys:string[]}[]=[];
  for(const hint of hints){
   if(hint.status==='rejected'||hint.origin==='import')continue;
   const matched=hits(stems(hint.title),specific)+(broadIssue&&hint.kind==='Проблема'?1:0);if(!matched)continue;
   const boost=30+10*matched+(hint.status==='verified'?20:0)+(importance[hint.importance||'']||0);
-  for(const segmentId of [hint.segmentId,...hint.evidence||[]]){const key=hint.studyId+'\0'+segmentId;boosts.set(key,Math.max(boosts.get(key)||0,boost))}
+  const keys=[...new Set([hint.segmentId,...hint.evidence||[]])].map(id=>hint.studyId+'\0'+id);
+  linkedHints.push({boost,keys});
+  for(const key of keys)boosts.set(key,Math.max(boosts.get(key)||0,boost));
  }
  const groups=eligible.map(study=>{const titleScore=2*hits(stems(study.title),terms);return study.segments.map(segment=>{
   const text=segment.correctedText??segment.text,key=study.id+'\0'+segment.id;
   return {...segment,studyId:study.id,title:study.title,text,score:10*hits(stems(text),terms)+titleScore+(boosts.get(key)||0)};
  })});
  type Source=typeof groups[number][number];
- const sources:Source[]=[],seen=new Set<string>(),limit=overview?24:12;
+ const byKey=new Map(groups.flat().map(source=>[source.studyId+'\0'+source.id,source]));
+ // A finding may point to several distant excerpts. Reserve those exact originals before
+ // question/answer windows: two windows from one top study can miss the actual event.
+ const relevant=linkedHints.sort((a,b)=>b.boost-a.boost).map(hint=>({boost:hint.boost,sources:hint.keys.map(key=>byKey.get(key)).filter((source):source is Source=>Boolean(source))})).filter(hint=>hint.sources.length);
+ const linked=groups.map(group=>{
+  const hints=relevant.filter(hint=>hint.sources[0].studyId===group[0].studyId),originals:Source[]=[];
+  for(let round=0;hints.some(hint=>hint.sources[round]);round++)for(const hint of hints)if(hint.sources[round])originals.push(hint.sources[round]);
+  return {boost:hints[0]?.boost||0,sources:[...new Map(originals.map(source=>[source.id,source])).values()]};
+ }).filter(plan=>plan.sources.length).sort((a,b)=>b.boost-a.boost).map(plan=>plan.sources);
+ const linkedKeys=new Set(linked.flat().map(source=>source.studyId+'\0'+source.id));
+ const sources:Source[]=[],seen=new Set<string>(),limit=overview?24:Math.max(12,Math.min(24,linkedKeys.size));
  const window=(group:Source[],index:number)=>{
   const anchor=group[index],indices=new Set([index]);
   if(boosts.has(anchor.studyId+'\0'+anchor.id)){
@@ -56,11 +69,13 @@ export function selectEvidence(studies:Study[],question:string,scope='all',hints
   const room=limit-sources.length;const chosen=fresh.length>room?[...fresh.filter(s=>!questionLike(s)),...fresh.filter(questionLike)].slice(0,room):fresh;
   for(const source of chosen){seen.add(source.studyId+'\0'+source.id);sources.push(source)}
  };
- // Keep secondary evidence for a relevant finding before noisy interview questions fill the budget.
- if(specific.size&&plans[0]?.hinted){add(plans[0].windows[0]);add(plans[0].windows[1])}
+ // Interleave materials and their findings so one interview cannot take every linked slot.
+ for(let round=0;sources.length<limit&&linked.some(items=>items[round]);round++)for(const items of linked){
+  if(sources.length>=limit)break;if(items[round])add([items[round]]);
+ }
  for(let round=0;sources.length<limit&&plans.some(p=>p.windows[round]);round++)for(const plan of plans){
   if(sources.length>=limit)break;add(plan.windows[round]);
  }
  const totalFragments=groups.reduce((n,g)=>n+g.length,0);
- return {sources,coverage:{materials:eligible.length,included:new Set(sources.map(s=>s.studyId)).size,fragments:sources.length,totalFragments,sampled:overview||sources.length<totalFragments}};
+ return {sources,coverage:{materials:eligible.length,included:new Set(sources.map(s=>s.studyId)).size,fragments:sources.length,totalFragments,sampled:overview||sources.length<totalFragments,...(linkedKeys.size?{linkedFragments:linkedKeys.size,includedLinkedFragments:sources.filter(source=>linkedKeys.has(source.studyId+'\0'+source.id)).length}:{})}};
 }

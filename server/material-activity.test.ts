@@ -13,3 +13,9 @@ test('public activity distinguishes source processing from queued, running, fail
  s.format='Видео';assert.equal(materialActivity(s).label,'Распознаём запись');
  s.status='error';assert.equal(materialActivity(s).label,'Ошибка обработки');
 });
+
+test('queued uploads never pretend to be extracting or transcribing',()=>{
+ for(const format of ['Видео','PDF','Word']){const s:any={format,status:'processing',processingState:'queued',progress:'stale stage from previous run'};const activity=materialActivity(s);assert.equal(activity.state,'queued');assert.equal(activity.label,'В очереди на обработку');assert(!activity.detail.includes('stale'));s.processingState='running';assert.equal(materialActivity(s).state,'running')}
+});
+
+test('speaker detection is a separate visible stage of recording processing',()=>{assert.deepEqual(materialActivity({status:'processing',format:'Видео',processingState:'running',progress:'Определяем спикеров: 15:00 из 1:00:00'} as any),{state:'running',label:'Определяем спикеров',detail:'Определяем спикеров: 15:00 из 1:00:00'})});

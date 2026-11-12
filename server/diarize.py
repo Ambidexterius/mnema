@@ -34,7 +34,8 @@ def _cosine(a, b) -> float:
 
 
 def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
-                   threshold: float = 0.7, link: float = 0.55, minimum: float = 10.0):
+                   threshold: float = 0.7, link: float = 0.55, minimum: float = 10.0,
+                   on_progress=None):
     """Returns [(start, end, speaker_index)] in recording time and total speakers."""
     import numpy as np
     import sherpa_onnx as so
@@ -58,7 +59,9 @@ def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
     spoken: list[float] = []   # seconds per global speaker
     turns: list[tuple[float, float, int]] = []
     offset = 0.0
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks, 1):
+        if on_progress:
+            on_progress(offset, index, len(chunks))
         audio = decode_audio(str(chunk), sampling_rate=SAMPLE_RATE)
         result = diarizer.process(audio).sort_by_start_time()
         local: dict[int, list[tuple[float, float]]] = {}
@@ -83,12 +86,12 @@ def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
                 vector = np.array(extractor.compute(stream), dtype=np.float32)
             best, score = -1, link
             if vector is not None:
-                for index, centroid in enumerate(voices):
-                    if index in used:
+                for voice_index, centroid in enumerate(voices):
+                    if voice_index in used:
                         continue
                     value = _cosine(vector, centroid)
                     if value >= score:
-                        best, score = index, value
+                        best, score = voice_index, value
             if best < 0:
                 voices.append(vector if vector is not None else np.zeros(1, dtype=np.float32))
                 spoken.append(0.0)
@@ -102,6 +105,8 @@ def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
         for r in result:
             turns.append((offset + r.start, offset + r.end, mapping[r.speaker]))
         offset += len(audio) / SAMPLE_RATE
+        if on_progress:
+            on_progress(offset, index, len(chunks))
 
     # Voices heard for less than `minimum` seconds are usually noise or overlap:
     # attach them to the most similar real voice instead of inventing a person.
@@ -149,12 +154,17 @@ def main():
     parser.add_argument('output')
     parser.add_argument('--models', required=True)
     parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--duration', type=float, default=0)
     args = parser.parse_args()
     os.umask(0o077)
     started = time.monotonic()
     segments = json.loads(Path(args.segments).read_text(encoding='utf-8'))
+    def progress(done, index, total):
+        print(json.dumps({'event': 'progress', 'phase': 'diarization',
+                          'processedSeconds': round(min(done, args.duration), 2),
+                          'totalSeconds': args.duration, 'chunk': index, 'chunks': total}), flush=True)
     turns, _ = diarize_chunks(sorted(Path(args.audio).glob('audio-*.flac')), args.models, max(1, args.threads),
-                              float(os.environ.get('ASR_DIARIZATION_THRESHOLD', '0.7')))
+                              float(os.environ.get('ASR_DIARIZATION_THRESHOLD', '0.7')), on_progress=progress)
     segments, count = label_segments(segments, turns)
     result = {'speakers': {s['id']: s['speaker'] for s in segments if 'id' in s and s.get('speaker', '').startswith(LABEL)},
               'count': count, 'engine': 'pyannote-segmentation-3.0 + WeSpeaker ResNet34',
