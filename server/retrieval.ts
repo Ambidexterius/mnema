@@ -10,20 +10,20 @@ const hits=(haystack:Set<string>,query:Set<string>)=>[...query].filter(term=>hay
 const questionLike=(source:{text:string;speaker?:string})=>/модератор|интервьюер/i.test((source.speaker||'')+' '+source.text.slice(0,120))||source.text.includes('?');
 const importance:Record<string,number>={'Критично':4,'Высокая':3,'Средняя':2,'Низкая':1};
 
-/** Findings are ranking hints only. The model receives original, access-filtered source fragments. */
+/** Findings rank originals; only reviewed titles with selected original links become interpretation context. */
 export function selectEvidence(studies:Study[],question:string,scope='all',hints:FindingHint[]=[]){
  const eligible=studies.filter(s=>(scope==='all'||scope===s.id)&&s.status==='ready'&&s.segments?.length);
  const terms=stems(question),specific=new Set([...terms].filter(term=>!ISSUE.has(term)));
  const broadIssue=/проблем|ошиб|трудност|барьер|неудобств/i.test(question)&&(!specific.size||/(?:топ|top)\s*[-–]?\s*\d+/i.test(question));
  const overview=!terms.size||broadIssue||/основн\S* (иде|мысл|вывод)|инсайт|итог|обзор|резюм|что.{0,16}(узнал|нашл|выясн)|проблем\S* повтор|осталось невыясн|общ\S* (информац|вывод|картин)|все\S* (исследован|проект)|что.{0,10}исследова/i.test(question);
  const boosts=new Map<string,number>();
- const linkedHints:{boost:number;keys:string[]}[]=[];
+ const linkedHints:{boost:number;keys:string[];title:string;status?:string}[]=[];
  for(const hint of hints){
   if(hint.status==='rejected'||hint.origin==='import')continue;
   const matched=hits(stems(hint.title),specific)+(broadIssue&&hint.kind==='Проблема'?1:0);if(!matched)continue;
   const boost=30+10*matched+(hint.status==='verified'?20:0)+(importance[hint.importance||'']||0);
   const keys=[...new Set([hint.segmentId,...hint.evidence||[]])].map(id=>hint.studyId+'\0'+id);
-  linkedHints.push({boost,keys});
+  linkedHints.push({boost,keys,title:hint.title,status:hint.status});
   for(const key of keys)boosts.set(key,Math.max(boosts.get(key)||0,boost));
  }
  const groups=eligible.map(study=>{const titleScore=2*hits(stems(study.title),terms);return study.segments.map(segment=>{
@@ -77,6 +77,10 @@ export function selectEvidence(studies:Study[],question:string,scope='all',hints
  for(let round=0;sources.length<limit&&plans.some(p=>p.windows[round]);round++)for(const plan of plans){
   if(sources.length>=limit)break;add(plan.windows[round]);
  }
+ const selectedNumbers=new Map(sources.map((source,index)=>[source.studyId+'\0'+source.id,index+1]));
+ // A reviewed interpretation is never substituted for a raw quote. Every supplied
+ // number must refer to an already selected original of this exact scoped study.
+ const reviewedFindings=linkedHints.filter(hint=>hint.status==='verified').map(hint=>({title:hint.title.trim().slice(0,160),sourceNumbers:hint.keys.map(key=>selectedNumbers.get(key)).filter((number):number is number=>number!==undefined)})).filter(hint=>hint.title&&hint.sourceNumbers.length).slice(0,6);
  const totalFragments=groups.reduce((n,g)=>n+g.length,0);
- return {sources,coverage:{materials:eligible.length,included:new Set(sources.map(s=>s.studyId)).size,fragments:sources.length,totalFragments,sampled:overview||sources.length<totalFragments,...(linkedKeys.size?{linkedFragments:linkedKeys.size,includedLinkedFragments:sources.filter(source=>linkedKeys.has(source.studyId+'\0'+source.id)).length}:{})}};
+ return {sources,reviewedFindings,coverage:{materials:eligible.length,included:new Set(sources.map(s=>s.studyId)).size,fragments:sources.length,totalFragments,sampled:overview||sources.length<totalFragments,...(linkedKeys.size?{linkedFragments:linkedKeys.size,includedLinkedFragments:sources.filter(source=>linkedKeys.has(source.studyId+'\0'+source.id)).length}:{})}};
 }

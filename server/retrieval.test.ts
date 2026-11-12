@@ -89,3 +89,21 @@ test('competing same-study finding primaries cannot displace the fifth quote of 
  const scoped=selectEvidence([large,small],'Что известно про ответы хозяина?','small',hints);
  assert.deepEqual(scoped.sources.map(source=>source.id),['small0']);assert.equal(scoped.coverage.linkedFragments,1);
 });
+
+test('reviewed interpretation context contains only matched verified titles bound to selected originals of the scoped material',()=>{
+ const allowed={...study('allowed',3),segments:[{id:'shared',time:0,text:'Синтетический доступный эпизод.'},{id:'next',time:1,text:'Синтетическое продолжение.'}]};
+ const other={...study('other',2),segments:[{id:'shared',time:0,text:'Другой проект с тем же ID.'},{id:'private',time:1,text:'Недоступная ссылка.'}]};
+ const verified={studyId:'allowed',segmentId:'shared',evidence:['next','private','missing'],title:'Возврат депозита задерживается',status:'verified',importance:'Критично',description:'PRIVATE_DESCRIPTION_MUST_NOT_BE_SENT'};
+ const result=selectEvidence([allowed,other] as any,'Возврат депозита','allowed',[verified,{...verified,status:'draft',title:'Возврат депозита DRAFT_PRIVATE'},{...verified,status:'rejected',title:'Возврат депозита REJECTED_PRIVATE'},{...verified,studyId:'other',title:'Возврат депозита OTHER_PRIVATE'},{...verified,studyId:'missing',title:'Возврат депозита MISSING_PRIVATE'},{...verified,title:'Совсем другая тема'}]);
+ assert.equal(result.reviewedFindings.length,1);const context=result.reviewedFindings[0];assert.equal(context.title,verified.title);
+ assert.deepEqual(context.sourceNumbers.map(number=>result.sources[number-1].id),['shared','next']);assert(context.sourceNumbers.every(number=>result.sources[number-1].studyId==='allowed'));
+ assert.deepEqual(Object.keys(context).sort(),['sourceNumbers','title']);assert(!JSON.stringify(result.reviewedFindings).includes('PRIVATE'));
+ assert(result.sources.every(source=>source.text!==verified.title));assert.equal(selectEvidence([allowed] as any,'Возврат депозита','missing',[verified]).reviewedFindings.length,0);
+ const wrongLink=selectEvidence([allowed,other] as any,'Возврат депозита','allowed',[{...verified,segmentId:'private',evidence:[]}]);assert.equal(wrongLink.reviewedFindings.length,0);
+});
+
+test('reviewed context is capped at six strongest matched titles, truncates text and never invents a source number',()=>{
+ const doc=study('reviewed',20),hints=Array.from({length:12},(_,i)=>({studyId:doc.id,segmentId:doc.id+i,title:'Возврат депозита '+String(i)+' '.repeat(2)+'длинное название '.repeat(15),status:'verified',importance:i===11?'Критично':'Низкая'}));
+ const result=selectEvidence([doc],'Возврат депозита','all',hints);assert.equal(result.reviewedFindings.length,6);assert(result.reviewedFindings[0].title.startsWith('Возврат депозита 11'));
+ assert(result.reviewedFindings.every(finding=>finding.title.length<=160&&finding.sourceNumbers.length&&finding.sourceNumbers.every(number=>Number.isSafeInteger(number)&&Boolean(result.sources[number-1]))));
+});
