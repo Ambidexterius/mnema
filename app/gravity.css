@@ -780,3 +780,39 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .bulk-stack{box-shadow:0 4px 0 -1px var(--g-color-base-background),0 5px 0 var(--g-color-line-generic),0 9px 0 -2px var(--g-color-base-background),0 10px 0 -1px var(--g-color-line-generic),0 14px 30px #0002}
 .bulk-status progress{width:100%;accent-color:var(--g-color-base-brand)}.bulk-status{min-width:min(430px,65vw)}
 @media(max-width:600px){.bulk-line{flex-wrap:wrap}.bulk-status .bulk-name{min-width:45%}.bulk-files{max-height:45dvh}}
+
+.bulk-picker-dialog{width:min(640px,calc(100vw - 32px));max-width:100%}
+.upload-picker{gap:0;border-radius:8px}.upload-picker.is-dragging{outline:2px solid var(--g-color-line-brand);outline-offset:2px}
+.upload-drop{border:1px dashed var(--g-color-line-generic);border-radius:8px;display:grid;justify-items:center;gap:8px;padding:28px 16px;text-align:center;background:var(--g-color-base-generic-ultralight)}
+.upload-drop-symbol,.upload-kind{display:grid;place-items:center;color:var(--g-color-text-secondary)}
+.upload-drop .g-button{margin-top:8px}.upload-drop strong,.upload-summary-setting strong,.upload-selection-head strong{font:var(--g-text-subheader-1-font)}
+.upload-selection-head,.upload-choice{display:flex;align-items:center;gap:12px}
+.upload-selection-head{padding-bottom:8px;border-bottom:1px solid var(--g-color-line-generic)}.upload-selection-head strong{flex:1}
+.upload-choice-list{max-height:min(42dvh,360px)}.upload-choice-list li{padding:0}.upload-choice-list li:last-child{border-bottom:0}
+.upload-choice{min-height:60px;padding:4px 0}.upload-kind{flex:0 0 28px}.upload-choice .bulk-name strong{font-size:14px;line-height:1.4}.upload-choice .bulk-name small{font-variant-numeric:tabular-nums}
+.upload-choice .expanded{transform:rotate(180deg)}.upload-choice-list .unchecked .bulk-name strong{font-weight:400;color:var(--g-color-text-secondary)}
+.upload-edit-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:var(--g-color-base-generic-ultralight);padding:12px 16px;margin:0 0 12px 28px;border-radius:8px}
+.upload-edit-fields label,.upload-edit-fields>div{display:grid;gap:4px;min-width:0}.upload-edit-fields label:first-child{grid-column:1/-1}
+.upload-summary-setting{display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:1px solid var(--g-color-line-generic);margin-top:16px;padding-top:16px}
+.upload-summary-setting small{margin-top:4px;line-height:1.45}
+@media(max-width:600px){.upload-selection-head,.upload-choice{gap:6px}.upload-kind{display:none}.upload-edit-fields{grid-template-columns:1fr;margin-left:0}.upload-choice .g-button,.upload-selection-head .g-button{min-height:44px}.upload-choice .g-checkbox{padding-block:12px}.upload-drop{padding:20px 8px}.bulk-picker-dialog .g-dialog-footer{flex-wrap:wrap}}
+
+/* Upload notifications: one right-hand stack, expandable without leaving the project. */
+.transfer-dock{--dock-gap:24px;position:fixed;right:max(var(--dock-gap),env(safe-area-inset-right));bottom:max(var(--dock-gap),env(safe-area-inset-bottom));width:min(400px,calc(100vw - 2 * var(--dock-gap)));max-height:calc(100dvh - 2 * var(--dock-gap));z-index:35;display:flex;flex-direction:column;gap:8px;pointer-events:none;color:var(--g-color-text-primary);animation:transfer-arrive .2s ease-out}
+.transfer-card,.transfer-head::before,.transfer-head::after{box-sizing:border-box;background:var(--g-color-base-float);border:1px solid var(--g-color-line-generic);border-radius:8px;box-shadow:0 3px 14px #0002}
+.transfer-head{isolation:isolate;position:relative;flex:none;pointer-events:auto}
+.transfer-head[data-layers="1"]::before,.transfer-head[data-layers="2"]::before,.transfer-head[data-layers="2"]::after{content:"";position:absolute;inset:-6px 8px 6px;z-index:-1;pointer-events:none}
+.transfer-head[data-layers="2"]::after{inset:-12px 16px 12px;z-index:-2}
+.transfer-front,.transfer-toggle,.transfer-file{display:flex;align-items:center;gap:12px;min-width:0}
+.transfer-front{padding-right:10px}.transfer-toggle{padding:14px 4px 14px 16px;width:100%;min-height:66px;text-align:left;border:0;border-radius:8px;background:transparent;font:inherit;color:inherit;cursor:pointer}
+.transfer-toggle:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:-3px}
+.transfer-toggle svg,.transfer-file>svg{flex:none}.transfer-toggle>span:first-of-type{flex:1;min-width:0}.transfer-toggle strong,.transfer-toggle small{display:block;overflow-wrap:anywhere}.transfer-toggle small{margin-top:3px;color:var(--g-color-text-secondary);font-size:12px;font-variant-numeric:tabular-nums}
+.transfer-disclosure{flex:none;border-radius:6px;background:var(--g-color-base-generic);padding:5px 8px;font-size:12px;font-weight:500}
+.transfer-list{display:flex;flex-direction:column;gap:8px;list-style:none;margin:0 -4px;padding:3px 4px;min-height:0;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto}
+.transfer-file{flex:none;padding:12px 14px;min-height:52px;animation:transfer-reveal .18s ease-out}.transfer-file .bulk-name{flex:1}.transfer-actions{display:grid;justify-items:end}.transfer-actions:empty{display:none}.transfer-file progress{display:block;width:100%;height:4px;accent-color:var(--g-color-base-brand);margin-top:6px}
+.transfer-sr{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
+.toast{left:auto;right:max(24px,env(safe-area-inset-right));transform:none}.transfer-dock~.toast.shown{top:max(24px,env(safe-area-inset-top));bottom:auto}
+@keyframes transfer-arrive{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes transfer-reveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(max-width:600px){.transfer-dock{--dock-gap:12px}.transfer-toggle,.transfer-file{gap:8px}.transfer-actions .g-button{min-height:36px}.toast{right:12px}}
+@media(prefers-reduced-motion:reduce){.transfer-dock,.transfer-file{animation:none}}

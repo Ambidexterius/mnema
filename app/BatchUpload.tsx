@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {Button,Checkbox,Dialog,Select,Switch,TextInput} from '@gravity-ui/uikit';
-import {ArrowUpCircle,CheckCircle2,FileText,Upload,X} from 'lucide-react';
+import {AlertCircle,ArrowUpCircle,CheckCircle2,FileText,FileSpreadsheet,FileVideo,FileAudio,ChevronDown,Plus,Upload,X} from 'lucide-react';
 import {fileKey,UploadQueue,type UploadItem,type UploadRow} from './upload-queue.ts';
 
 const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xlsx';
@@ -14,6 +14,7 @@ const labels:Record<UploadRow['state'],string>={queued:'В очереди',uploa
 function Picker({close,start,model}:{close:()=>void;start:(items:UploadItem[])=>void;model:string}){
  const [rows,setRows]=useState<Draft[]>([]),[autoSummary,setSummary]=useState(true);
  const input=useRef<HTMLInputElement>(null);
+ const [expanded,setExpanded]=useState<string|null>(null),[dragging,setDragging]=useState(false);
  function add(files:FileList|null){
    const added=Array.from(files||[]);
    setRows(previous=>{
@@ -28,21 +29,40 @@ function Picker({close,start,model}:{close:()=>void;start:(items:UploadItem[])=>
  }
  function edit(id:string,change:Partial<Draft>){setRows(prev=>prev.map(r=>r.id===id?{...r,...change}:r))}
  const selected=rows.filter(r=>r.checked&&!r.invalid);
- return <Dialog open onClose={close} size="m" aria-label="Загрузка материалов"><Dialog.Header caption="Загрузка материалов"/>
-  <Dialog.Body><div className="bulk-picker">
-   <input ref={input} type="file" multiple accept={accept} hidden onChange={e=>{add(e.target.files);e.target.value=''}}/>
-   {rows.length>0&&<ul className="bulk-files">{rows.map(r=><li key={r.id}>
-    <div className="bulk-line"><Checkbox checked={r.checked} disabled={Boolean(r.invalid)} onUpdate={checked=>edit(r.id,{checked})} controlProps={{'aria-label':'Загрузить '+r.file.name}}/>
-     <div className="bulk-name"><strong>{r.file.name}</strong><small>{r.invalid||size(r.file.size)}</small></div>
+ const available=rows.filter(r=>!r.invalid);
+ const toggleAll=()=>setRows(prev=>prev.map(r=>({...r,checked:!r.invalid&&selected.length!==available.length})));
+ return <Dialog open className="bulk-picker-dialog" onClose={close} size="m" aria-label="Загрузка материалов"><Dialog.Header caption="Загрузка материалов"/>
+  <Dialog.Body><div className={'bulk-picker upload-picker'+(dragging?' is-dragging':'')}
+    onDragOver={event=>{event.preventDefault();setDragging(true)}}
+    onDragLeave={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setDragging(false)}}
+    onDrop={event=>{event.preventDefault();setDragging(false);add(event.dataTransfer.files)}}>
+   <input ref={input} type="file" multiple accept={accept} hidden onChange={event=>{add(event.target.files);event.target.value=''}}/>
+   {!rows.length?<div className="upload-drop">
+    <span className="upload-drop-symbol"><Upload size={24} aria-hidden="true"/></span>
+    <strong>Перетащите файлы сюда</strong><small>PDF, Word, XLSX, TXT, аудио и видео · до 2 ГБ на файл</small>
+    <Button view="outlined" size="l" onClick={()=>input.current?.click()}>Выбрать файлы</Button>
+   </div>:<>
+    <div className="upload-selection-head"><Checkbox checked={available.length>0&&selected.length===available.length} indeterminate={selected.length>0&&selected.length<available.length} disabled={!available.length} onUpdate={toggleAll} controlProps={{'aria-label':'Выбрать все файлы'}}/>
+     <strong>Выбрано {selected.length} из {rows.length}</strong>
+     <Button view="flat" onClick={()=>input.current?.click()}><Plus size={16}/>Добавить файлы</Button>
     </div>
-    {!r.invalid&&<details className="bulk-fields"><summary>Поля материала</summary><label>Название<TextInput value={r.title} onUpdate={title=>edit(r.id,{title})} controlProps={{maxLength:140}}/></label>
-     <div><span>Тип источника</span><Select width="max" aria-label="Тип источника" value={[r.type]} options={types} onUpdate={v=>edit(r.id,{type:v[0]})}/></div>
-     <label>Тема<TextInput value={r.project} onUpdate={project=>edit(r.id,{project})} controlProps={{maxLength:80}}/></label></details>}
-   </li>)}</ul>}
-   <Button view="outlined" onClick={()=>input.current?.click()}><Upload size={16}/>{rows.length?'Добавить ещё файлы':'Выбрать файлы'}</Button>
-   <small>PDF, Word, XLSX, TXT, аудио и видео · до 2 ГБ на файл</small>
-   <Switch checked={autoSummary} onUpdate={setSummary} content="Создать сводки после обработки"/>
-   {autoSummary&&<small>Текст выбранных материалов будет отправлен модели {model}.</small>}
+    <ul className="bulk-files upload-choice-list">{rows.map(r=>{
+     const extension=r.file.name.split('.').at(-1)?.toUpperCase();
+     const Icon=['MP4','MOV','WEBM'].includes(extension)?FileVideo:['MP3','WAV','M4A'].includes(extension)?FileAudio:extension==='XLSX'?FileSpreadsheet:FileText;
+     return <li key={r.id} className={r.checked?'':'unchecked'}>
+      <div className="upload-choice"><Checkbox checked={r.checked} disabled={Boolean(r.invalid)} onUpdate={checked=>edit(r.id,{checked})} controlProps={{'aria-label':'Загрузить '+r.file.name}}/>
+       <span className="upload-kind"><Icon size={19} aria-hidden="true"/></span>
+       <div className="bulk-name"><strong>{r.file.name}</strong><small>{r.invalid||extension+' · '+size(r.file.size)}</small></div>
+       {!r.invalid&&<Button view="flat" size="m" aria-label={'Поля материала '+r.file.name} aria-expanded={expanded===r.id} aria-controls={'fields-'+r.id} onClick={()=>setExpanded(expanded===r.id?null:r.id)}>Поля<ChevronDown size={14} className={expanded===r.id?'expanded':''}/></Button>}
+      </div>
+      {expanded===r.id&&<div id={'fields-'+r.id} className="upload-edit-fields"><label>Название<TextInput value={r.title} onUpdate={title=>edit(r.id,{title})} controlProps={{maxLength:140}}/></label>
+       <div><span>Тип источника</span><Select width="max" aria-label="Тип источника" value={[r.type]} options={types} onUpdate={v=>edit(r.id,{type:v[0]})}/></div>
+       <label>Тема<TextInput value={r.project} onUpdate={project=>edit(r.id,{project})} controlProps={{maxLength:80}}/></label></div>}
+     </li>
+    })}</ul>
+   </>}
+   <div className="upload-summary-setting"><div><strong>Создать сводки</strong><small>{autoSummary?'После обработки текст получит модель '+model+'.':'Сводку можно создать позже в материале.'}</small></div>
+    <Switch checked={autoSummary} onUpdate={setSummary} controlProps={{'aria-label':'Создать сводки после обработки'}}/></div>
   </div></Dialog.Body>
   <Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={close} textButtonApply={selected.length?'Загрузить '+countFiles(selected.length):'Загрузить'} propsButtonApply={{disabled:!selected.length}} onClickButtonApply={()=>{start(selected.map(({file,title,type,project})=>({file,title:title.trim()||file.name,type,project,autoSummary})));close()}}/>
  </Dialog>;
@@ -54,28 +74,33 @@ export default function BatchUpload({open,close,workspace,model,receive,openStud
  const [queue]=useState(()=>new UploadQueue(result=>{receiveRef.current(result);if(single.current&&result.createdStudyId)openStudy(result.createdStudyId)}));
  const rows=useSyncExternalStore(queue.subscribe,queue.snapshot);
  const [details,setDetails]=useState(false);
+ const toggle=useRef<HTMLButtonElement>(null);
  useEffect(()=>{const sync=()=>{busy.current=queue.busy};const unsubscribe=queue.subscribe(sync);sync();return()=>{unsubscribe();queue.dispose();busy.current=false}},[queue,busy]);
  const done=rows.filter(r=>r.state==='ready').length;
  const failed=rows.filter(r=>r.state==='error'||r.state==='cancel-error').length;
  const cancelled=rows.filter(r=>r.state==='cancelled').length;
  const summary=queue.busy?'Загрузка файлов':failed?'Не все файлы загружены':cancelled===rows.length?'Загрузка отменена':'Загрузка завершена';
- return <>{open&&<Picker close={close} model={model} start={items=>{if(!queue.busy&&rows.every(r=>r.state==='ready'||r.state==='cancelled'))queue.clear();single.current=!queue.snapshot().length&&items.length===1;queue.add(items,workspace)}}/>}
- {rows.length>0&&<aside className={'upload-task-tray bulk-tray'+(rows.length>1?' bulk-stack':'')} aria-label="Загрузка файлов">
-  <ArrowUpCircle size={20}/><div><strong role="status">{summary} · {done} из {rows.length}</strong>
-   {rows.length===1&&<small>{rows[0].name} · {rows[0].state==='uploading'?rows[0].percent+' %':labels[rows[0].state]}</small>}
-   {cancelled>0&&<small>Отменено: {cancelled}</small>}
-   <Button size="s" onClick={()=>setDetails(true)}>Подробнее</Button></div>
-  {!queue.busy&&!failed&&<Button view="flat" size="s" aria-label="Закрыть уведомление" onClick={()=>queue.clear()}><X size={16}/></Button>}
- </aside>}
- {details&&<Dialog open size="m" aria-label="Ход загрузки" onClose={()=>setDetails(false)}><Dialog.Header caption="Ход загрузки"/><Dialog.Body>
-  <ul className="bulk-files bulk-status">{rows.map(r=><li key={r.id}><div className="bulk-line">
-   {r.state==='ready'?<CheckCircle2 size={18}/>:<FileText size={18}/>}
+ return <>{open&&<Picker close={close} model={model} start={items=>{if(!queue.busy&&rows.every(r=>r.state==='ready'||r.state==='cancelled'))queue.clear();if(!queue.snapshot().length)setDetails(false);single.current=!queue.snapshot().length&&items.length===1;queue.add(items,workspace)}}/>}
+ {rows.length>0&&<aside className="transfer-dock" aria-label="Загрузка файлов" onKeyDown={event=>{if(details&&event.key==='Escape'){setDetails(false);toggle.current?.focus()}}}>
+  {details&&<ul className="transfer-list" id="transfer-files" aria-label="Ход загрузки">{rows.map(r=><li key={r.id} className="transfer-card transfer-file">
+   {r.state==='ready'?<CheckCircle2 size={18} aria-hidden="true"/>:['error','cancel-error'].includes(r.state)?<AlertCircle size={18} aria-hidden="true"/>:<FileText size={18} aria-hidden="true"/>}
    <div className="bulk-name"><strong>{r.name}</strong><small>{size(r.size)} · {labels[r.state]}{r.state==='uploading'?' · '+r.percent+' %':''}</small>
    {r.state==='uploading'&&<progress max={100} value={r.percent} aria-label={'Загрузка '+r.name}/>}
    {r.error&&['error','cancel-error'].includes(r.state)&&<small>{r.error}</small>}</div>
-   {r.state==='error'&&<Button size="s" onClick={()=>queue.retry(r.id)}>Повторить</Button>}
+   <div className="transfer-actions">{r.state==='error'&&<Button size="s" onClick={()=>queue.retry(r.id)}>Повторить</Button>}
    {['queued','uploading','error','cancel-error'].includes(r.state)&&<Button size="s" view="flat" aria-label={'Отменить загрузку '+r.name} onClick={()=>queue.cancel(r.id)}>{r.state==='cancel-error'?'Повторить отмену':'Отменить'}</Button>}
-   {r.studyId&&<Button view="flat" size="s" href={'#/study/'+r.studyId} onClick={()=>setDetails(false)}>Открыть</Button>}
-  </div></li>)}</ul></Dialog.Body></Dialog>}
+   {r.studyId&&<Button view="flat" size="s" href={'#/study/'+r.studyId} onClick={()=>setDetails(false)}>Открыть</Button>}</div>
+  </li>)}</ul>}
+  <div className="transfer-head" data-layers={details?0:Math.min(rows.length-1,2)}>
+   <div className="transfer-card transfer-front">
+    <button className="transfer-toggle" ref={toggle} aria-expanded={details} aria-controls={details?'transfer-files':undefined} onClick={()=>setDetails(!details)}>
+     {queue.busy?<ArrowUpCircle size={19}/>:failed?<AlertCircle size={19}/>:done?<CheckCircle2 size={19}/>:<X size={19}/>}
+     <span><strong>{summary}</strong><small>{rows.length===1?rows[0].name+' · '+(rows[0].state==='uploading'?rows[0].percent+' %':labels[rows[0].state]):'Загружено: '+done+' из '+rows.length+(cancelled?' · Отменено: '+cancelled:'')}</small></span>
+     <span className="transfer-disclosure">{details?'Свернуть':'Подробнее'}</span>
+    </button>
+    {!queue.busy&&!failed&&<Button view="flat" size="s" aria-label="Закрыть уведомление" onClick={()=>{setDetails(false);queue.clear()}}><X size={16}/></Button>}
+   </div>
+  </div><span className="transfer-sr" role="status">{summary}. Загружено: {done} из {rows.length}</span>
+ </aside>}
  </>;
 }
