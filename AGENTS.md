@@ -5,8 +5,9 @@
 Перед отправкой изменений: npm run check (типы, тесты, сборка). Не выполняйте production-деплой автоматически после PR. Публикация — отдельное действие владельца. Секретов хостинга и рабочих исследований в этом репозитории нет.
 
 
-## Interface conventions in 0.9.12
+## Interface conventions in 0.9.13
 
-Use Gravity UI and Lucide. Home and project chat share ChatComposer; keep their data scopes separate. Rectangular surfaces use the shared --mn-radius token at 12 px. Keep the 8 px workspace inset and the 32 px gap before project folders. The logo is light in dark mode and #EE204D in light mode; primary action backgrounds are #EE204D with white text/icons. Selected navigation is neutral gray. Never publish research, data, secrets, local workbenches or private reference material.
+Use Gravity UI and Lucide. Home and project chat share ChatComposer; keep their data scopes separate. Only the global composer and project folders on the home page use --mn-home-radius at 12 px. Other controls use Gravity UI's own radius values; do not override the global --g-* radius tokens. Keep the 8 px workspace inset and the 32 px gap before project folders. The logo is light in dark mode and #EE204D in light mode; primary action backgrounds are #EE204D with white text/icons. Selected navigation is neutral gray. Never publish research, data, secrets, local workbenches or private reference material.
 
-Release 0.9.12 is local only. Do not push any branch, merge to main/master, create release archives, or deploy to Amvera until the owner explicitly requests publication.
+
+Current release 0.9.13: the owner explicitly authorized code-only release packaging and push/deployment to Amvera. GitHub main/master remains on hold. Use Gravity UI defaults outside the home chat and project folders.

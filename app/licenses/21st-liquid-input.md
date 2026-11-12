@@ -8,7 +8,7 @@ source was retrieved from the authenticated 21st interface on 2026-11-12 and is
 retained in the private working reference, outside release output.
 
 Mnemonika uses only the decorative conic-gradient border, adapted to the
-existing Gravity composer, #EE204D brand color, 8 px corner radius, and reduced
+existing Gravity composer, #EE204D brand color, Gravity UI corner radii (12 px only on the home composer), and reduced
 motion. Attachment handling and the example model picker are not integrated.
 
 MIT license text:
