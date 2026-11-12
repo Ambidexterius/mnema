@@ -21,3 +21,8 @@ Owner-authorized publication of this release to GitHub main and Amvera. Navigati
 ## Release 0.9.15
 
 Owner follow-up during the authorized release: omit the sampled-material coverage sentence below global and project answers. Keep server-side coverage, source citations and access controls.
+
+
+## Release 0.9.16
+
+Owner follow-up: shared findings use category chips instead of search/project filters; priority is the first column with colored badges, verified status is neutral gray. The table wraps text and fits its container; mobile rows retain project/status under the finding title.

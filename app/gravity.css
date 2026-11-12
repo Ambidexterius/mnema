@@ -999,3 +999,36 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .message-arrive{animation:message-arrive 200ms cubic-bezier(.23,1,.32,1) both}
 @keyframes message-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.message-arrive{animation:none}}
+
+/* Findings fit their container; supporting details join the title on narrow screens. */
+.findings-type-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.findings-type-chips .g-button{--g-button-border-radius:16px}
+.findings-table{min-width:0;max-width:100%;overflow:visible}
+.findings-table .g-table{min-width:0;width:100%;max-width:100%}
+.findings-table .g-table__table{width:100%;min-width:0;max-width:100%;table-layout:fixed}
+.findings-table .g-table__cell{white-space:normal;overflow-wrap:anywhere}
+.findings-table .g-label{max-width:100%}
+.findings-table .catalog-link{width:100%;min-width:0;gap:8px}
+.findings-table .catalog-link span{min-width:0}
+.finding-title{flex:1;min-width:0;overflow-wrap:anywhere}
+.finding-title>span:first-child{display:block}
+.finding-mobile-meta{display:none}
+@media(max-width:639px){
+ .findings-type-chips .g-button{min-height:44px}
+ .findings-table .g-table__cell{padding:12px 8px}
+ .findings-table .g-table__cell:nth-child(1){width:104px}
+ .findings-table .g-table__cell:nth-child(3),.findings-table .g-table__cell:nth-child(4){display:none}
+ .findings-table .g-table__cell:nth-child(2){width:auto}
+ .finding-mobile-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;font-size:12px;font-weight:400;color:var(--g-color-text-secondary)}
+ .finding-mobile-meta>span:first-child{flex-basis:100%;overflow-wrap:anywhere}
+}
+
+/* Use the existing site filter control, including its keyboard interaction. */
+.findings-type-tabs .g-segmented-radio-group{max-width:100%}
+@media(max-width:639px){
+ .findings-type-tabs .g-segmented-radio-group{display:flex;flex-wrap:wrap;width:100%}
+ .findings-type-tabs .g-segmented-radio-group__option{flex:1 1 45%;min-height:44px;justify-content:center}
+}
+/* Calmer than the complementary text role, while retaining readable contrast. */
+.shared-composer .g-text-area__control::placeholder{color:var(--g-color-private-black-600);opacity:1}
+html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:var(--g-color-private-white-600)}

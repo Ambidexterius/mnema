@@ -1,13 +1,14 @@
 import React, {useRef} from 'react';
 import {Button, TextArea} from '@gravity-ui/uikit';
 import {ArrowUp, Library} from 'lucide-react';
-import {submitChatOnEnter} from './chat-keyboard.ts';
+import {acceptChatSuggestion,submitChatOnEnter} from './chat-keyboard.ts';
 
 interface ChatComposerProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => unknown | Promise<unknown>;
   placeholder: string;
+  suggestion?: string;
   inputLabel: string;
   sendLabel: string;
   scopeLabel?: string;
@@ -18,7 +19,7 @@ interface ChatComposerProps {
 }
 
 /** One presentation for global and project chat; each caller owns its data scope. */
-export default function ChatComposer({value,onChange,onSubmit,placeholder,inputLabel,
+export default function ChatComposer({value,onChange,onSubmit,placeholder,suggestion,inputLabel,
   sendLabel,scopeLabel,scopeAction,modelControl,available,loading}:ChatComposerProps) {
   const submitting=useRef(false);
   return <form className="composer composer-animated-edge shared-composer"
@@ -29,9 +30,9 @@ export default function ChatComposer({value,onChange,onSubmit,placeholder,inputL
       try{await onSubmit(value)}finally{submitting.current=false}
     }}>
     <span className="composer-edge" aria-hidden="true"><span className="composer-edge__paint"/></span>
-    <TextArea value={value} onUpdate={onChange} onKeyDown={submitChatOnEnter}
+    <TextArea value={value} onUpdate={onChange} onKeyDown={event=>{if(available&&!loading&&acceptChatSuggestion(event,value,suggestion,onChange))return;submitChatOnEnter(event)}}
       disabled={loading} placeholder={placeholder} minRows={2} maxRows={6}
-      controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':'Enter Shift+Enter',maxLength:2000}}/>
+      controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':suggestion?'Tab Enter Shift+Enter':'Enter Shift+Enter','aria-description':suggestion?'Tab — использовать пример вопроса; Enter — отправить; Shift+Enter — новая строка.':undefined,maxLength:2000}}/>
     <div className="composer-footer">
       {scopeLabel?<span className="scope"><Library size={14} aria-hidden="true"/>{scopeLabel}</span>:null}
       {scopeAction}
