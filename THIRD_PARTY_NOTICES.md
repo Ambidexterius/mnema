@@ -15,3 +15,7 @@ Original Shape 69: Monika Michalczyk, https://www.shapes.gallery/. Geometry reta
 ## Предпросмотр документов
 
 В собранный интерфейс входят pdf.js (pdfjs-dist 6.4.299, Apache-2.0, https://github.com/mozilla/pdf.js) — страницы PDF и текстовый слой; docx-preview 0.4.1 (Apache-2.0, https://github.com/VolodymyrBaydalka/docxjs) — страницы Word; JSZip (MIT или GPL-3.0-or-later, используется по MIT, https://github.com/Stuk/jszip). Тексты лицензий — в соответствующих npm-пакетах; версии закреплены в package-lock.json.
+
+## Декоративная рамка чата
+
+Conic-gradient border adapted from Liquid Multimodal Input by Wensity Labs (MIT), https://21st.dev/@wensity/components/liquid-multimodal-input. See app/licenses/21st-liquid-input.md.
