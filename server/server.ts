@@ -1,3 +1,4 @@
+import {fileNameKey,existingFileMessage,uploadingFileMessage} from '../app/file-name.ts';
 import {createAnswerFeedback} from './answer-feedback.ts';
 import {requestSummary} from './summary-request.ts';
 import {mcpPlugins,createMcpService} from './mcp.ts';
@@ -256,6 +257,54 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const worker=setInterval(()=>{for(const lane of ['files','analysis'] as const)work(lane).catch(error=>console.error('Worker failed',lane,error.name,error.code||''))},1000);worker.unref();
  const enqueue=(study,kind)=>{if(deletingStudies.has(jobKey(currentWs(),study.id)))fail(409,'Материал удаляется. Дождитесь завершения.');if(q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND status IN ('queued','running')").get(study.id))fail(409,'Этот материал уже обрабатывается.');q('INSERT INTO mnema_jobs(id,study_id,status,kind,created,workspace_id) VALUES(?,?,?,?,?,?)').run(randomUUID(),study.id,'queued',kind,Date.now(),currentWs());mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;if(kind==='speakers')item.speakerInfo={state:'queued',startedAt:Date.now()};else Object.assign(item,{status:'processing',step:1,processingStartedAt:undefined,processingUpdatedAt:Date.now(),progress:'В очереди на обработку',error:null})})};
  const uploadBusy=new Set();
+ // Both upload routes claim a name before accepting bytes. The SQLite writer lock
+ // covers the check and reservation, including requests from different users.
+ function checkUploadName(name: string, ownReservation?: string) {
+  const key = fileNameKey(name);
+  const existing = getState().state.studies.some(study => {
+   const originalName = study.fileName || (study.fileId && q('SELECT name FROM mnema_uploads WHERE id=?').get(study.fileId)?.name);
+   return originalName && fileNameKey(originalName) === key;
+  });
+  if (existing) fail(409, existingFileMessage, {uploadCode:'duplicate_file_name'});
+  // Sessions created before name reservations may already share a name.
+  // In that case only the earliest open session can finish first.
+  const pending = q(`SELECT u.name FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id
+   WHERE u.status='uploading' AND coalesce(json_extract(s.metadata,'$.workspaceId'),'main')=?
+   AND (? IS NULL OR s.rowid < (SELECT rowid FROM mnema_upload_sessions WHERE id=?))`).all(currentWs(),ownReservation ?? null,ownReservation ?? null);
+  if (pending.some(row => fileNameKey(row.name) === key)) {
+   fail(409, uploadingFileMessage, {uploadCode:'file_name_uploading'});
+  }
+ }
+ function releasePendingUpload(id: string) {
+  q('DELETE FROM mnema_upload_sessions WHERE id=?').run(id);
+  q("DELETE FROM mnema_uploads WHERE id=? AND status='uploading'").run(id);
+ }
+ async function expireUploads() {
+  const expired = q('SELECT id FROM mnema_upload_sessions WHERE created<?').all(Date.now()-86400000);
+  const cleanup: Promise<void>[] = [];
+  for (const {id} of expired) {
+   if (uploadBusy.has(id)) continue;
+   releasePendingUpload(id);
+   cleanup.push(unlink(join(dir,'uploads',id+'.part')).catch(()=>{}));
+  }
+  await Promise.all(cleanup);
+ }
+ function reserveUpload(name: string, mime: string, size: number, userId: string, metadata: object) {
+  const id=randomUUID();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+   checkUploadName(name);
+   const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;
+   if(used+size>quota) fail(413,'Недостаточно места в хранилище.');
+   q('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run(id,name,mime,size,'uploading');
+   q('INSERT INTO mnema_upload_sessions VALUES(?,?,?,0,?)').run(id,userId,JSON.stringify({...metadata,workspaceId:currentWs()}),Date.now());
+   db.exec('COMMIT');
+   return id;
+  } catch(error) {
+   db.exec('ROLLBACK');
+   throw error;
+  }
+ }
  const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80)||'Без темы',type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx$/i.test(name)?'XLSX':'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
  const handler=async(req,res)=>{
   try{
@@ -373,9 +422,16 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/upload-sessions'&&req.method==='POST'){
      if(person.role!=='full')fail(403,'Добавление материалов недоступно.');limit('upload-init:'+person.id,60);const b=await body(req),name=text(b.name,200),size=b.size;
      if(!/\.(txt|pdf|doc|docx|xlsx|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Этот формат файла не поддерживается.');if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');
-     for(const old of q('SELECT id FROM mnema_upload_sessions WHERE created<?').all(Date.now()-86400000)){if(uploadBusy.has(old.id))continue;await unlink(join(dir,'uploads',old.id+'.part')).catch(()=>{});q('DELETE FROM mnema_upload_sessions WHERE id=?').run(old.id);q("DELETE FROM mnema_uploads WHERE id=? AND status='uploading'").run(old.id)}
-     const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;if(used+size>quota)fail(413,'Недостаточно места в хранилище.');const id=randomUUID();
-     q('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run(id,name,text(b.mime,100)||'application/octet-stream',size,'uploading');q('INSERT INTO mnema_upload_sessions VALUES(?,?,?,0,?)').run(id,person.id,JSON.stringify({title:b.title,type:b.type,project:b.project,autoSummary:b.autoSummary===true,autoProcess:b.autoProcess!==false,deferProcessing:person.admin&&b.deferProcessing===true,importId:person.admin&&/^[a-f0-9-]{36}$/.test(b.importId||'')?b.importId:undefined,sha256:person.admin&&/^[a-f0-9]{64}$/.test(b.sha256||'')?b.sha256:undefined,workspaceId:currentWs()}),Date.now());await writeFile(join(dir,'uploads',id+'.part'),'',{flag:'wx',mode:0o600});return json(res,201,{id,offset:0,chunkSize:512*1024});
+     await expireUploads();
+     const id=reserveUpload(name,text(b.mime,100)||'application/octet-stream',size,person.id,{
+      title:b.title,type:b.type,project:b.project,autoSummary:b.autoSummary===true,autoProcess:b.autoProcess!==false,
+      deferProcessing:person.admin&&b.deferProcessing===true,
+      importId:person.admin&&/^[a-f0-9-]{36}$/.test(b.importId||'')?b.importId:undefined,
+      sha256:person.admin&&/^[a-f0-9]{64}$/.test(b.sha256||'')?b.sha256:undefined
+     });
+     try{await writeFile(join(dir,'uploads',id+'.part'),'',{flag:'wx',mode:0o600})}
+     catch(error){releasePendingUpload(id);throw error}
+     return json(res,201,{id,offset:0,chunkSize:512*1024});
     }
     if(/^\/api\/upload-sessions\/[^/]+(?:\/complete)?$/.test(path)){
      if(person.role!=='full')fail(403,'Загрузка недоступна.');const id=path.split('/')[3],upload=q('SELECT s.*,u.name,u.mime,u.size FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=? AND s.user_id=?').get(id,person.id);if(!upload||((JSON.parse(upload.metadata).workspaceId||'main')!==currentWs()))fail(404,'Загрузка не найдена.');const completedStudyId=JSON.parse(upload.metadata).completedStudyId;const temporary=join(dir,'uploads',id+'.part');
@@ -383,20 +439,50 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(completedStudyId){if(req.method==='POST'&&path.endsWith('/complete'))return json(res,201,{...view(person),createdStudyId:completedStudyId});fail(409,'Файл уже сохранён. Откройте материал.')}
      if(uploadBusy.has(id))fail(409,'Часть файла ещё загружается.');uploadBusy.add(id);
      try{
-      if(req.method==='DELETE'){await unlink(temporary).catch(()=>{});q('DELETE FROM mnema_upload_sessions WHERE id=?').run(id);q("DELETE FROM mnema_uploads WHERE id=? AND status='uploading'").run(id);return json(res,200,{ok:true})}
+      if(req.method==='DELETE'){await unlink(temporary).catch(()=>{});releasePendingUpload(id);return json(res,200,{ok:true})}
       if(req.method==='PUT'&&!path.endsWith('/complete')){
        const offset=Number(req.headers['x-upload-offset']),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||size<1||size>512*1024||offset+size>upload.size)fail(400,'Некорректная часть файла.');let length=0;const pieces=[];for await(const chunk of req){length+=chunk.length;if(length>size)fail(413,'Слишком большая часть файла.');pieces.push(chunk)}if(length!==size)fail(400,'Загрузка части прервана.');
-       if(offset<upload.received&&offset+size<=upload.received)return json(res,200,{offset:upload.received});if(offset!==upload.received)fail(409,'Позиция загрузки изменилась.');await truncate(temporary,offset);await appendFile(temporary,Buffer.concat(pieces));q('UPDATE mnema_upload_sessions SET received=? WHERE id=?').run(offset+size,id);return json(res,200,{offset:offset+size});
+       if(offset<upload.received&&offset+size<=upload.received)return json(res,200,{offset:upload.received});if(offset!==upload.received)fail(409,'Позиция загрузки изменилась.');await truncate(temporary,offset);await appendFile(temporary,Buffer.concat(pieces));q('UPDATE mnema_upload_sessions SET received=?,created=? WHERE id=?').run(offset+size,Date.now(),id);return json(res,200,{offset:offset+size});
       }
-      if(req.method==='POST'&&path.endsWith('/complete')){await body(req);if(upload.received!==upload.size||(await stat(temporary)).size!==upload.size)fail(409,'Дождитесь загрузки всех частей файла.');const metadata=JSON.parse(upload.metadata);if(metadata.sha256){const digest=createHash('sha256');for await(const bytes of createReadStream(temporary))digest.update(bytes);if(digest.digest('hex')!==metadata.sha256)fail(409,'Контрольная сумма не совпала. Загрузите исходник ещё раз.');}await rename(temporary,join(dir,'uploads',id));q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);const createdStudy=addStudy(id,upload.name,upload.mime,JSON.parse(upload.metadata),person);q('UPDATE mnema_upload_sessions SET metadata=? WHERE id=?').run(JSON.stringify({...JSON.parse(upload.metadata),completedStudyId:createdStudy.id}),id);return json(res,201,{...view(person),createdStudyId:createdStudy.id})}
+      if(req.method==='POST'&&path.endsWith('/complete')){
+       await body(req);
+       if(upload.received!==upload.size||(await stat(temporary)).size!==upload.size)fail(409,'Дождитесь загрузки всех частей файла.');
+       const metadata=JSON.parse(upload.metadata);
+       if(metadata.sha256){
+        const digest=createHash('sha256');
+        for await(const bytes of createReadStream(temporary))digest.update(bytes);
+        if(digest.digest('hex')!==metadata.sha256)fail(409,'Контрольная сумма не совпала. Загрузите исходник ещё раз.');
+       }
+       checkUploadName(upload.name,id);
+       await rename(temporary,join(dir,'uploads',id));
+       const createdStudy=addStudy(id,upload.name,upload.mime,metadata,person);
+       q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
+       q('UPDATE mnema_upload_sessions SET metadata=? WHERE id=?').run(JSON.stringify({...metadata,completedStudyId:createdStudy.id}),id);
+       return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+      }
       fail(405,'Метод недоступен.');
      }finally{uploadBusy.delete(id)}
     }
     if(path==='/api/uploads'&&req.method==='POST'){
      if(person.role!=='full')fail(403,'Добавление материалов недоступно.');const name=text(decodeURIComponent(req.headers['x-file-name']||''),200),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');if(!/\.(txt|pdf|doc|docx|xlsx|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Поддерживаются TXT, PDF, DOC, DOCX, MP4, WEBM, MP3, WAV, M4A и MOV.');
-     const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;if(used+size>quota)fail(413,'Недостаточно места в хранилище. Увеличьте лимит или удалите ненужные материалы.');const id=randomUUID();const tmp=join(dir,'uploads',id+'.part'),dest=join(dir,'uploads',id);const mime=req.headers['content-type']||'application/octet-stream';q('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run(id,name,mime,size,'uploading');let received=0;
-     try{await pipeline(req,new Transform({transform(chunk,enc,cb){received+=chunk.length;if(received>size)cb(new Error('Превышен размер файла.'));else cb(null,chunk)}}),createWriteStream(tmp,{flags:'wx',mode:0o600}));if(received!==size)throw new Error('Загрузка прервана. Повторите её.');await rename(tmp,dest);q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id)}catch(e){await unlink(tmp).catch(()=>{});q('DELETE FROM mnema_uploads WHERE id=?').run(id);throw e}
-     const createdStudy=addStudy(id,name,mime,{title:url.searchParams.get('title'),type:url.searchParams.get('type'),project:url.searchParams.get('project')},person);return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+     await expireUploads();
+     const mime=String(req.headers['content-type']||'application/octet-stream');
+     const id=reserveUpload(name,mime,size,person.id,{});
+     const tmp=join(dir,'uploads',id+'.part'),dest=join(dir,'uploads',id);
+     let received=0;
+     uploadBusy.add(id);
+     try{
+      await pipeline(req,new Transform({transform(chunk,enc,cb){received+=chunk.length;if(received>size)cb(new Error('Превышен размер файла.'));else cb(null,chunk)}}),createWriteStream(tmp,{flags:'wx',mode:0o600}));
+      if(received!==size)throw new Error('Загрузка прервана. Повторите её.');
+      await rename(tmp,dest);
+      const createdStudy=addStudy(id,name,mime,{title:url.searchParams.get('title'),type:url.searchParams.get('type'),project:url.searchParams.get('project')},person);
+      q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
+      return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+     }finally{
+      uploadBusy.delete(id);
+      releasePendingUpload(id);
+      await unlink(tmp).catch(()=>{});
+     }
     }
     if(/^\/api\/files\/[^/]+\/preview$/.test(path)&&req.method==='GET'){
      const id=path.split('/')[3];const study=view(person).state.studies.find(s=>s.fileId===id);const file=study&&q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);if(!file)fail(404,'Файл не найден.');
@@ -519,7 +605,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    }
    if(!['GET','HEAD'].includes(req.method))fail(405,'Метод недоступен.');
    const name=path==='/'||!path.split('/').at(-1).includes('.')?'index.html':path.replace(/^\//,'');const abs=resolve(publicDir,name);if(!abs.startsWith(publicDir+'/'))fail(404,'Страница не найдена.');let data;try{data=await readFile(abs)}catch{fail(404,'Страница не найдена.')}const suffix=name.slice(name.lastIndexOf('.'));res.writeHead(200,{'Content-Type':mimes[suffix]||'application/octet-stream','Cache-Control':name==='index.html'?'no-cache':'public, max-age=3600'});res.end(req.method==='HEAD'?undefined:data);
-  }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.'});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
+  }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.',...(e.uploadCode?{code:e.uploadCode}:{})});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
  };
  const server=http.createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)json(res,500,{error:'Не удалось выполнить запрос.'})})});
  server.once('close',()=>{storageMirror.close();clearInterval(worker);mcpService.close().catch(()=>{})});

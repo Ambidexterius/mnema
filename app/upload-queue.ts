@@ -1,10 +1,10 @@
 import {uploadFile} from './api.ts';
+import {fileNameKey,uploadingFileMessage} from './file-name.ts';
 
 export type UploadItem={file:File;title:string;type:string;project:string;autoSummary:boolean};
 type State='queued'|'uploading'|'saving'|'ready'|'error'|'cancelling'|'cancel-error'|'cancelled';
-export type UploadRow={id:string;name:string;size:number;percent:number;state:State;error?:string;studyId?:string};
+export type UploadRow={id:string;name:string;size:number;percent:number;state:State;permanentDuplicate?:boolean;error?:string;studyId?:string};
 type Source={item:UploadItem;workspace:string;key:string;discard?:()=>Promise<any>};
-export const fileKey=(file:File)=>JSON.stringify([file.name,file.size,file.lastModified]);
 
 export class UploadQueue{
  private rows:UploadRow[]=[];
@@ -23,9 +23,12 @@ export class UploadQueue{
  }
  add(items:UploadItem[],workspace:string){
    for(const item of items){
-     const key=fileKey(item.file);
-     if([...this.sources.values()].some(s=>s.key===key&&s.workspace===workspace))continue;
+     const key=fileNameKey(item.file.name);
      const id=crypto.randomUUID();
+     if([...this.sources.values()].some(s=>s.key===key&&s.workspace===workspace)){
+       this.rows=[...this.rows,{id,name:item.file.name,size:item.file.size,state:'error',percent:0,permanentDuplicate:true,error:uploadingFileMessage}];
+       continue;
+     }
      this.sources.set(id,{item,workspace,key});
      this.rows=[...this.rows,{id,name:item.file.name,size:item.file.size,state:'queued',percent:0}];
    }
@@ -56,17 +59,27 @@ export class UploadQueue{
      this.finish(row.id,result);
    }catch(e){
      if(controller.signal.aborted)await this.discard(row.id,source);
-     else this.patch(row.id,{state:'error',error:e.message||'Не удалось загрузить файл.'});
+     else if(e.code==='duplicate_file_name'){
+       try{
+         const completed=await source.discard?.();
+         if(completed){this.finish(row.id,completed);return}
+         this.sources.delete(row.id);
+         this.patch(row.id,{state:'error',permanentDuplicate:true,error:e.message});
+       }catch{
+         this.patch(row.id,{state:'cancel-error',error:e.message+' Не удалось отменить загрузку. Повторите отмену.'});
+       }
+     }else this.patch(row.id,{state:'error',error:e.message||'Не удалось загрузить файл.'});
    }finally{this.active=undefined;void this.pump()}
  }
  cancel(id:string){
    const row=this.rows.find(r=>r.id===id),source=this.sources.get(id);
+   if(row?.permanentDuplicate&&!source){this.rows=this.rows.filter(r=>r.id!==id);this.emit();return}
    if(!row||!source||!['queued','uploading','error','cancel-error'].includes(row.state))return;
    this.patch(id,{state:'cancelling'});
    if(this.active?.id===id)this.active.controller.abort();
    else void this.discard(id,source);
  }
- retry(id:string){if(this.rows.find(r=>r.id===id)?.state==='error'){this.patch(id,{state:'queued'});void this.pump()}}
+ retry(id:string){const row=this.rows.find(r=>r.id===id);if(row?.state==='error'&&!row.permanentDuplicate){this.patch(id,{state:'queued'});void this.pump()}}
  clear(){if(!this.busy){this.rows=[];this.sources.clear();this.emit()}}
  dispose(){this.active?.controller.abort();this.rows=[];this.sources.clear();this.emit()}
 }

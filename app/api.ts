@@ -1,11 +1,11 @@
 let activeWorkspace:string|null=null;
 export const setApiWorkspace=(id:string|null)=>{activeWorkspace=id};
 export const projectFile=(id:string)=>'/api/files/'+encodeURIComponent(id)+(activeWorkspace?'?workspace='+encodeURIComponent(activeWorkspace):'');
-export class ApiError extends Error{status:number;constructor(message:string,status:number){super(message);this.status=status}}
+export class ApiError extends Error{status:number;code?:string;constructor(message:string,status:number,code?:string){super(message);this.status=status;this.code=code}}
 export async function api<T=any>(path:string,body?:unknown,method:string=body===undefined?'GET':'POST',useWorkspace=true):Promise<T>{
  const response=await fetch(path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Mnema-Request':'1',...(useWorkspace&&activeWorkspace?{'X-Mnema-Workspace':activeWorkspace}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
  let result:any;try{result=await response.json()}catch{throw new Error('Сервер вернул неожиданный ответ. Обновите страницу.')}
- if(!response.ok)throw new ApiError(result.error||result.message||'Не удалось выполнить действие.',response.status);return result;
+ if(!response.ok)throw new ApiError(result.error||result.message||'Не удалось выполнить действие.',response.status,result.code);return result;
 }
 export type UploadControl={
  signal?:AbortSignal;
