@@ -58,3 +58,52 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and cro
   const closed=new Promise<void>(resolve=>app.server.once('close',resolve));app.server.closeAllConnections();app.close();await closed;await rm(dir,{recursive:true,force:true});
  }
 });
+
+test('built-in connection without a model or key can be removed; a configured one cannot',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'mnemonika-builtin-')),setup=randomBytes(32).toString('hex');
+ const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4198',authSecret:randomBytes(32).toString('hex'),setupToken:setup,
+  providerFetch:async()=>Response.json({object:'list'})});
+ await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+(app.server.address() as any).port;
+ const req=async(path:string,{body,method,cookie=''}:{body?:any;method?:string;cookie?:string}={})=>{
+  const response=await fetch(base+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:'http://127.0.0.1:4198','X-Mnema-Workspace':'main',...(cookie?{Cookie:cookie}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  return {response,data:await response.json()};
+ };
+ try{
+  const owner=await req('/api/register',{body:{email:'builtin-owner@example.com',password:'fixture-owner-password',setupToken:setup}});
+  const cookie=owner.response.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
+  const created=await req('/api/models',{cookie,body:{name:'Amvera fixture',model:'deepseek-V4',url:'https://api.deepseek.com/v1',provider:'Совместимый API',keySource:'api',apiKey:'fixture-key-not-real'}});
+  assert.equal(created.response.status,201,JSON.stringify(created.data));
+  const list=await req('/api/models/catalog',{cookie,body:{url:'https://api.deepseek.com/v1',provider:'Совместимый API',keySource:'api',apiKey:'fixture-key-not-real'}});
+  assert.equal(list.response.status,502,JSON.stringify(list.data));assert.match(list.data.error||'',/Указать ID вручную/);
+  const state=(await req('/api/state',{cookie})).data;const builtin=state.state.models.find(m=>m.id==='deepseek');
+  assert(builtin&&builtin.builtin&&!builtin.model,'fresh built-in DeepSeek has no model id');
+  const removed=await req('/api/state',{cookie,method:'PATCH',body:{version:state.version,changes:{models:state.state.models.filter(m=>m.id!=='deepseek')}}});
+  assert.equal(removed.response.status,200,JSON.stringify(removed.data));
+  assert(!removed.data.state.models.some(m=>m.id==='deepseek'));
+  assert.equal(removed.data.state.modelId,created.data.state.models.find(m=>m.name==='Amvera fixture').id);
+ }finally{app.server.close();app.db.close();await rm(dir,{recursive:true,force:true})}
+});
+
+test('a configured built-in connection cannot be removed, only switched off',async()=>{
+ const saved={preset:process.env.MNEMA_LLM_PRESET,key:process.env.LLM_KEY_DEEPSEEK};
+ process.env.MNEMA_LLM_PRESET='amvera-deepseek-v4';process.env.LLM_KEY_DEEPSEEK='fixture-env-key-not-real';
+ const dir=await mkdtemp(join(tmpdir(),'mnemonika-builtin-ready-')),setup=randomBytes(32).toString('hex');
+ const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4198',authSecret:randomBytes(32).toString('hex'),setupToken:setup,providerFetch:async()=>Response.json({})});
+ await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+(app.server.address() as any).port;
+ const req=async(path:string,{body,method,cookie=''}:{body?:any;method?:string;cookie?:string}={})=>{
+  const response=await fetch(base+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:'http://127.0.0.1:4198','X-Mnema-Workspace':'main',...(cookie?{Cookie:cookie}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  return {response,data:await response.json()};
+ };
+ try{
+  const owner=await req('/api/register',{body:{email:'builtin-ready@example.com',password:'fixture-owner-password',setupToken:setup}});
+  const cookie=owner.response.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
+  const state=(await req('/api/state',{cookie})).data;const preset=state.state.models.find(m=>m.id==='amvera-deepseek-v4');
+  assert(preset&&preset.builtin&&preset.keyConfigured&&preset.model,'Amvera preset is configured from the environment');
+  const attempt=await req('/api/state',{cookie,method:'PATCH',body:{version:state.version,changes:{models:state.state.models.filter(m=>m.id!=='amvera-deepseek-v4')}}});
+  assert.equal(attempt.response.status,400);assert.match(attempt.data.error,/можно выключить/);
+ }finally{app.server.close();app.db.close();await rm(dir,{recursive:true,force:true});
+  if(saved.preset===undefined)delete process.env.MNEMA_LLM_PRESET;else process.env.MNEMA_LLM_PRESET=saved.preset;
+  if(saved.key===undefined)delete process.env.LLM_KEY_DEEPSEEK;else process.env.LLM_KEY_DEEPSEEK=saved.key}
+});

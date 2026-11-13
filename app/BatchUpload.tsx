@@ -114,10 +114,18 @@ export default function BatchUpload({open,close,workspace,model,studies,receive,
  const failed=rows.filter(r=>r.state==='error'||r.state==='cancel-error').length;
  const cancelled=rows.filter(r=>r.state==='cancelled').length;
  const summary=queue.busy?'Загрузка файлов':failed?'Не все файлы загружены':cancelled===rows.length?'Загрузка отменена':'Загрузка завершена';
+ // A finished, error-free upload hides itself after a pause and slides out to the right.
+ // Hover or keyboard focus holds it; failures stay until the person acts on them.
+ const [leaving,setLeaving]=useState(false),[held,setHeld]=useState(false);
+ const dismiss=()=>{const finish=()=>{if(queue.busy)return;setDetails(false);setLeaving(false);queue.clear()};
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){finish();return}setLeaving(true);setTimeout(finish,200)};
+ const settled=rows.length>0&&!queue.busy&&!failed&&done>0;
+ useEffect(()=>{if(!settled||details||held||leaving)return;const t=setTimeout(dismiss,5000);return()=>clearTimeout(t)},[settled,details,held,leaving,rows.length]);
+ useEffect(()=>{if(queue.busy&&leaving)setLeaving(false)},[queue.busy,leaving]);
  const existingNames=new Set(studies.flatMap(study=>study.fileName?[fileNameKey(study.fileName)]:[]));
  const queuedNames=new Set(rows.filter(row=>row.state!=='cancelled'&&row.state!=='ready'&&!row.permanentDuplicate).map(row=>fileNameKey(row.name)));
  return <>{open&&<Picker close={close} model={model} existingNames={existingNames} queuedNames={queuedNames} start={items=>{if(!queue.busy&&rows.every(r=>r.state==='ready'||r.state==='cancelled'))queue.clear();if(!queue.snapshot().length)setDetails(false);single.current=!queue.snapshot().length&&items.length===1;queue.add(items,workspace)}}/>}
- {rows.length>0&&<aside className="transfer-dock" aria-label="Загрузка файлов" onKeyDown={event=>{if(details&&event.key==='Escape'){setDetails(false);toggle.current?.focus()}}}>
+ {rows.length>0&&<aside className="transfer-dock" data-leaving={leaving||undefined} aria-label="Загрузка файлов" onPointerEnter={()=>setHeld(true)} onPointerLeave={()=>setHeld(false)} onFocus={()=>setHeld(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setHeld(false)}} onKeyDown={event=>{if(details&&event.key==='Escape'){setDetails(false);toggle.current?.focus()}}}>
   {details&&<ul className="transfer-list" id="transfer-files" aria-label="Ход загрузки">{rows.map(r=><li key={r.id} className="transfer-card transfer-file">
    {r.state==='ready'?<CheckCircle2 size={18} aria-hidden="true"/>:['error','cancel-error'].includes(r.state)?<AlertCircle size={18} aria-hidden="true"/>:<FileText size={18} aria-hidden="true"/>}
    <div className="bulk-name"><strong>{r.name}</strong><small>{size(r.size)} · {labels[r.state]}{r.state==='uploading'?' · '+r.percent+' %':''}</small>
@@ -134,7 +142,7 @@ export default function BatchUpload({open,close,workspace,model,studies,receive,
      <span><strong>{summary}</strong><small>{rows.length===1?rows[0].name+' · '+(rows[0].state==='uploading'?rows[0].percent+' %':labels[rows[0].state]):'Загружено: '+done+' из '+rows.length+(cancelled?' · Отменено: '+cancelled:'')}</small></span>
      <span className="transfer-disclosure">{details?'Свернуть':'Подробнее'}</span>
     </button>
-    {!queue.busy&&!failed&&<Button view="flat" size="s" aria-label="Закрыть уведомление" onClick={()=>{setDetails(false);queue.clear()}}><X size={16}/></Button>}
+    {!queue.busy&&!failed&&<Button view="flat" size="s" aria-label="Закрыть уведомление" onClick={dismiss}><X size={16}/></Button>}
    </div>
   </div><span className="transfer-sr" role="status">{summary}. Загружено: {done} из {rows.length}</span>
  </aside>}

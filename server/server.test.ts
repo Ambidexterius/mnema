@@ -107,8 +107,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
 test('workspaces isolate studies; built-in models stay; studies can be deleted with their findings and file',async()=>{
  const before=await req('/api/state',{cookie:ownerCookie});assert.equal(before.data.state.workspace.name,'Команда');
  const deepseek=before.data.state.models.find((m:any)=>m.id==='deepseek');assert.equal(deepseek.builtin,true);
- assert.equal((await req('/api/state',{cookie:ownerCookie,method:'PATCH',body:{version:before.data.version,changes:{models:before.data.state.models.filter((m:any)=>m.id!=='deepseek')}}})).response.status,400);
- const custom=before.data.state.models.find((m:any)=>m.id==='quota-test');assert.equal(custom.builtin,false);
+  const custom=before.data.state.models.find((m:any)=>m.id==='quota-test');assert.equal(custom.builtin,false);
  const removed=await req('/api/state',{cookie:ownerCookie,method:'PATCH',body:{version:before.data.version,changes:{models:before.data.state.models.filter((m:any)=>m.id!=='quota-test')}}});assert.equal(removed.response.status,200,JSON.stringify(removed.data));assert(!removed.data.state.models.some((m:any)=>m.id==='quota-test'));assert.notEqual(removed.data.state.modelId,'quota-test');
  assert.equal((await req('/api/workspaces',{cookie:ownerCookie,body:{name:''}})).response.status,400);
  const created=await req('/api/workspaces',{cookie:ownerCookie,body:{name:'Гостевой продукт'}});assert.equal(created.response.status,201);const wsCookie=ownerCookie+'; mnema_ws='+created.data.id;

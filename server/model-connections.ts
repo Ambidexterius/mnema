@@ -66,8 +66,8 @@ export async function availableModels(model:any,key:string,fetcher:typeof fetch)
   const suffix=model.apiType==='anthropic'?'?limit=100'+(after?'&after_id='+encodeURIComponent(after):''):'';
   let response:Response;try{response=await fetcher(base+'/models'+suffix,{headers:providerHeaders(model,key),redirect:'error',signal:AbortSignal.timeout(20000)})}catch{invalid('Не удалось загрузить модели. Проверьте соединение с провайдером.',502)}
   if(!response.ok)invalid('Провайдер вернул HTTP '+response.status+'. '+(response.status===403?'Проверьте права ключа, доступ к модели и регион сервера.':'Проверьте API-ключ и доступ к моделям.'),502);
-  let result:any;try{result=await response.json()}catch{invalid('Провайдер вернул неожиданный список моделей.',502)}
-  if(!Array.isArray(result.data))invalid('Провайдер вернул неожиданный список моделей.',502);
+  let result:any;try{result=await response.json()}catch{invalid('Провайдер не отдаёт список моделей. Нажмите «Указать ID вручную» и впишите ID модели из документации провайдера.',502)}
+  if(!Array.isArray(result.data))invalid('Провайдер не отдаёт список моделей. Нажмите «Указать ID вручную» и впишите ID модели из документации провайдера.',502);
   for(const item of result.data){if(typeof item.id!=='string'||item.id.length>120)continue;
    if(model.apiType==='openai'&&(!/^(gpt-|o\d|chatgpt-)/.test(item.id)||/(embed|image|audio|realtime|transcrib|tts|codex)/i.test(item.id)))continue;
    if(item.lifecycle==='retired'||item.shutdown_date&&Date.parse(item.shutdown_date)<=Date.now())continue;

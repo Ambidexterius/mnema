@@ -484,7 +484,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(changes.findings){if(!Array.isArray(changes.findings)||changes.findings.length>10000)fail(400,'Некорректные находки.');for(const f of changes.findings){const study=current.state.studies.find(s=>s.id===f.studyId);if(!study||!study.segments?.some(t=>t.id===f.segmentId))fail(400,'Находке нужен существующий фрагмент источника.');if(f.evidence!==undefined&&(!Array.isArray(f.evidence)||f.evidence.some(id=>!study.segments.some(t=>t.id===id))))fail(400,'Доказательства находки должны быть фрагментами того же материала.');if(!text(f.title,160)||f.title.length>160||String(f.description||'').length>(f.importSource?28000:4000))fail(400,'Сократите текст находки.');if(f.status!==undefined&&!findingStatuses.has(f.status))fail(400,'Неизвестный статус находки.');if(f.importance!==undefined&&!importanceLevels.includes(f.importance))fail(400,'Важность: Критично, Высокая, Средняя или Низкая.')}}
      if(changes.models){
       if(!Array.isArray(changes.models)||changes.models.length>20)fail(400,'Не больше 20 подключений.');
-      for(const m of current.state.models.filter(isBuiltin))if(!changes.models.some((x:any)=>x.id===m.id))fail(400,'Встроенное подключение нельзя удалить, его можно выключить.');
+      // A built-in connection that works stays (it can be switched off); one without a model or key may be removed.
+      const builtinReady=(m:any)=>Boolean(m.model)&&(modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef]));
+      for(const m of current.state.models.filter(isBuiltin))if(builtinReady(m)&&!changes.models.some((x:any)=>x.id===m.id))fail(400,'Работающее встроенное подключение нельзя удалить, его можно выключить.');
       const seen=new Set();
       changes.models=changes.models.map((m:any)=>{
        if(m.apiKey!==undefined||m.sealed!==undefined)fail(400,'API-ключ сохраняется только через настройки подключения.');
