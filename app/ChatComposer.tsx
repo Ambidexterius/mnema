@@ -30,18 +30,20 @@ export default function ChatComposer({value,onChange,onSubmit,placeholder,sugges
       try{await onSubmit(value)}finally{submitting.current=false}
     }}>
     <span className="composer-edge" aria-hidden="true"><span className="composer-edge__paint"/></span>
-    <TextArea value={value} onUpdate={onChange} onKeyDown={event=>{if(available&&!loading&&acceptChatSuggestion(event,value,suggestion,onChange))return;submitChatOnEnter(event)}}
-      disabled={loading} placeholder={placeholder} minRows={2} maxRows={6}
+    <div className="composer-row">
+     <TextArea value={value} onUpdate={onChange} onKeyDown={event=>{if(available&&!loading&&acceptChatSuggestion(event,value,suggestion,onChange))return;submitChatOnEnter(event)}}
+      disabled={loading} placeholder={placeholder} minRows={1} maxRows={8}
       controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':suggestion?'Tab Enter Shift+Enter':'Enter Shift+Enter','aria-description':suggestion?'Tab — использовать пример вопроса; Enter — отправить; Shift+Enter — новая строка.':undefined,maxLength:2000}}/>
-    <div className="composer-footer">
+     <Button type="submit" view="action" size="m" loading={loading}
+        disabled={!available||!value.trim()||loading} aria-label={sendLabel}
+        title="Enter — отправить, Shift+Enter — новая строка">
+       <ArrowUp size={18} aria-hidden="true"/>
+     </Button>
+    </div>
+    {scopeLabel||scopeAction||modelControl?<div className="composer-footer">
       {scopeLabel?<span className="scope"><Library size={14} aria-hidden="true"/>{scopeLabel}</span>:null}
       {scopeAction}
       {modelControl?<div className="composer-model">{modelControl}</div>:null}
-      <Button type="submit" view="action" size="m" loading={loading}
-        disabled={!available||!value.trim()||loading} aria-label={sendLabel}
-        title="Enter — отправить, Shift+Enter — новая строка">
-        <ArrowUp size={18} aria-hidden="true"/>
-      </Button>
-    </div>
+    </div>:null}
   </form>;
 }

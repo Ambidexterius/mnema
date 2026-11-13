@@ -1032,3 +1032,54 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 /* Calmer than the complementary text role, while retaining readable contrast. */
 .shared-composer .g-text-area__control::placeholder{color:var(--g-color-private-black-600);opacity:1}
 html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:var(--g-color-private-white-600)}
+
+/* One composer on every page, as compact as Claude's: text and the send button share one row
+   (54 px empty), the field grows to eight lines while typing, then scrolls. Scope and model, when a
+   page has them, sit in a quiet row below. 12 px radius kept from the brand. */
+.shared-composer.shared-composer{box-sizing:border-box;width:100%;max-width:768px;padding:10px 10px 10px 16px;border-radius:12px}
+.shared-composer.shared-composer .composer-edge{border-radius:12px}
+.shared-composer .composer-row{display:flex;align-items:flex-end;gap:8px;min-width:0}
+.shared-composer .composer-row>.g-text-area{flex:1;min-width:0;--g-text-area-border-width:0px;--g-text-area-background-color:transparent}
+.shared-composer.shared-composer .g-text-area__control{min-height:32px;padding:4px 0;font-size:15px;line-height:24px;resize:none;overflow-y:auto}
+.shared-composer .composer-row>.g-button[type=submit]{--g-button-border-radius:50%;flex:none;width:32px;min-width:32px;height:32px;padding:0}
+.shared-composer.shared-composer .composer-footer{margin-top:6px;min-height:24px;gap:8px;flex-wrap:nowrap}
+.research-chat .shared-composer.shared-composer{margin-inline:auto}
+@media(max-width:639px){
+ .shared-composer.shared-composer{padding:6px 6px 6px 12px}
+ .shared-composer.shared-composer .g-text-area__control{font-size:16px;padding-block:10px}
+ .shared-composer.shared-composer .composer-footer{flex-wrap:wrap}
+ .shared-composer .composer-row>.g-button[type=submit]{width:44px;min-width:44px;height:44px}
+}
+
+/* Messages arrive like a streamed reply: the question fades up, the answer is uncovered top to
+   bottom by a soft edge. Duration follows the answer's height (set by revealMessage). */
+@property --reveal{syntax:'<percentage>';inherits:false;initial-value:120%}
+.message-arrive.user{animation:message-arrive 240ms cubic-bezier(.23,1,.32,1) both}
+.message-arrive.assistant{animation:message-arrive 240ms cubic-bezier(.23,1,.32,1) both,answer-stream var(--reveal-ms,900ms) cubic-bezier(.33,0,.25,1) both;
+ -webkit-mask-image:linear-gradient(to bottom,#000 var(--reveal),transparent calc(var(--reveal) + 72px));mask-image:linear-gradient(to bottom,#000 var(--reveal),transparent calc(var(--reveal) + 72px))}
+@keyframes answer-stream{from{--reveal:0%}to{--reveal:120%}}
+@media(prefers-reduced-motion:reduce){.message-arrive.user,.message-arrive.assistant{animation:none;-webkit-mask-image:none;mask-image:none}}
+
+/* Source panel from chat footnotes. Wide screens (≥1200 px): the panel docks as a card on the right
+   and the content slides aside to make room. Narrower: it slides over the content from the edge.
+   Enter 220 ms ease-out, exit 160 ms ease-in; transform/opacity only on the panel itself. */
+.app-shell{--source-panel-w:440px}
+.source-panel{will-change:transform}
+@media(prefers-reduced-motion:no-preference){
+ .source-panel{animation:source-panel-over 220ms cubic-bezier(.23,1,.32,1) both}
+ .source-panel[data-closing]{animation:source-panel-over-out 160ms cubic-bezier(.5,0,.75,0) both}
+}
+@keyframes source-panel-over{from{transform:translateX(100%)}}
+@keyframes source-panel-over-out{to{transform:translateX(100%)}}
+.source-panel[data-closing]{pointer-events:none}
+@media(min-width:1200px){
+ .source-panel{top:8px;bottom:8px;right:8px;width:var(--source-panel-w);border:1px solid var(--g-color-line-generic);border-radius:var(--g-border-radius-l);box-shadow:none;overflow:hidden}
+ .app-shell.has-source-panel>.content-shell{margin-inline-end:calc(var(--source-panel-w) + 16px)}
+ @media(prefers-reduced-motion:no-preference){
+  .app-shell>.content-shell{transition:margin-inline-end 220ms cubic-bezier(.23,1,.32,1)}
+  .source-panel{animation-name:source-panel-dock}
+  .source-panel[data-closing]{animation-name:source-panel-dock-out}
+ }
+}
+@keyframes source-panel-dock{from{opacity:0;transform:translateX(32px)}}
+@keyframes source-panel-dock-out{to{opacity:0;transform:translateX(32px)}}

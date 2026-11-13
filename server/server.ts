@@ -11,6 +11,7 @@ import {collectGlobalResearch,globalEvidence} from './global-research.ts';
 import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
 import {selectEvidence} from './retrieval.ts';
+import {sendBody,encode,pickEncoding,compressible,MIN_COMPRESS_BYTES} from './compression.ts';
 import {summarizeMaterial,transcriptRevision,SummaryFailure,resumePendingSummaries} from './summaries.ts';
 import {extractFindings,dedupeWithModel} from './finding-extraction.ts';
 import {quoteSegment} from '../app/highlight-text.ts';
@@ -151,11 +152,18 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const ownerExists=()=>Boolean(q('SELECT 1 FROM mnema_access WHERE admin=1 LIMIT 1').get());
  const users=()=>q('SELECT u.id,u.name,u.email,m.role,m.admin,m.revoked FROM user u JOIN mnema_members m ON m.user_id=u.id WHERE m.workspace_id=?').all(currentWs()).map(u=>({...u,owner:Boolean(u.admin),status:u.revoked?'revoked':'active'})).concat(q('SELECT id,name,email,role FROM mnema_invites WHERE workspace_id=? AND used=0 AND revoked=0 AND expires>?').all(currentWs(),Date.now()).map(u=>({...u,status:'invited'})));
  const session=async (req:any):Promise<Person|null>=>{const s=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!s)return null;const access=q('SELECT * FROM mnema_access WHERE user_id=?').get(s.user.id);if(!access||access.revoked)return null;
-  const all=q(`SELECT w.id,w.name,w.data,m.role,m.admin,m.revoked,json_array_length(w.data,'$.studies') AS study_count,(SELECT count(*) FROM mnema_members members WHERE members.workspace_id=w.id AND members.revoked=0) AS member_count FROM mnema_members m JOIN mnema_workspaces w ON w.id=m.workspace_id WHERE m.user_id=? ORDER BY w.created`).all(s.user.id);const active=all.filter((m:any)=>!m.revoked);
+  const all=q(`SELECT w.id,w.name,w.version,length(w.data) AS data_length,m.role,m.admin,m.revoked,(SELECT count(*) FROM mnema_members members WHERE members.workspace_id=w.id AND members.revoked=0) AS member_count FROM mnema_members m JOIN mnema_workspaces w ON w.id=m.workspace_id WHERE m.user_id=? ORDER BY w.created`).all(s.user.id);const active=all.filter((m:any)=>!m.revoked);
   // Someone whose every membership was revoked is locked out; a user with no workspace yet may create one.
   if(all.length&&!active.length)return null;
   const explicit=String(req.headers['x-mnema-workspace']||new URL(req.url,'http://localhost').searchParams.get('workspace')||'');if(explicit&&!active.some(m=>m.id===explicit))fail(403,'Доступ к проекту закрыт. Обновите список проектов.');const wanted=explicit||cookieValue(req,'mnema_ws');const current=active.find((m:any)=>m.id===wanted)||active[0]||null;
-  return {...s.user,role:current?.role||'view',admin:Boolean(current?.admin),owner:Boolean(access.admin),workspaceId:current?.id||null,workspaces:active.map((m:any)=>{const state=JSON.parse(m.data);const visibleCatalog=new Set(state.findings.filter(f=>f.status==='verified').map(f=>f.segmentId));const files=state.studies.filter(study=>study.fileId&&(m.role==='full'||!study.importSource?.catalog||study.segments?.some(segment=>visibleCatalog.has(segment.id))));return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),emptyDefault:m.id==='main'&&m.name==='Команда'&&m.study_count===0&&m.member_count<=1}})}};
+  return {...s.user,role:current?.role||'view',admin:Boolean(current?.admin),owner:Boolean(access.admin),workspaceId:current?.id||null,workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+ // Every request lists the user's projects. Parsing each project's full transcripts here made
+ // project switching and polling slow, so folder cards are cached per stored revision and role.
+ const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number}}>();
+ const projectCard=(m:any)=>{const key=m.version+':'+m.data_length+':'+m.role;const cached=projectCards.get(m.id);if(cached?.key===key)return cached.card;
+  const state=JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);const visibleCatalog=new Set(state.findings.filter(f=>f.status==='verified').map(f=>f.segmentId));const files=state.studies.filter(study=>study.fileId&&(m.role==='full'||!study.importSource?.catalog||study.segments?.some(segment=>visibleCatalog.has(segment.id))));
+  const card={fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),studyCount:state.studies.length};
+  projectCards.set(m.id,{key,card});return card};
  const view=person=>{const {state:raw,version}=getState();const full=person.role==='full';
   // Readers never receive drafts or rejected findings: not in the list, counters or any other field.
   const findings=raw.findings.map(legacyFinding).filter(f=>full||f.status==='verified').map(f=>({...f,basis:reportOf(raw.studies.find(s=>s.id===f.studyId))==='ready'?'report':'raw'}));
@@ -172,7 +180,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  });
  const mcpNodeHandler=toNodeHandler(mcpService.fetch);
 
- const json=(res,status,data,extra={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra});res.end(JSON.stringify(data))};
+ const json=(res,status,data,extra={})=>{void sendBody(res.req,res,status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra},Buffer.from(JSON.stringify(data))).catch(()=>{if(!res.headersSent)res.writeHead(500);res.end()})};
+ const staticCache=new Map<string,Buffer>();
  const body=async req=>{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>2*1024**2)fail(413,'Слишком большой запрос.');chunks.push(chunk)}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}')}catch{fail(400,'Не удалось прочитать запрос.')}};
  const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();if(cookies.length)headers['set-cookie']=cookies;res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
  const limits=new Map();
@@ -680,7 +689,11 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     fail(404,'Метод не найден.');
    }
    if(!['GET','HEAD'].includes(req.method))fail(405,'Метод недоступен.');
-   const name=path==='/'||!path.split('/').at(-1).includes('.')?'index.html':path.replace(/^\//,'');const abs=resolve(publicDir,name);if(!abs.startsWith(publicDir+'/'))fail(404,'Страница не найдена.');let data;try{data=await readFile(abs)}catch{fail(404,'Страница не найдена.')}const suffix=name.slice(name.lastIndexOf('.'));res.writeHead(200,{'Content-Type':mimes[suffix]||'application/octet-stream','Cache-Control':name==='index.html'?'no-cache':'public, max-age=3600'});res.end(req.method==='HEAD'?undefined:data);
+   const name=path==='/'||!path.split('/').at(-1).includes('.')?'index.html':path.replace(/^\//,'');const abs=resolve(publicDir,name);if(!abs.startsWith(publicDir+'/'))fail(404,'Страница не найдена.');let data;try{data=await readFile(abs)}catch{fail(404,'Страница не найдена.')}const suffix=name.slice(name.lastIndexOf('.'));const type=mimes[suffix]||'application/octet-stream';const headers={'Content-Type':type,'Cache-Control':name==='index.html'?'no-cache':'public, max-age=3600'};
+   // Hashed assets are immutable: compress once per encoding. index.html stays fresh on every request.
+   const encoding=name!=='index.html'&&compressible(type)&&data.length>=MIN_COMPRESS_BYTES?pickEncoding(req.headers['accept-encoding']):null;
+   if(encoding){const key=encoding+':'+abs;let encoded=staticCache.get(key);if(!encoded){encoded=await encode(data,encoding);staticCache.set(key,encoded)}res.writeHead(200,{...headers,Vary:'Accept-Encoding','Content-Encoding':encoding,'Content-Length':encoded.length});res.end(req.method==='HEAD'?undefined:encoded);return}
+   await sendBody(req,res,200,headers,data);
   }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.',...(e.uploadCode?{code:e.uploadCode}:{})});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
  };
  const server=http.createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)json(res,500,{error:'Не удалось выполнить запрос.'})})});
