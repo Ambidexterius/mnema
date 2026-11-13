@@ -1083,3 +1083,10 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 }
 @keyframes source-panel-dock{from{opacity:0;transform:translateX(32px)}}
 @keyframes source-panel-dock-out{to{opacity:0;transform:translateX(32px)}}
+/* In a project the composer spans the whole content column; the new-chat page keeps 768 px centred. */
+.project-question .shared-composer.shared-composer{max-width:none}
+/* Download action in the research table: quiet icon until hover or keyboard focus. */
+.table-download{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:var(--g-border-radius-m);color:var(--g-color-text-secondary)}
+.table-download:hover{background:var(--g-color-base-simple-hover);color:var(--g-color-text-primary)}
+.table-download:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+@media(pointer:coarse){.table-download{width:44px;height:44px}}
