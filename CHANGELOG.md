@@ -1,3 +1,12 @@
+## 0.9.26 — 2026-11-13
+
+- Make Users a global directory, independent of the last selected project.
+- Apply the owner-requested one-time migration: existing active accounts and unused invitations receive all current/future projects; revoked accounts stay revoked and roles are preserved.
+- Full access can invite people and use project settings; only administrators revoke access or assign administrator rights. Self-demotion remains blocked.
+- Add administrator controls to the user table. Project-card invitations use the common form and default to all projects for members with global full access.
+- Preserve later explicit project-only invitations across restarts.
+- Validation: 146 tests, typecheck and build, including legacy migration, restart, directory and privilege boundaries.
+
 ## 0.9.25 — 2026-11-13
 
 - Show active, pending registration, expired and revoked access with invitation expiry.

@@ -1,4 +1,4 @@
-> Current release: **0.9.25**. Invitation status, all-project access and stable project URLs. Includes 0.9.24 retrieval, answer formatting and sound fixes. See [release notes](docs/RELEASE-0.9.25.md).
+> Current release: **0.9.26**. Global user directory, all-project migration, full-access invitations/settings and administrator assignment. See [release notes](docs/RELEASE-0.9.26.md).
 
 > 0.9.21 — прокрутка страницы над таблицами
 

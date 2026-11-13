@@ -25,7 +25,7 @@ export function readRoute(url:URL){
 export function routeHref(route:string,workspace?:string|null){
  const [screen,query='']=route.replace(/^#?\//,'').split('?');
  let path=screen==='research'||screen==='projects'?'projects':screen==='mcp'?'settings/mcp':screen;
- const projectScreen=['home','overview','library','findings','models','processing','integrations','mcp','users'].includes(screen)||/^(study|finding|file)\//.test(screen);
+ const projectScreen=['home','overview','library','findings','models','processing','integrations','mcp'].includes(screen)||/^(study|finding|file)\//.test(screen);
  if(workspace&&projectScreen){
   path=screen==='home'||screen==='overview'?'':screen==='library'?'research':screen==='processing'?'models':screen.replace(/^study\//,'studies/').replace(/^finding\//,'findings/');
   path='projects/'+encodeURIComponent(workspace)+(path?'/'+path:'');

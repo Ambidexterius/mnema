@@ -28,15 +28,15 @@ test('rename and invitation target an explicit project independently of the acti
  const state=await req('/api/state',undefined,'GET',owner,a);assert.equal(state.data.state.workspace.name,'Project A');assert.equal(state.data.user.workspaces.find(w=>w.id===b).name,'Renamed B');
  assert.equal((await req('/api/workspaces/'+b,{name:'x'.repeat(61)},'PATCH')).status,400);
  const added=await req('/api/workspaces/'+b+'/invitations',{name:'Viewer',email:'viewer-projects@example.test',role:'full'},'POST',owner,a);assert.equal(added.status,201);assert.equal(added.data.added,true);
- const asB=await req('/api/state',undefined,'GET',viewer,b);assert.equal(asB.data.user.role,'full');assert.equal(asB.data.user.admin,false);
+ const asB=await req('/api/state',undefined,'GET',viewer,b);assert.equal(asB.data.user.role,'full');assert.equal(asB.data.user.admin,true);assert.equal(asB.data.user.owner,false);
  assert.equal((await req('/api/state',undefined,'GET',viewer,a)).data.user.role,'view');
 });
-test('readers and editors cannot invite, rename or delete projects',async()=>{
- for(const id of [a,b]){
-  assert.equal((await req('/api/workspaces/'+id,{name:'Attack'},'PATCH',viewer)).status,403);
-  assert.equal((await req('/api/workspaces/'+id,{name:'Project A'},'DELETE',viewer)).status,403);
-  assert.equal((await req('/api/workspaces/'+id+'/invitations',{name:'Other',email:'other@example.test',role:'full'},'POST',viewer)).status,403);
- }
+test('readers are blocked; full access can manage project settings and invitations',async()=>{
+ assert.equal((await req('/api/workspaces/'+a,{name:'Attack'},'PATCH',viewer)).status,403);
+ assert.equal((await req('/api/workspaces/'+a,{name:'Project A'},'DELETE',viewer)).status,403);
+ assert.equal((await req('/api/workspaces/'+a+'/invitations',{name:'Other',email:'other@example.test',role:'full'},'POST',viewer)).status,403);
+ assert.equal((await req('/api/workspaces/'+b,{name:'Renamed B'},'PATCH',viewer)).status,200);
+ assert.equal((await req('/api/workspaces/'+b+'/invitations',{name:'Other',email:'other@example.test',role:'view'},'POST',viewer)).status,201);
  assert.equal((await req('/api/workspaces/unknown',{name:'Attack'},'PATCH')).status,403);
 });
 test('file counts do not expose hidden catalog materials to readers',async()=>{

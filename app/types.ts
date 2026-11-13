@@ -124,6 +124,9 @@ export interface WorkspaceUser {
   owner?: boolean;
   status: 'active' | 'invited' | 'expired' | 'revoked';
   scope?: 'all' | 'project';
+  admin?: boolean;
+  projectIds?: string[];
+  projectNames?: string[];
   expires?: number;
 }
 

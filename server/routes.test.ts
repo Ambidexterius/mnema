@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {readRoute,routeHref,canonicalHref} from '../app/routes.ts';
 
 test('project URLs round-trip with a stable ID, nested screens and filters',()=>{
- for(const screen of ['home','library','findings','study/material','finding/result','file/material','users','models','integrations','mcp','findings?study=material&status=draft']){
+ for(const screen of ['home','library','findings','study/material','finding/result','file/material','models','integrations','mcp','findings?study=material&status=draft']){
   const href=routeHref(screen,'project-a');assert(!href.includes('#'));
   assert.deepEqual(readRoute(new URL(href,'https://example.test')),{route:screen,workspace:'project-a'});
  }
+ assert.equal(routeHref('users','project-a'),'/users');
+ assert.deepEqual(readRoute(new URL('https://example.test/users')),{route:'users',workspace:null});
  assert.equal(routeHref('home','renamed-project'),'/projects/renamed-project');
  assert.deepEqual(readRoute(new URL('https://example.test/projects')),{route:'research',workspace:null});
  assert.deepEqual(readRoute(new URL('https://example.test/projects/a%20b')),{route:'home',workspace:'a b'});

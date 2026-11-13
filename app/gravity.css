@@ -1113,3 +1113,5 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 @media(max-width:639px){.user-mobile-status{display:block;margin-top:8px}.users-table .g-table__cell:nth-child(2){display:none}.users-table .user-cell{align-items:flex-start}.users-table .user-cell small{overflow-wrap:anywhere}}
 
 @media(max-width:639px){.invite-dialog .g-dialog-footer__bts-wrapper{width:100%;flex-direction:column-reverse;gap:8px}.invite-dialog .g-dialog-footer__button{min-width:0}}
+
+.users-table .user-admin-toggle{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center}
