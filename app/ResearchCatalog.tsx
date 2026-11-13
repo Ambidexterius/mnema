@@ -1,3 +1,5 @@
+import type {Finding} from './types.ts';
+import {findingStatusLabel} from './finding-status.ts';
 import React,{useContext,useEffect,useState} from 'react';
 import {Button,Label,SegmentedRadioGroup,Table} from '@gravity-ui/uikit';
 import {Folder,Lightbulb,Plus} from 'lucide-react';
@@ -23,7 +25,7 @@ function ProjectsCatalog(){
 }
 
 const priorityTheme=(importance:string):'danger'|'warning'|'info'|'normal'=>importance==='Критично'?'danger':importance==='Высокая'?'warning':importance==='Средняя'?'info':'normal';
-function FindingStatus({status}:{status:string}){return <Label size="s" theme={status==='draft'?'info':'normal'}>{status==='verified'?'Проверено':status==='rejected'?'Отклонено':'Черновик ИИ'}</Label>}
+function FindingStatus({finding}:{finding:Pick<Finding,'status'|'origin'>}){return <Label size="s" theme={finding.status==='draft'?'info':'normal'}>{findingStatusLabel(finding)}</Label>}
 
 function FindingsCatalog(){
  const {real,state,workspaces,switchWorkspace,go}=useContext(Context);
@@ -43,9 +45,9 @@ function FindingsCatalog(){
    <div className="toolbar findings-type-tabs"><SegmentedRadioGroup name="Тип находки" size="m" value={kind} onUpdate={setKind} options={[["all","Все"],["Проблема","Проблемы"],["Рекомендация","Рекомендации"],["Инсайт","Инсайты"]].map(([value,content])=>({value,content}))}/></div>
    {rows.length?<div className="table-scroll catalog-table findings-table" tabIndex={0} aria-label="Все находки"><Table data={rows} getRowId={row=>row.projectId+':'+row.id} columns={[
     {id:'importance',name:'Важность',width:120,template:row=><Label size="s" theme={priorityTheme(row.importance)}>{row.importance||'Не указана'}</Label>},
-    {id:'title',name:'Находка',template:row=><button className="catalog-link finding-open" onClick={()=>openItem(row)}><span className="finding-title"><span>{row.title}</span><span className="finding-mobile-meta"><span>{row.projectName}</span><FindingStatus status={row.status}/></span></span></button>},
+    {id:'title',name:'Находка',template:row=><button className="catalog-link finding-open" onClick={()=>openItem(row)}><span className="finding-title"><span>{row.title}</span><span className="finding-mobile-meta"><span>{row.projectName}</span><FindingStatus finding={row}/></span></span></button>},
     {id:'projectName',name:'Проект',width:'22%'},
-    {id:'status',name:'Статус',width:140,template:row=><FindingStatus status={row.status}/>}
+    {id:'status',name:'Статус',width:140,template:row=><FindingStatus finding={row}/>}
 
    ]}/></div>:<div className="empty"><Lightbulb size={28}/><h2>{kind==='all'?'Находок пока нет':'В этой категории пока нет находок'}</h2><p>{kind==='all'?'Они появятся после анализа материалов и проверки командой.':'Выберите другую категорию или посмотрите все находки.'}</p></div>}
   </>}

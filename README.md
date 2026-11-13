@@ -1,4 +1,4 @@
-> Current release: **0.9.26**. Global user directory, all-project migration, full-access invitations/settings and administrator assignment. See [release notes](docs/RELEASE-0.9.26.md).
+> Current release: **0.9.27**. Save confirmations follow the server response, finding status labels account for their origin, and redundant CSS overrides are removed. See [release notes](docs/RELEASE-0.9.27.md).
 
 > 0.9.21 — прокрутка страницы над таблицами
 

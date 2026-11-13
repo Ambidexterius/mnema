@@ -1,3 +1,10 @@
+## 0.9.27 — 2026-11-13
+
+- Wait for the server result before confirming finding edits, review actions, model removal or access changes. Keep the form and draft when saving fails.
+- Share finding status labels across project views, the global catalog and material panels. Imported and human drafts say «Ждёт проверки»; only AI drafts say «Черновик ИИ».
+- Remove 107 declarations overridden by the same selector/property/condition, preserving the active cascade and component styling.
+- Validation: typecheck, 148 tests, production build; 123 browser checks on synthetic data, including delayed saves, 409 retries, network failures and CSS comparison. No runtime dependency changes.
+
 ## 0.9.26 — 2026-11-13
 
 - Make Users a global directory, independent of the last selected project.
