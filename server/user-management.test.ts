@@ -24,6 +24,7 @@ test('global user directory is independent of the selected project; full members
   const full=await f.add('full@example.test','full'),reader=await f.add('reader@example.test'),scoped=await f.add('scoped@example.test','view','project',other);
   const fullSession=(await req('/api/session',full.cookie)).data.user,fullId=fullSession.id,readerId=(await req('/api/session',reader.cookie)).data.user.id;
   assert.equal(fullSession.owner,false);assert.equal(fullSession.manageUsers,true);assert.equal(fullSession.admin,true);assert.equal(fullSession.workspaces.length,2);
+  f.app.db.prepare('INSERT INTO mnema_invites(id,token_hash,email,name,role,expires,used,revoked,workspace_id) VALUES(?,?,?,?,?,?,0,0,?)').run('superseded','superseded-fixture-hash','full@example.test','Old invitation','full',Date.now()+86400000,'*');
   const directory=(await req('/api/users',owner)).data.users;assert.equal(directory.length,4);assert(directory.some(u=>u.email==='scoped@example.test'));
   for(const workspace of ['main',other])assert.deepEqual((await req('/api/state',owner,undefined,workspace)).data.state.users,directory);
   assert.equal((await req('/api/users',full.cookie)).status,200);assert.equal((await req('/api/users',reader.cookie)).status,403);assert.equal((await req('/api/users',scoped.cookie)).status,403);
