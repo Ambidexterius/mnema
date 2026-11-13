@@ -1,4 +1,4 @@
-> Current release: **0.9.27**. Save confirmations follow the server response, finding status labels account for their origin, and redundant CSS overrides are removed. See [release notes](docs/RELEASE-0.9.27.md).
+> Current release: **0.9.28**. A floating project composer appears after text extraction; findings use Gravity UI surfaces. [Release notes](docs/RELEASE-0.9.28.md). GitHub-only release; hosted instances are not upgraded automatically.
 
 > 0.9.21 — прокрутка страницы над таблицами
 

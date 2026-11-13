@@ -1,3 +1,11 @@
+## 0.9.28 — 2026-11-14
+
+- Float the project composer at the bottom center of the available content, accounting for the sidebar, source panel and long input.
+- Rotate example questions every six seconds, pausing during interaction, input, generation, hidden tabs and reduced motion. Keep only the send arrow.
+- Hide project chat until at least one material has ready, nonempty extracted text.
+- Place overview findings on separate neutral Gravity UI surfaces, retaining their metadata and links.
+- Preserve the 0.9.27 server, shared composer, branding and dependency declarations. GitHub-only release; no Selectel or Amvera deployment.
+
 ## 0.9.27 — 2026-11-13
 
 - Wait for the server result before confirming finding edits, review actions, model removal or access changes. Keep the form and draft when saving fails.
