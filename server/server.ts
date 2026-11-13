@@ -9,6 +9,7 @@ import {documentPreview} from './document-preview.ts';
 import {materialActivity} from '../app/material-activity.ts';
 import {collectGlobalResearch,globalEvidence} from './global-research.ts';
 import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
+import {sendInvitationEmail} from './invitation-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
 import {selectEvidence} from './retrieval.ts';
 import {sendBody,encode,pickEncoding,compressible,MIN_COMPRESS_BYTES} from './compression.ts';
@@ -31,7 +32,7 @@ import {fromNodeHeaders,toNodeHandler} from 'better-auth/node';
 import {getMigrations} from 'better-auth/db/migration';
 import type {Finding} from '../app/types.ts';
 
-export interface MnemaServerOptions{sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
+export interface MnemaServerOptions{sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;fileCount?:number;filePreviews?:{name:string;format:string}[]}
 interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;workspaceId:string|null;workspaces:WorkspaceRef[]}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
@@ -318,17 +319,21 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    throw error;
   }
  }
- const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx$/i.test(name)?'XLSX':'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
- const inviteToProject=(person:Person,b:any)=>{
+ const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
+ const inviteToProject=async(person:Person,b:any)=>{
   if(!person.admin)fail(403,'Приглашать участников может владелец проекта.');
+  limit('invitation:'+person.id,10);
   const email=text(b.email,150).toLowerCase(),name=text(b.name,70);
   if(!/^\S+@\S+\.\S+$/.test(email)||!name||!roles.has(b.role))fail(400,'Укажите имя, почту и уровень доступа.');
   if(users().some(u=>u.email.toLowerCase()===email))fail(409,'Этот адрес уже добавлен в проект.');
   const existing=q('SELECT id FROM user WHERE lower(email)=?').get(email);
-  if(existing){q('INSERT OR REPLACE INTO mnema_members(workspace_id,user_id,role,admin,revoked) VALUES(?,?,?,0,0)').run(currentWs(),existing.id,b.role);return {added:true}}
+  const mailArgs={to:email,name,workspaceId:currentWs(),workspaceName:q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs()).name,inviterName:person.name,role:b.role,baseURL};
+  if(existing){q('INSERT OR REPLACE INTO mnema_members(workspace_id,user_id,role,admin,revoked) VALUES(?,?,?,0,0)').run(currentWs(),existing.id,b.role);const emailStatus=await sendInvitationEmail(mailArgs,options.sendInvitationMail);return {added:true,emailStatus}}
   const token=randomBytes(32).toString('base64url');
   q('INSERT INTO mnema_invites(id,token_hash,email,name,role,expires,used,revoked,workspace_id) VALUES(?,?,?,?,?,?,0,0,?)').run(randomUUID(),hash(token),email,name,b.role,Date.now()+7*86400000,currentWs());
-  return {inviteURL:origin+'/#/signup?invite='+token+'&email='+encodeURIComponent(email)};
+  const inviteURL=origin+'/#/signup?invite='+token+'&email='+encodeURIComponent(email);
+  const emailStatus=await sendInvitationEmail({...mailArgs,inviteURL},options.sendInvitationMail);
+  return {inviteURL,emailStatus};
  };
  const handler=async(req,res)=>{
   try{
@@ -371,7 +376,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       // The request body is asynchronous: recheck membership before the mutation.
       const latest=await session(req);if(!latest?.workspaces.some(w=>w.id===id&&w.admin))fail(403,'Доступ к проекту изменился.');
       return await wsStore.run(id,async()=>{
-       if(path.endsWith('/invitations')&&req.method==='POST')return json(res,201,inviteToProject({...latest,workspaceId:id,admin:true,role:'full'},b));
+       if(path.endsWith('/invitations')&&req.method==='POST')return json(res,201,await inviteToProject({...latest,workspaceId:id,admin:true,role:'full'},b));
        if(path.endsWith('/invitations'))fail(405,'Метод недоступен.');
        if(req.method==='PATCH'){
         if(typeof b.name!=='string'||!b.name.trim()||b.name.trim().length>60)fail(400,'Укажите название от 1 до 60 символов.');
@@ -500,7 +505,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      mutate(s=>{if(changes.models)for(const old of s.models)if(!changes.models.some(m=>m.id===old.id))modelKeys.remove(currentWs(),old.id);Object.assign(s,changes);if(!s.models.some(m=>m.id===s.modelId&&m.enabled))s.modelId=s.models.find(m=>m.enabled)?.id||'';return s});return json(res,200,view(person));
     }
     if(path==='/api/invitations'&&req.method==='POST'){
-     const b=await body(req),result=inviteToProject(person,b);return json(res,201,{...view(person),...result});
+     const b=await body(req),result=await inviteToProject(person,b);
+     const latest=await session(req),access=latest?.workspaces.find(w=>w.id===currentWs());if(!access?.admin)fail(403,'Доступ к проекту изменился.');
+     return json(res,201,{...view({...latest,workspaceId:currentWs(),role:access.role,admin:access.admin}),...result});
     }
     if(/^\/api\/users\/[^/]+$/.test(path)&&req.method==='PATCH'){
      if(!person.admin)fail(403,'Управление пользователями доступно владельцу.');const id=path.split('/').at(-1);if(id===person.id)fail(403,'Собственный доступ изменять нельзя.');const b=await body(req);if(b.role&&!roles.has(b.role))fail(400,'Неверный уровень доступа.');
@@ -508,7 +515,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(path==='/api/upload-sessions'&&req.method==='POST'){
      if(person.role!=='full')fail(403,'Добавление материалов недоступно.');limit('upload-init:'+person.id,60);const b=await body(req),name=text(b.name,200),size=b.size;
-     if(!/\.(txt|pdf|doc|docx|xlsx|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Этот формат файла не поддерживается.');if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');
+     if(!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Этот формат файла не поддерживается.');if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');
      await expireUploads();
      const id=reserveUpload(name,text(b.mime,100)||'application/octet-stream',size,person.id,{
       title:b.title,type:b.type,project:b.project,autoSummary:b.autoSummary===true,autoProcess:b.autoProcess!==false,
@@ -551,7 +558,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      }finally{uploadBusy.delete(id)}
     }
     if(path==='/api/uploads'&&req.method==='POST'){
-     if(person.role!=='full')fail(403,'Добавление материалов недоступно.');const name=text(decodeURIComponent(req.headers['x-file-name']||''),200),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');if(!/\.(txt|pdf|doc|docx|xlsx|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Поддерживаются TXT, PDF, DOC, DOCX, MP4, WEBM, MP3, WAV, M4A и MOV.');
+     if(person.role!=='full')fail(403,'Добавление материалов недоступно.');const name=text(decodeURIComponent(req.headers['x-file-name']||''),200),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');if(!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Поддерживаются TXT, PDF, DOC, DOCX, XLS, XLSX, MP4, WEBM, MP3, WAV, M4A и MOV.');
      await expireUploads();
      const mime=String(req.headers['content-type']||'application/octet-stream');
      const id=reserveUpload(name,mime,size,person.id,{});

@@ -1,3 +1,5 @@
+> Current release: **0.9.23**. Includes XLS/XLSX table preview and SMTP invitations. See [release notes](docs/RELEASE-0.9.23.md).
+
 > 0.9.21 — прокрутка страницы над таблицами
 
 

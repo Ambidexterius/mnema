@@ -56,7 +56,7 @@ export interface Study {
   description: string;
   project: string;
   type: SourceType;
-  format: 'PDF' | 'TXT' | 'Word' | 'XLSX' | 'Видео';
+  format: 'PDF' | 'TXT' | 'Word' | 'XLS' | 'XLSX' | 'Видео';
   date: string;
   duration: number;
   participants: number;

@@ -13,7 +13,7 @@ export default function DocumentPreview({fileId,file,name,standalone=false,page}
  },[fileId,file,pdf,attempt]);
  return <section className="document-preview" aria-label="Предпросмотр исходного файла">
   {!standalone?<><h2>Исходный файл</h2><p className="document-preview-name">{name}</p></>:null}
-  {!pdf?<p className="document-preview-caption">Текст, заголовки и таблицы из исходного файла.</p>:null}
+  {!pdf?<p className="document-preview-caption">{/\.xlsx?$/i.test(name)?'Листы и значения ячеек из исходной таблицы.':'Текст, заголовки и таблицы из исходного файла.'}</p>:null}
   {state==='loading'?<div className="document-preview-message" role="status"><LoaderCircle className="activity-spinner" size={20} aria-hidden="true"/>Загружаем предпросмотр…</div>:null}
   {state==='error'?<div className="document-preview-message" role="alert"><strong>Не удалось открыть предпросмотр</strong><p>Исходный файл сохранён. Попробуйте ещё раз.</p><Button view="outlined" onClick={()=>retry(x=>x+1)}><RefreshCw size={16}/>Повторить</Button><Button view="flat" href={file} download>Скачать исходник</Button></div>:null}
   {state==='ready'?(pdf?<iframe ref={frame} key={attempt} title={'Предпросмотр: '+name} src={file+(page?'#page='+page:'')} className="document-preview-frame" onError={()=>setState('error')}/>:<iframe ref={frame} title={'Предпросмотр: '+name} srcDoc={html} sandbox="" className="document-preview-frame"/>):null}

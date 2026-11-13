@@ -31,9 +31,9 @@ export default function ProjectProfile({project,editable,onSave}:{project:Projec
  return <section className="project-profile" aria-labelledby="profile-title">
   <div className="profile-meta">
    {fields.category&&<Label>{fields.category}</Label>}
+   {reportText&&<Label theme={fields.report==='ready'?'success':'normal'}>{reportText}</Label>}
    {fields.conducted&&<span>Проведено: {fields.conducted}</span>}
    {project.created&&<span>Добавлено {new Intl.DateTimeFormat('ru',{day:'numeric',month:'long',year:'numeric',timeZone:'Europe/Moscow'}).format(project.created)}</span>}
-   {reportText&&<Label theme={fields.report==='ready'?'success':'normal'}>{reportText}</Label>}
   </div>
   <div className="profile-card">
    <div className="profile-card-head"><h2 id="profile-title">Об исследовании</h2>{editable&&<Button size="s" view="flat" onClick={edit}><Pencil size={15}/>Редактировать</Button>}</div>

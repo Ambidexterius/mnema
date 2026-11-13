@@ -52,9 +52,9 @@ export async function extractDocument({filePath,fileName='',fileId,signal,onProg
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  const segments=[];let pages=0,ocrPages=0,total=0;
  const add=(content,page)=>{const paras=content.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);let index=0;for(const paragraph of paras)for(let offset=0;offset<paragraph.length;offset+=1200){const value=paragraph.slice(offset,offset+1200);total+=value.length;if(total>10*1024**2||segments.length>=5000)throw new Error('Документ слишком большой. Разделите его на части.');segments.push({id:id(fileId,page+':'+index++,value),time:0,page,speaker:page?'Страница '+page:'Документ',text:value})}};
- if(/\.xlsx$/i.test(fileName)){
+ if(/\.xlsx?$/i.test(fileName)){
   onProgress('Читаем листы таблицы');
-  try{add((await run(process.env.DOC_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'extract-xlsx.py'),filePath],{timeout:30000,maxBuffer:12*1024**2})).stdout,null)}catch{signal?.throwIfAborted();throw new Error('Не удалось прочитать XLSX. Сохраните таблицу как XLSX или PDF и загрузите снова.')}
+  try{add((await run(process.env.DOC_PYTHON||process.env.ASR_PYTHON||(existsSync('/opt/asr/bin/python')?'/opt/asr/bin/python':'python3'),[join(dirname(fileURLToPath(import.meta.url)),/\.xlsx$/i.test(fileName)?'extract-xlsx.py':'extract-xls.py'),filePath],{timeout:30000,maxBuffer:12*1024**2})).stdout,null)}catch{signal?.throwIfAborted();throw new Error('Не удалось прочитать таблицу. Сохраните таблицу как XLSX или PDF и загрузите снова.')}
  }
  else if(/\.docx?$/i.test(fileName)){
   onProgress('Извлекаем текст документа Word');
@@ -77,7 +77,7 @@ export async function extractDocument({filePath,fileName='',fileId,signal,onProg
   }}finally{await rm(working,{recursive:true,force:true})}
  }
  signal?.throwIfAborted();if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
- return {segments,pages,ocrPages,engine:/\.xlsx$/i.test(fileName)?'XLSX stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
+ return {segments,pages,ocrPages,engine:/\.xlsx?$/i.test(fileName)?'Excel stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
 export async function transcribeRecording({filePath,fileId,checkpointDir,signal,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);

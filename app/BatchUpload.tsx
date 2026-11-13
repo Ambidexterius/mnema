@@ -4,7 +4,7 @@ import {AlertCircle,ArrowUpCircle,CheckCircle2,FileText,FileSpreadsheet,FileVide
 import {existingFileMessage,fileNameKey} from './file-name.ts';
 import {UploadQueue,type UploadItem,type UploadRow} from './upload-queue.ts';
 
-const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xlsx';
+const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx';
 const formats=new Set(accept.split(','));
 const types=['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}));
 const size=(bytes:number)=>bytes<1024**2?Math.max(1,Math.round(bytes/1024))+' КБ':new Intl.NumberFormat('ru',{maximumFractionDigits:1}).format(bytes/1024**2)+' МБ';
@@ -70,7 +70,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
    <input ref={input} type="file" multiple accept={accept} hidden onChange={event=>{add(event.target.files);event.target.value=''}}/>
    {!rows.length?<div className="upload-drop">
     <span className="upload-drop-symbol"><Upload size={24} aria-hidden="true"/></span>
-    <strong>Перетащите файлы сюда</strong><small>PDF, Word, XLSX, TXT, аудио и видео · до 2 ГБ на файл</small>
+    <strong>Перетащите файлы сюда</strong><small>PDF, Word, XLS, XLSX, TXT, аудио и видео · до 2 ГБ на файл</small>
     <Button view="outlined" size="l" onClick={()=>input.current?.click()}>Выбрать файлы</Button>
    </div>:<>
     <div className="upload-selection-head"><Checkbox checked={allSelected} indeterminate={selected.length>0&&!allSelected} disabled={!available.length} onUpdate={toggleAll} controlProps={{'aria-label':'Выбрать все файлы'}}/>
@@ -79,7 +79,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
     </div>
     <ul className="bulk-files upload-choice-list">{rows.map(r=>{
      const extension=r.file.name.split('.').at(-1)?.toUpperCase();
-     const Icon=['MP4','MOV','WEBM'].includes(extension)?FileVideo:['MP3','WAV','M4A'].includes(extension)?FileAudio:extension==='XLSX'?FileSpreadsheet:FileText;
+     const Icon=['MP4','MOV','WEBM'].includes(extension)?FileVideo:['MP3','WAV','M4A'].includes(extension)?FileAudio:['XLS','XLSX'].includes(extension)?FileSpreadsheet:FileText;
      const error=unavailable(r)||(!r.checked&&chosenNames.has(fileNameKey(r.file.name))?duplicateSelectionMessage:'');
      const checked=r.checked&&!error;
      return <li key={r.id} className={checked?'':'unchecked'}>
