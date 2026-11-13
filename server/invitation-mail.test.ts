@@ -10,7 +10,7 @@ import {createMnemaServer} from './server.ts';
 const input={to:'invited@example.test',name:'Анна',workspaceId:'project-b',workspaceName:'Проект <script>',inviterName:'Глеб & команда',role:'view' as const,baseURL:'https://example.test',inviteURL:'https://example.test/#/signup?invite=fixture-token&email=invited%40example.test'};
 test('invitation email preserves the server link, escapes HTML and distinguishes existing accounts',()=>{
  const mail=invitationEmail(input);assert.equal(mail.to,input.to);assert.match(mail.text,/Просмотр/);assert.match(mail.text,/7 дней/);assert(mail.text.includes(input.inviteURL));assert.match(mail.html,/&lt;script&gt;/);assert.doesNotMatch(mail.html,/<script>/);assert.match(mail.html,/Глеб &amp; команда/);
- const existing=invitationEmail({...input,inviteURL:undefined,role:'full'});assert.match(existing.text,/Полный доступ/);assert.doesNotMatch(existing.text,/7 дней|signup/);assert(existing.text.includes('workspace=project-b#/overview'));
+ const existing=invitationEmail({...input,inviteURL:undefined,role:'full'});assert.match(existing.text,/Полный доступ/);assert.doesNotMatch(existing.text,/7 дней|signup/);assert(existing.text.includes('/projects/project-b'));
  assert.throws(()=>invitationEmail({...input,inviteURL:'https://other.example/'}),/invalid_invitation_origin/);
  assert(!invitationEmail({...input,workspaceName:'One\r\nBcc: bad@example.test'}).subject.includes('\n'));
 });
@@ -29,7 +29,7 @@ test('both invitation endpoints send the correct project, notify existing accoun
   const owner=await req('/api/register',{email:'owner-invitations@example.test',password:'fixture-password-only',setupToken:setup});assert.equal(owner.res.status,200);cookie=owner.res.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
   const project=(await req('/api/workspaces',{name:'Project B'})).data.id;
   const invited=await req('/api/workspaces/'+project+'/invitations',{name:'Viewer',email:input.to,role:'view'});assert.equal(invited.res.status,201);assert.equal(invited.data.emailStatus,'sent');assert.equal(sent.length,1);assert.match(sent[0].text,/Project B/);assert(sent[0].text.includes(invited.data.inviteURL));
-  const rawToken=new URL(invited.data.inviteURL).hash.match(/invite=([^&]+)/)![1];assert(!JSON.stringify(app.db.prepare('SELECT * FROM mnema_invites').all()).includes(rawToken));
+  const rawToken=new URL(invited.data.inviteURL).searchParams.get('invite')!;assert(!JSON.stringify(app.db.prepare('SELECT * FROM mnema_invites').all()).includes(rawToken));
   const registered=await req('/api/register',{email:input.to,password:'fixture-password-only',inviteToken:rawToken});assert.equal(registered.res.status,200);
   const existing=await req('/api/invitations',{name:'Viewer',email:input.to,role:'full'},{'X-Mnema-Workspace':'main'});assert.equal(existing.data.added,true);assert.equal(existing.data.emailStatus,'sent');assert.match(sent[1].text,/Команда/);assert.doesNotMatch(sent[1].text,/signup/);
   failMail=true;

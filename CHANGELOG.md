@@ -1,3 +1,22 @@
+## 0.9.25 — 2026-11-13
+
+- Show active, pending registration, expired and revoked access with invitation expiry.
+- Invite to all current/future projects by default, or restrict access to one selected project. Only the service owner manages all-project grants; existing access stays scoped.
+- Use stable project URLs without #; retain legacy links, invitation URLs, source fragments and browser history.
+- Keep invitation status visible on mobile and stack invitation actions on narrow screens.
+- Include previously prepared 0.9.24 changes in this repository: broader source selection, thematic answers and completion sound recovery.
+- Validation: 144 tests, typecheck and build; 108 browser checks on synthetic data. Production verification is recorded in the release note after deployment.
+
+## 0.9.24
+
+- Broad product questions use report-aware, project-balanced evidence sampling, bounded to 48 unchanged originals and 36,000 characters. Repeated formats share the evidence budget; focused questions preserve their linked originals and access checks.
+- Overview answers use thematic headings and citation lists in chat and print. Explicit foreign-product context is guarded conservatively; semantic retrieval is not claimed.
+- Includes the supplied transcription notification MP3, retryable audio loading and a build-time check that prevents a missing sound asset.
+
+Validation: typecheck, 141 tests and production build in three layouts; browser checks in both themes at 390/1024/1440px; real DeepSeek controls and public asset verification. No research, databases, secrets or private diagnostic output is included.
+
+Published to Selectel only. GitHub and Amvera publication is not part of this release command. Dependencies and the existing 0.9.23 runtime are unchanged.
+
 ## 0.9.23
 
 - Project report status appears beside the category badge.

@@ -20,7 +20,7 @@ test('project actions: setup isolated owner and projects',async()=>{
  const registered=await req('/api/register',{email:'owner-projects@example.test',name:'Owner',password:'fixture-password-only',setupToken:setup});assert.equal(registered.status,200);owner=registered.cookie;
  a=(await req('/api/workspaces',{name:'Project A'})).data.id;b=(await req('/api/workspaces',{name:'Project B'})).data.id;
  const invited=await req('/api/workspaces/'+a+'/invitations',{name:'Viewer',email:'viewer-projects@example.test',role:'view'});assert.equal(invited.status,201);
- const token=new URL(invited.data.inviteURL).hash.match(/invite=([^&]+)/)![1];
+ const token=new URL(invited.data.inviteURL).searchParams.get('invite')!;
  const registeredView=await req('/api/register',{email:'viewer-projects@example.test',name:'Viewer',password:'fixture-password-only',inviteToken:token});assert.equal(registeredView.status,200);viewer=registeredView.cookie;
 });
 test('rename and invitation target an explicit project independently of the active one',async()=>{
@@ -57,7 +57,7 @@ test('deletion rejects stale confirmation, active processing and unfinished uplo
 });
 test('deletion removes files and access while keeping another project intact',async()=>{
  await writeFile(join(dir,'uploads','file-a'),'fixture');app.db.prepare("INSERT INTO mnema_uploads VALUES('file-a','fixture.txt','text/plain',7,'ready')").run();
- const pending=await req('/api/workspaces/'+a+'/invitations',{name:'Pending',email:'pending@example.test',role:'view'});assert.equal(pending.status,201);invite=new URL(pending.data.inviteURL).hash.match(/invite=([^&]+)/)![1];
+ const pending=await req('/api/workspaces/'+a+'/invitations',{name:'Pending',email:'pending@example.test',role:'view'});assert.equal(pending.status,201);invite=new URL(pending.data.inviteURL).searchParams.get('invite')!;
  assert.equal((await req('/api/workspaces/'+a,{name:'Project A'},'DELETE')).status,200);
  for(const [table,col] of [['mnema_workspaces','id'],['mnema_members','workspace_id'],['mnema_invites','workspace_id']])assert.equal(app.db.prepare('SELECT 1 FROM '+table+' WHERE '+col+'=?').get(a),undefined);
  await assert.rejects(access(join(dir,'uploads','file-a')));

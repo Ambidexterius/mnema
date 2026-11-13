@@ -122,7 +122,9 @@ export interface WorkspaceUser {
   email: string;
   role: Role;
   owner?: boolean;
-  status: 'active' | 'invited' | 'revoked';
+  status: 'active' | 'invited' | 'expired' | 'revoked';
+  scope?: 'all' | 'project';
+  expires?: number;
 }
 
 export interface ChatSource extends Segment {

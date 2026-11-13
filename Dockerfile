@@ -21,6 +21,7 @@ COPY app/material-activity.ts ./app/material-activity.ts
 COPY app/file-name.ts ./app/file-name.ts
 COPY app/finding-repeats.ts ./app/finding-repeats.ts
 COPY app/highlight-text.ts ./app/highlight-text.ts
+COPY app/routes.ts ./app/routes.ts
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod 755 /app/docker-entrypoint.sh && mkdir -p /data/uploads && chown node:node /data /data/uploads
 ENV NODE_ENV=production PORT=3000 MNEMA_DATA_DIR=/data MNEMA_PUBLIC_DIR=/app/public ASR_MODEL_DIR=/app/models/whisper-small ASR_DIARIZATION_DIR=/app/models/diarization ASR_CPU_THREADS=1 OCR_LANGUAGES=rus+eng HF_HUB_OFFLINE=1

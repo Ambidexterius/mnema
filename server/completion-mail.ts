@@ -1,3 +1,4 @@
+import {routeHref} from '../app/routes.ts';
 import {spawn} from 'node:child_process';
 import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -6,7 +7,7 @@ export interface CompletionMail{to:string;subject:string;text:string;html:string
 const escape=(v:unknown)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 export const smtpConfigured=()=>['SMTP_HOST','SMTP_USER','SMTP_PASSWORD','SMTP_FROM'].every(k=>Boolean(process.env[k]));
 export function completionEmail({study,workspaceId,workspaceName,baseURL,to,jobId,canReadDraft}:{study:any;workspaceId:string;workspaceName:string;baseURL:string;to:string;jobId:string;canReadDraft:boolean}):CompletionMail{
- const link=(segment?:string)=>{const url=new URL('/',baseURL);url.searchParams.set('workspace',workspaceId);if(segment)url.searchParams.set('segment',segment);url.hash='/study/'+encodeURIComponent(study.id);return url.href};
+ const link=(segment?:string)=>{const url=new URL(routeHref('study/'+encodeURIComponent(study.id),workspaceId),baseURL);if(segment)url.searchParams.set('segment',segment);return url.href};
  const summary=study.summaryInfo?.state==='ready'&&(canReadDraft||study.summaryInfo.review==='verified')?study.summary||[]:[];
  const title=summary.length?'Расшифровка и сводка готовы':'Расшифровка готова';
  const draft=summary.length&&study.summaryInfo.review!=='verified';

@@ -1,3 +1,4 @@
+import {appHref} from './routes.ts';
 import React,{useEffect,useState} from 'react';
 import {Button,Checkbox,Dialog,TextInput} from '@gravity-ui/uikit';
 import {Cable,Check,Copy,Folder,Search,ShieldCheck} from 'lucide-react';
@@ -50,7 +51,7 @@ export function MCPConsent({user}:{user:any}){
  const [data,setData]=useState<any>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);const query=oauthQuery();
  useEffect(()=>{let alive=true;call('/api/mcp/consent/context',{query}).then(data=>{if(!alive)return;setData(data);setSelected(data.projects.some(p=>p.id===user.workspaceId)?[user.workspaceId]:data.projects.length===1?[data.projects[0].id]:[])}).catch(e=>{if(alive)setError(e.message)});return()=>{alive=false}},[query,user.id]);
  const decide=async(accept:boolean)=>{setBusy(true);setError('');try{const result=await call('/api/mcp/consent',{accept,projects:selected,query});if(!result.redirect||!result.url)throw new Error('Не удалось продолжить подключение. Начните его заново.');location.assign(result.url)}catch(e){setError(e.message);setBusy(false)}};
- return <main className="mcp-consent" id="main"><a href="/#/mcp" className="mcp-consent-brand" aria-label="Мнемоника — настройки MCP"><BrandMark/><strong>Мнемоника</strong><BetaMark/></a><h1>Доступ к исследованиям</h1><p className="muted">Вы вошли как {user.email}</p>
+ return <main className="mcp-consent" id="main"><a href={appHref('mcp')} className="mcp-consent-brand" aria-label="Мнемоника — настройки MCP"><BrandMark/><strong>Мнемоника</strong><BetaMark/></a><h1>Доступ к исследованиям</h1><p className="muted">Вы вошли как {user.email}</p>
   {data?<><div className="mcp-client"><Cable size={24} aria-hidden="true"/><div><strong>{data.client.name}</strong><p>Адрес возврата: {data.client.origin}</p></div></div><p>Подключение сможет читать выбранные проекты от вашего имени. Изменение и удаление материалов недоступны.</p>{data.scopes.some(s=>['profile','email'].includes(s))?<p className="muted">Также запрошены сведения профиля: имя и рабочая почта.</p>:null}<h2>Разрешённые проекты</h2><ProjectChoices projects={data.projects} selected={selected} onChange={setSelected}/>{!data.projects.length?<p>У вас нет доступных проектов. Попросите владельца проекта добавить вас.</p>:null}<div className="mcp-consent-actions"><Button view="flat" onClick={()=>decide(false)} disabled={busy}>Отказать</Button><Button view="action" onClick={()=>decide(true)} loading={busy} disabled={busy||!selected.length}>Разрешить чтение</Button></div></>:!error?<p role="status">Проверяем запрос подключения…</p>:null}
   {error?<p role="alert" className="form-error">{error}</p>:null}
  </main>;

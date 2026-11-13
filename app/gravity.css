@@ -1108,3 +1108,8 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 .messages .answer-actions .g-button__text>svg:only-child{margin:0}
 /* Tables scroll sideways on their own, but vertical wheel and touch scrolling pass to the page. */
 .table-scroll,.table-scroll>.g-table{overscroll-behavior-x:contain;overscroll-behavior-y:auto}
+
+.user-status{display:flex;flex-direction:column;align-items:flex-start;gap:4px;white-space:nowrap}.user-status small{color:var(--g-color-text-secondary);font:var(--g-text-caption-2-font)}.user-mobile-status{display:none}
+@media(max-width:639px){.user-mobile-status{display:block;margin-top:8px}.users-table .g-table__cell:nth-child(2){display:none}.users-table .user-cell{align-items:flex-start}.users-table .user-cell small{overflow-wrap:anywhere}}
+
+@media(max-width:639px){.invite-dialog .g-dialog-footer__bts-wrapper{width:100%;flex-direction:column-reverse;gap:8px}.invite-dialog .g-dialog-footer__button{min-width:0}}

@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {completionEmail,createCompletionMailer} from './completion-mail.ts';
-import {finishedRecordings} from '../app/completion.ts';
+import {finishedRecordings,createCompletionAudio} from '../app/completion.ts';
 const study:any={id:'recording',title:'Встреча <script>',date:'2026-11-11',addedBy:'QA',format:'Видео',status:'ready',summaryInfo:{state:'ready',review:'draft'},summary:[{title:'Тема <b>',text:'Текст & вывод',segments:['part']}],segments:[{id:'part',time:67,text:'Источник'}]};
 test('completion sound detects only new successful recordings, not initial history, retries or documents',()=>{
  assert.deepEqual(finishedRecordings(new Map(),[study]),[]);
@@ -11,9 +11,20 @@ test('completion sound detects only new successful recordings, not initial histo
  assert.deepEqual(finishedRecordings(new Map([['recording','processing']]),[{...study,status:'error'}]),[]);
  assert.deepEqual(finishedRecordings(new Map([['recording','processing']]),[{...study,format:'PDF'}]),[]);
 });
+const audioFixture=()=>{let starts=0,created=0;const context:any={state:'running',destination:{},resume:async()=>{},decodeAudioData:async()=>({}),createBufferSource:()=>({connect(){},start(){starts++}}),close:async()=>{context.state='closed'}};return{context,create:()=>{created++;return context},starts:()=>starts,created:()=>created}};
+test('completion audio recovers from a missing asset instead of remaining silent for the tab lifetime',async()=>{
+ const fixture=audioFixture();let requests=0;const audio=createCompletionAudio(fixture.create,async()=>new Response(new Uint8Array([1,2]),{status:++requests===1?404:200}));
+ await audio.play();assert.equal(fixture.created(),0,'completion must not bypass the initial user gesture');
+ await assert.rejects(audio.activate(),/Audio unavailable/);await audio.activate();await audio.play();assert.equal(requests,2);assert.equal(fixture.starts(),1);audio.dispose();
+});
+test('a completion arriving during audio loading plays once after decoding and never after disposal',async()=>{
+ const fixture=audioFixture();let resolve!:(response:Response)=>void;const waiting=new Promise<Response>(r=>resolve=r);let requests=0;const audio=createCompletionAudio(fixture.create,()=>{requests++;return waiting});
+ const activate=audio.activate(),play=audio.play();await Promise.resolve();assert.equal(fixture.starts(),0);resolve(new Response(new Uint8Array([1])));await Promise.all([activate,play]);assert.equal(requests,1);assert.equal(fixture.starts(),1);audio.dispose();await audio.play();assert.equal(fixture.starts(),1);
+ const other=audioFixture();let release!:(response:Response)=>void;const pending=new Promise<Response>(r=>release=r);const disposed=createCompletionAudio(other.create,()=>pending),activating=disposed.activate(),playing=disposed.play();await Promise.resolve();disposed.dispose();release(new Response(new Uint8Array([1])));await Promise.all([activating,playing]);assert.equal(other.starts(),0);
+});
 test('completion email escapes contents, links source and project, and excludes AI drafts for readers',()=>{
  const args={study,workspaceId:'space',workspaceName:'Проект',baseURL:'https://example.test',to:'qa@example.test',jobId:'job',canReadDraft:true};const mail=completionEmail(args);
- assert.match(mail.html,/&lt;script&gt;/);assert.doesNotMatch(mail.html,/<script>/);assert.match(mail.text,/Черновик|черновик/);assert.match(mail.html,/workspace=space/);assert.match(mail.html,/segment=part/);assert.match(mail.html,/1:07/);
+ assert.match(mail.html,/&lt;script&gt;/);assert.doesNotMatch(mail.html,/<script>/);assert.match(mail.text,/Черновик|черновик/);assert.match(mail.html,/projects\/space\/studies\/recording/);assert.match(mail.html,/segment=part/);assert.match(mail.html,/1:07/);
  const reader=completionEmail({...args,canReadDraft:false});assert.doesNotMatch(reader.text,/Текст & вывод/);assert.equal(reader.subject,'Расшифровка готова: Встреча <script>');
 });
 test('durable mail queue waits for summary, sends once, and skips revoked access',async()=>{

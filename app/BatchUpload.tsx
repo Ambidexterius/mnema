@@ -1,3 +1,4 @@
+import {appHref} from './routes.ts';
 import React,{useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {Button,Checkbox,Dialog,Select,Switch,TextInput} from '@gravity-ui/uikit';
 import {AlertCircle,ArrowUpCircle,CheckCircle2,FileText,FileSpreadsheet,FileVideo,FileAudio,ChevronDown,Plus,Upload,X} from 'lucide-react';
@@ -133,7 +134,7 @@ export default function BatchUpload({open,close,workspace,model,studies,receive,
    {r.error&&['error','cancel-error'].includes(r.state)&&<small>{r.error}</small>}</div>
    <div className="transfer-actions">{r.state==='error'&&!r.permanentDuplicate&&<Button size="s" onClick={()=>queue.retry(r.id)}>Повторить</Button>}
    {['queued','uploading','error','cancel-error'].includes(r.state)&&<Button size="s" view="flat" aria-label={(r.permanentDuplicate?'Убрать из очереди ':'Отменить загрузку ')+r.name} onClick={()=>queue.cancel(r.id)}>{r.state==='cancel-error'?'Повторить отмену':r.permanentDuplicate?'Убрать':'Отменить'}</Button>}
-   {r.studyId&&<Button view="flat" size="s" href={'#/study/'+r.studyId} onClick={()=>setDetails(false)}>Открыть</Button>}</div>
+   {r.studyId&&<Button view="flat" size="s" href={appHref('study/'+r.studyId)} onClick={()=>setDetails(false)}>Открыть</Button>}</div>
   </li>)}</ul>}
   <div className="transfer-head" data-layers={details?0:Math.min(rows.length-1,2)}>
    <div className="transfer-card transfer-front">

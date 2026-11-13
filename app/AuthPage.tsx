@@ -7,7 +7,7 @@ import {api} from './api.ts';
 import {oauthQuery} from './oauth-query.ts';
 import {useAuthVariant} from './AuthVariants.tsx';
 export default function AuthPage({theme,onTheme,login,onComplete,setupRequired=false,setupEnabled=false}){
- const search=new URLSearchParams(location.hash.split('?')[1]||'');const register=!login;const setup=setupRequired&&setupEnabled;
+ const search=new URLSearchParams(location.hash.startsWith('#/')?location.hash.split('?')[1]||'':location.search);const register=!login;const setup=setupRequired&&setupEnabled;
  const [helpOpen,setHelpOpen]=useState(false);
  const [matrixPaused,setMatrixPaused]=useState(false);
  const [email,setEmail]=useState(search.get('email')||''),[password,setPassword]=useState(''),[visible,setVisible]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[invalid,setInvalid]=useState('');

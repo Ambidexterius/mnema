@@ -1,5 +1,6 @@
+import {setRouteWorkspace} from './routes.ts';
 let activeWorkspace:string|null=null;
-export const setApiWorkspace=(id:string|null)=>{activeWorkspace=id};
+export const setApiWorkspace=(id:string|null)=>{activeWorkspace=id;setRouteWorkspace(id)};
 export const projectFile=(id:string)=>'/api/files/'+encodeURIComponent(id)+(activeWorkspace?'?workspace='+encodeURIComponent(activeWorkspace):'');
 /** Same file, served as an attachment so the browser saves it instead of opening it. */
 export const projectFileDownload=(id:string)=>projectFile(id)+(activeWorkspace?'&':'?')+'download=1';
