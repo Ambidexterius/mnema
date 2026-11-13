@@ -1095,3 +1095,14 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 .transfer-dock[data-leaving]{pointer-events:none;animation:transfer-dock-out 200ms cubic-bezier(.55,0,1,.45) forwards}
 @keyframes transfer-dock-out{to{opacity:0;transform:translateX(calc(100% + var(--dock-gap)))}}
 @media(prefers-reduced-motion:reduce){.transfer-dock[data-leaving]{animation:none;opacity:0}}
+/* Back arrow to the projects list, left of a project page title. */
+.page-title-row{display:flex;align-items:center;gap:8px;min-width:0}
+.page-title-row>h1{min-width:0}
+.page-back{flex:none;display:inline-grid;place-items:center;width:32px;height:32px;margin-inline-start:-6px;border-radius:var(--g-border-radius-m);color:var(--g-color-text-secondary)}
+.page-back:hover{background:var(--g-color-base-simple-hover);color:var(--g-color-text-primary)}
+.page-back:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+@media(pointer:coarse){.page-back{width:44px;height:44px;margin-inline-start:-12px}}
+/* Answer actions: one quiet 28 px row close to the answer. */
+.messages .answer-actions{gap:2px;margin-top:6px;align-items:center}
+.messages .answer-actions .g-button__text>svg{margin-inline-end:6px}
+.messages .answer-actions .g-button__text>svg:only-child{margin:0}

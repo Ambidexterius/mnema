@@ -33,9 +33,9 @@ export default function AnswerActions({message,notify,onRated,children}:{
     catch{notify('Выделите ответ и скопируйте его вручную.')}
   }
   return <div className="answer-actions">
-    <Tooltip content="Скопировать ответ"><Button view="flat" size="m" aria-label="Скопировать ответ" onClick={copy}>{copied?<Check size={16}/>:<Copy size={16}/>}</Button></Tooltip>
+    <Tooltip content="Скопировать ответ"><Button view="flat" size="s" aria-label="Скопировать ответ" onClick={copy}>{copied?<Check size={14}/>:<Copy size={14}/>}</Button></Tooltip>
     {message.feedbackToken&&([['up','Полезный ответ',ThumbsUp],['down','Неполезный ответ',ThumbsDown]] as const).map(([value,label,Icon])=>
-      <Tooltip key={value} content={label}><Button view="flat" size="m" selected={message.rating===value} disabled={busy} aria-label={label} aria-pressed={message.rating===value} onClick={()=>rate(value)}><Icon size={16}/></Button></Tooltip>)}
+      <Tooltip key={value} content={label}><Button view="flat" size="s" selected={message.rating===value} disabled={busy} aria-label={label} aria-pressed={message.rating===value} onClick={()=>rate(value)}><Icon size={14}/></Button></Tooltip>)}
     {children}
   </div>;
 }
