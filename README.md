@@ -1,4 +1,4 @@
-> Current release: **0.9.29**. Project overview chats are saved conversations bound to their project; project details are editable properties. [Release notes](docs/RELEASE-0.9.29.md).
+> Current release: **0.9.30**. Restores the centered content grid; includes saved project chats and editable project properties from 0.9.29. [Release notes](docs/RELEASE-0.9.30.md).
 
 > 0.9.21 — прокрутка страницы над таблицами
 

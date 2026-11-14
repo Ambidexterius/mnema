@@ -1,3 +1,7 @@
+## 0.9.30 — 2026-11-14
+
+- Restore the centered 1104 px content grid that 0.9.29 removed by mistake. Wide screens no longer stretch pages, and the home chat is centered again. Equal page padding from 0.9.29 is kept.
+
 ## 0.9.29 — 2026-11-14
 
 - Make the project overview chat a real saved conversation. The first question creates a chat bound to the project; it appears in recent chats, opens full screen with «Открыть в чате» and links back to the project. Project chats answer from their own project first and widen to every accessible project only when the project has no evidence.

@@ -115,7 +115,7 @@ button.account.active{background:var(--g-color-base-selection)}
 .integration-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .integration-title h2{font:var(--g-text-subheader-2-font);margin:0}
 .integration-row .setting-main p{overflow-wrap:anywhere}
-.page{width:auto;box-sizing:content-box;margin-inline:0}
+.page{width:auto;max-width:1104px;box-sizing:content-box;margin-inline:auto}
 .home-hero{margin-inline:0}
 .g-segmented-radio-group__option-text>svg{display:block;flex:none}
 .brand-wrap{min-width:0;flex:1}
