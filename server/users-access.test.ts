@@ -49,15 +49,20 @@ test('invitation status and all-project access cover registration, expiry, futur
   state=(await req('/api/state',owner,undefined,'main')).data;assert.equal(state.state.users.filter(u=>u.email==='expired@example.test').length,1);assert.equal(state.state.users.find(u=>u.email==='expired@example.test').status,'invited');
   // Existing scoped accounts get global access immediately, without another signup.
   const upgraded=await invite(owner,'limited@example.test','all');assert.equal(upgraded.data.added,true);assert.equal((await req('/api/session',limited.cookie)).data.user.workspaces.length,4);
+  // A global grant must preserve a user's ownership of their own project.
+  assert.equal((await req('/api/state',limited.cookie,undefined,personal)).data.user.admin,true);
   const limitedId=app.db.prepare("SELECT id FROM user WHERE email='limited@example.test'").get().id;
   // Role and revoke changes apply to all existing memberships and future projects.
   assert.equal((await req('/api/users/'+globalId,owner,{role:'full'},'main','PATCH')).status,200);assert((await req('/api/session',global.cookie)).data.user.workspaces.every(w=>w.role==='full'));
   assert.equal((await req('/api/users/'+globalId,owner,{status:'revoked'},'main','PATCH')).status,200);
   assert.equal((await req('/api/session',global.cookie)).data.user,null);assert.equal((await req('/api/mcp/settings',global.cookie)).status,401);
   assert.equal((await req('/api/users/'+globalId,owner,{status:'active'},'main','PATCH')).status,200);assert.equal((await req('/api/session',global.cookie)).data.user.workspaces.length,4);
+  // An explicit demotion by the owner also lowers the creator's own project: no edits, no drafts.
+  const draft=JSON.parse(String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(personal).data));draft.findings=[{id:'draft-finding',studyId:'none',segmentId:'none',title:'Draft',kind:'Проблема',importance:'Высокая',status:'draft',origin:'ai',history:[]}];
+  app.db.prepare('UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id=?').run(JSON.stringify(draft),personal);
   assert.equal((await req('/api/users/'+limitedId,owner,{role:'view'},'main','PATCH')).status,200);
-  // A global grant must preserve a user's ownership of their own project.
-  assert.equal((await req('/api/state',limited.cookie,undefined,personal)).data.user.admin,true);
+  const demoted=(await req('/api/state',limited.cookie,undefined,personal)).data;assert.equal(demoted.user.admin,false);assert.equal(demoted.user.role,'view');assert.equal(demoted.state.findings.length,0);
+  assert.equal((await req('/api/state',limited.cookie,{changes:{models:[]}},personal,'PATCH')).status,403);
   // A reader can open source files only in projects included in their actual memberships.
   const raw=JSON.parse(String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(second).data));
   raw.studies=[{id:'private-study',title:'Private',status:'ready',fileId:'private-file',fileName:'private.txt',segments:[{id:'part',time:0,text:'Synthetic text'}],summary:[]}];

@@ -45,6 +45,11 @@ test('file counts do not expose hidden catalog materials to readers',async()=>{
  app.db.prepare('UPDATE mnema_workspaces SET data=? WHERE id=?').run(JSON.stringify(st),a);
  assert.equal((await req('/api/session')).data.user.workspaces.find(w=>w.id===a).fileCount,2);
  const visible=(await req('/api/session',undefined,'GET',viewer)).data.user.workspaces.find(w=>w.id===a);assert.equal(visible.fileCount,1);assert.deepEqual(visible.filePreviews,[{name:'visible.txt',format:'TXT'}]);assert.equal(JSON.stringify(visible).includes('hidden.txt'),false);
+ // The download endpoint applies the same reader filter as the preview: a known id is not enough.
+ await writeFile(join(dir,'uploads','file-hidden'),'hidden');app.db.prepare("INSERT INTO mnema_uploads VALUES('file-hidden','hidden.txt','text/plain',6,'ready')").run();
+ const download=id=>fetch(options.baseURL+'/api/files/'+id,{headers:{Cookie:viewer,'X-Mnema-Workspace':a}});
+ assert.equal((await download('file-hidden')).status,404);
+ assert.equal((await fetch(options.baseURL+'/api/files/file-hidden',{headers:{Cookie:owner,'X-Mnema-Workspace':a}})).status,200);
 });
 test('deletion rejects stale confirmation, active processing and unfinished uploads',async()=>{
  assert.equal((await req('/api/workspaces/'+a,{name:'Stale'},'DELETE')).status,409);

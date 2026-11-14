@@ -1,3 +1,10 @@
+## 0.9.31 — 2026-11-14
+
+- «Назад» on the project findings list and on the project research list now returns to the previous screen, like a single finding does. Opened from a direct link, it leads to the project overview instead of the list of all projects.
+- Fix: file download now applies the same reader filter as the preview. A reader who knows the id of a hidden catalog file gets 404.
+- Fix: when the administrator lowers a user's role, the user's own projects follow the new role: no drafts, no editing, no project settings. Widening access to all projects still keeps a creator's full role in their own projects. The administrator can now change a creator's access inside a single project.
+- Tests for both access fixes; they fail on 0.9.30.
+
 ## 0.9.30 — 2026-11-14
 
 - Restore the centered 1104 px content grid that 0.9.29 removed by mistake. Wide screens no longer stretch pages, and the home chat is centered again. Equal page padding from 0.9.29 is kept.
