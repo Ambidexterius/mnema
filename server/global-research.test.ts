@@ -1,4 +1,4 @@
-import {collectGlobalResearch,globalEvidence} from './global-research.ts';
+import {collectGlobalResearch,globalEvidence,chatEvidence} from './global-research.ts';
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {randomBytes} from 'node:crypto';
 import {createMnemaServer} from './server.ts';
@@ -57,4 +57,12 @@ test('global reviewed titles keep project prefixes until their selected source n
  const result=globalEvidence(research,'Возврат депозита');assert.deepEqual(reads,['a','b']);assert.equal(result.reviewedFindings.length,2);
  for(const finding of result.reviewedFindings){const workspace=finding.title.endsWith(' a')?'a':'b';assert(finding.sourceNumbers.every(number=>result.sources[number-1].workspaceId===workspace))}
  assert(!JSON.stringify(result.reviewedFindings).match(/DRAFT_SECRET|FOREIGN_LINK|HIDDEN_SOURCE/));assert(result.sources.every(source=>source.studyId==='shared'));
+});
+
+test('a project chat answers from its project and widens only when the project has no evidence',()=>{
+ const projects=[{id:'a',name:'Проект А',role:'full' as const,admin:true},{id:'b',name:'Проект Б',role:'full' as const,admin:true}];
+ const research=collectGlobalResearch({workspaceId:'a',workspaces:projects},project=>({models:[],modelId:'',studies:[{id:'s',title:'Интервью',status:'ready',segments:[{id:'seg',time:0,text:project.id==='a'?'Оплата без ответа хозяина':'Оплата и депозит'}]}],findings:[]}));
+ assert.deepEqual(chatEvidence(research,'оплата','a').sources.map(s=>s.workspaceId),['a']);
+ assert.deepEqual(chatEvidence(research,'депозит','a').sources.map(s=>s.workspaceId),['b']);
+ assert.deepEqual(new Set(chatEvidence(research,'оплата',null).sources.map(s=>s.workspaceId)),new Set(['a','b']));
 });

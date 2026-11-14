@@ -13,3 +13,14 @@ test('only one generation per chat; an in-flight chat cannot be removed',()=>{co
 test('history remembers full access used after an upgrade',()=>{const {db,store}=fixture();try{const initial={...owner,workspaces:[{id:'a',role:'view'}]};const chat=store.create(initial);store.append(initial,chat.id,'Reader question',answer);store.append(owner,chat.id,'Full access follow-up',answer);assert.throws(()=>store.get(initial,chat.id),{status:409});assert.equal(store.get(owner,chat.id).messages.length,4)}finally{db.close()}});
 
 test('current source visibility is rechecked for history and continuation',()=>{const {db,store}=fixture();try{const chat=store.create(owner);store.append(owner,chat.id,'Question',answer);const restricted=createChatHistory(db,()=>[]);assert.throws(()=>restricted.get(owner,chat.id),{status:409});assert.deepEqual(restricted.list(owner),[]);assert.throws(()=>restricted.acquire(owner,chat.id),{status:409})}finally{db.close()}});
+
+test('a chat bound to a project needs access to it and is hidden once that access is gone',()=>{const {db,store}=fixture();try{
+ assert.throws(()=>store.create(owner,'foreign'),{status:404});
+ const chat=store.create(owner,'a');assert.equal(chat.projectId,'a');assert.equal(store.list(owner)[0].projectId,'a');assert.equal(store.create(owner).projectId,null);
+ const removed={...owner,workspaces:[]};assert(!store.list(removed).some(c=>c.id===chat.id));assert.throws(()=>store.get(removed,chat.id),{status:409});
+}finally{db.close()}});
+test('an existing chat table gains the project column without losing conversations',()=>{const db=new DatabaseSync(':memory:');try{
+ db.exec('CREATE TABLE mnema_chats(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,title TEXT NOT NULL,messages TEXT NOT NULL,grants TEXT NOT NULL,updated INTEGER NOT NULL)');
+ db.prepare('INSERT INTO mnema_chats VALUES(?,?,?,?,?,?)').run('old','owner','Старый чат','[]','[]',1);
+ const store=createChatHistory(db);assert.deepEqual(store.list(owner),[{id:'old',title:'Старый чат',projectId:null,updated:1}]);createChatHistory(db);
+}finally{db.close()}});

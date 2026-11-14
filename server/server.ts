@@ -7,7 +7,7 @@ import {keySlot,modelBase,cleanModel,modelKeyStore,providerHeaders,providerReque
 import {createS3Mirror,s3Config} from './s3-storage.ts';
 import {documentPreview} from './document-preview.ts';
 import {materialActivity} from '../app/material-activity.ts';
-import {collectGlobalResearch,globalEvidence} from './global-research.ts';
+import {collectGlobalResearch,chatEvidence} from './global-research.ts';
 import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
 import {sendInvitationEmail} from './invitation-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
@@ -439,7 +439,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      }
      if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(initialState()),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) SELECT ?,user_id,role,0 FROM mnema_access WHERE all_projects=1 AND revoked=0').run(id);return json(res,201,{id,name})}
      if(path==='/api/chats'&&req.method==='GET')return json(res,200,{chats:chats.list(person)});
-     if(path==='/api/chats'&&req.method==='POST'){await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest))}
+     if(path==='/api/chats'&&req.method==='POST'){const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest,typeof b?.projectId==='string'?b.projectId:null))}
      if(/^\/api\/chats\/[^/]+$/.test(path)){
       const id=path.split('/')[3];
       if(req.method==='GET')return json(res,200,chats.get(person,id));
@@ -461,7 +461,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       try{
       const prior=(chat?.messages||[]).slice(-12).map(m=>({role:m.role,content:String(m.role==='user'?m.text:m.answer).slice(0,3000)}));
       const retrievalQuestion=[...(chat?.messages||[]).filter(m=>m.role==='user').slice(-2).map(m=>m.text),question].join(' ');
-      const research=globalResearch(current);const {sources,coverage,reviewedFindings}=globalEvidence(research,retrievalQuestion);
+      const research=globalResearch(current);const {sources,coverage,reviewedFindings}=chatEvidence(research,retrievalQuestion,chat?.projectId);
       const finish=async(reply:any)=>{const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');
        if(current.workspaces.some(before=>{const access=latest.workspaces.find(w=>w.id===before.id);return !access||(before.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Начните новый чат.');
        const rated=ratedReply(latest,question,'global',reply,research.model?.model);
@@ -501,7 +501,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(!latest||latest.workspaceId!==currentWs()||latest.role!=='full')fail(403,'Редактировать сведения может участник с полным доступом.');
      const limits={category:80,conducted:100,method:200,audience:10000,contact:200,report:10};
      const fields=input?.fields;
-     if(!fields||typeof fields!=='object'||Array.isArray(fields)||Object.keys(fields).some(key=>!Object.hasOwn(limits,key)))fail(400,'Проверьте поля проекта.');
+     if(!fields||typeof fields!=='object'||Array.isArray(fields)||Object.keys(fields).some(key=>!Object.hasOwn(limits,key)&&key!=='tags'))fail(400,'Проверьте поля проекта.');
+     if(fields.tags!==undefined&&(!Array.isArray(fields.tags)||fields.tags.length>20||fields.tags.some(tag=>typeof tag!=='string'||!tag.trim()||tag.length>40)))fail(400,'Тегов может быть до 20, каждый до 40 символов.');
      for(const [key,max] of Object.entries(limits)){
       if(typeof fields[key]!=='string'||fields[key].length>max)fail(400,'Проверьте значение поля проекта.');
      }
@@ -509,7 +510,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      mutate(state=>{
       const revision=state.projectProfile?.revision||0;
       if(input.revision!==revision)fail(409,'Сведения изменились. Откройте редактирование заново.');
-      state.projectProfile={...Object.fromEntries(Object.keys(limits).map(key=>[key,fields[key].trim()])),revision:revision+1};
+      // Tags are optional so older clients keep the saved ones.
+      const tags=fields.tags?[...new Set(fields.tags.map(tag=>tag.trim()))]:state.projectProfile?.tags;
+      state.projectProfile={...Object.fromEntries(Object.keys(limits).map(key=>[key,fields[key].trim()])),...(tags?{tags}:{}),revision:revision+1};
      });
      return json(res,200,view(latest));
     }

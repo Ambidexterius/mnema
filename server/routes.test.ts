@@ -8,6 +8,7 @@ test('project URLs round-trip with a stable ID, nested screens and filters',()=>
   assert.deepEqual(readRoute(new URL(href,'https://example.test')),{route:screen,workspace:'project-a'});
  }
  assert.equal(routeHref('users','project-a'),'/users');
+ assert.equal(routeHref('chat','project-a'),'/chat');
  assert.deepEqual(readRoute(new URL('https://example.test/users')),{route:'users',workspace:null});
  assert.equal(routeHref('home','renamed-project'),'/projects/renamed-project');
  assert.deepEqual(readRoute(new URL('https://example.test/projects')),{route:'research',workspace:null});

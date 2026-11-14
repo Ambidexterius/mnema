@@ -1,4 +1,4 @@
-> Current release: **0.9.28**. A floating project composer appears after text extraction; findings use Gravity UI surfaces. [Release notes](docs/RELEASE-0.9.28.md). GitHub-only release; hosted instances are not upgraded automatically.
+> Current release: **0.9.29**. Project overview chats are saved conversations bound to their project; project details are editable properties. [Release notes](docs/RELEASE-0.9.29.md).
 
 > 0.9.21 — прокрутка страницы над таблицами
 

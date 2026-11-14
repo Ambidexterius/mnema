@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {findingStatusLabel} from '../app/finding-status.ts';
 
 test('draft labels keep imported and human findings separate from AI drafts',()=>{
- assert.equal(findingStatusLabel({status:'draft',origin:'ai'}),'Черновик ИИ');
+ assert.equal(findingStatusLabel({status:'draft',origin:'ai'}),'Предложено ИИ');
  for(const origin of ['human','import'] as const){
   assert.equal(findingStatusLabel({status:'draft',origin}),'Ждёт проверки');
  }

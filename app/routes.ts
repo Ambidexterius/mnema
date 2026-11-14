@@ -45,9 +45,9 @@ export function canonicalHref(url:URL,workspace?:string|null){
 }
 export function canonicalizeRoute(){
  if(location.pathname==='/mcp/login'||location.pathname==='/mcp/consent')return;
- history.replaceState(null,'',canonicalHref(new URL(location.href),currentWorkspace));
+ history.replaceState(history.state,'',canonicalHref(new URL(location.href),currentWorkspace));
 }
 export function navigate(route:string,replace=false){
  const href=appHref(route);if(location.pathname+location.search+location.hash===href)return;
- history[replace?'replaceState':'pushState'](null,'',href);window.dispatchEvent(new PopStateEvent('popstate'));
+ history[replace?'replaceState':'pushState'](replace?history.state:{app:1},'',href);window.dispatchEvent(new PopStateEvent('popstate'));
 }

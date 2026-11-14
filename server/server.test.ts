@@ -115,7 +115,7 @@ test('workspaces isolate studies; built-in models stay; studies can be deleted w
  assert.equal(fresh.data.state.workspace.creatorName,'Owner');
  const fields={category:'Продукт',conducted:'Ноябрь 2026',method:'Интервью',audience:'Группа 1\n\nГруппа 2',contact:'',report:'ready'};
  const profilePath='/api/workspaces/'+created.data.id+'/profile';
- const editProfile=(cookie,revision,values=fields,path=profilePath)=>req(path,{cookie,method:'PATCH',body:{revision,fields:values}});
+ const editProfile=(cookie,revision,values:Record<string,unknown>=fields,path=profilePath)=>req(path,{cookie,method:'PATCH',body:{revision,fields:values}});
  assert.equal((await editProfile(viewerCookie,0,fields,'/api/workspaces/main/profile')).response.status,403);
  assert.equal((await editProfile(ownerCookie,0)).response.status,404);
  assert.equal((await editProfile(wsCookie,0,{...fields,...{creatorName:'Подмена'}})).response.status,400);
@@ -123,6 +123,10 @@ test('workspaces isolate studies; built-in models stay; studies can be deleted w
  assert.equal((await editProfile(wsCookie,0)).response.status,409);
  const savedProfile=(await req('/api/state',{cookie:wsCookie})).data.state.workspace;
  assert.equal(savedProfile.profile.audience,fields.audience);assert.equal(savedProfile.creatorName,'Owner');
+ assert.equal((await editProfile(wsCookie,1,{...fields,tags:['x'.repeat(41)]})).response.status,400);
+ assert.equal((await editProfile(wsCookie,1,{...fields,tags:[' Продукт ','Продукт','Отчёт']})).response.status,200);
+ assert.equal((await editProfile(wsCookie,2)).response.status,200);
+ assert.deepEqual((await req('/api/state',{cookie:wsCookie})).data.state.workspace.profile.tags,['Продукт','Отчёт']);
  assert.equal((await req('/api/state',{cookie:ownerCookie})).data.state.workspace.profile.audience,undefined);
  const main=await req('/api/state',{cookie:ownerCookie});assert(main.data.state.studies.length>0);
  const foreign=await req('/api/state',{cookie:viewerCookie+'; mnema_ws='+created.data.id});assert.equal(foreign.data.state.workspace.id,'main');

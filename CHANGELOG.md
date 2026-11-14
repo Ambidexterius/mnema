@@ -1,3 +1,13 @@
+## 0.9.29 — 2026-11-14
+
+- Make the project overview chat a real saved conversation. The first question creates a chat bound to the project; it appears in recent chats, opens full screen with «Открыть в чате» and links back to the project. Project chats answer from their own project first and widen to every accessible project only when the project has no evidence.
+- Add an optional `project_id` to saved chats (created automatically on existing databases). Binding requires access to the project, and the chat disappears once that access is gone.
+- Open the floating answer as one card above the composer: smooth open and collapse, click outside or Escape to collapse, citations still open in the side panel. Remove the old in-memory project chat and its temporary page.
+- Show project details as Obsidian-style properties: click to edit, Enter saves, Escape cancels; month and year picker for «Проведено»; Gravity UI labels for tags and the report status. Add optional profile `tags` (up to 20, 40 characters each); older clients keep saved tags.
+- On phones show three key properties with «Все свойства», 44 px touch targets and 16 px text.
+- Rename the AI suggestion status from «Черновик ИИ» to «Предложено ИИ». Show material repeat counts on overview findings; rename «Все находки» to «Весь список».
+- Equal page padding on every side; «Назад» on a finding returns to the previous screen. The floating composer is easier to see in both themes.
+
 ## 0.9.28 — 2026-11-14
 
 - Float the project composer at the bottom center of the available content, accounting for the sidebar, source panel and long input.

@@ -16,3 +16,8 @@ export function globalEvidence(research:ReturnType<typeof collectGlobalResearch>
  const selected=selectEvidence(research.studies as Study[],question,'all',research.sourceHints);
  return{reviewedFindings:selected.reviewedFindings,coverage:{...selected.coverage,totalProjects:new Set(research.studies.filter(s=>s.status==='ready'&&s.segments?.length).map(s=>s.workspaceId)).size,projects:new Set(selected.sources.map(s=>research.studies.find(m=>m.id===s.studyId)?.workspaceId)).size},sources:selected.sources.map(({score,...source},i)=>{const material=research.studies.find(s=>s.id===source.studyId)!;return{...source,number:i+1,segmentId:source.id,studyId:material.actualStudyId,workspaceId:material.workspaceId,workspaceName:material.workspaceName,studyType:material.type,basis:material.report==='ready'||material.report!=='none'&&material.type==='Отчёт'?'report':'raw'}})};
 }
+/** A project chat answers from its own project and widens to every project only when the project has no evidence. */
+export function chatEvidence(research:ReturnType<typeof collectGlobalResearch>,question:string,projectId?:string|null){
+ if(projectId){const own=globalEvidence({...research,studies:research.studies.filter(s=>s.workspaceId===projectId),sourceHints:research.sourceHints.filter(f=>String(f.studyId).startsWith(projectId+':'))},question);if(own.sources.length)return own}
+ return globalEvidence(research,question);
+}
