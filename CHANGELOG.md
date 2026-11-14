@@ -1,3 +1,12 @@
+## 0.9.36 — 2026-11-15
+
+- The agent has 13 emotions with brows, mouth and blush: idle, listening, thinking, happy, wink, love, surprised, shy, puzzled, sad, angry, dizzy and sleepy, each with its own 3D pose and motion.
+- Reactions: 👍 makes it fall in love, 👎 makes it shy; errors read differently (exhausted limit → sleepy, provider refusal → angry, lost connection or timeout → dizzy, others → sad). Anger is never aimed at the user.
+- A live agent follows the pointer with its eyes (hover devices), dozes off after 45 s without input and startles awake, and giggles with love eyes when clicked. Random rest moments now include a wink and surprise.
+- Dark theme: like the white logo, the agent turns soft milk-white with a warm grey side; brand red stays as the accent (hearts). Agent colours are theme variables.
+- Smooth transitions: faces cross-fade (in 280 ms, out 180 ms), mood poses ease over 450 ms, sway and glance run on their own layers so emotions never cut them, and looping animations start after the pose settles.
+- Under reduced motion there are no random moments, no gaze and no cross-fade overlap. No server or dependency changes.
+
 ## 0.9.35 — 2026-11-15
 
 - The agent under the latest answer no longer freezes: the joy of a new answer lasts 2.6 s, then it rests alive (sway, breath, blink, glance, logo split). Every 8–14 s a live agent shows a short emotion for about 2 s: a smile with a hop, a puzzled tilt or a look down at the composer. A puzzled agent (nothing found) keeps its meaning and also blinks and glances.

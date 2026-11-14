@@ -2,7 +2,9 @@ import {findingStatusLabel as statusLabel} from './finding-status.ts';
 import {appHref,appRoute,navigate,readRoute,requestedWorkspace,canonicalizeRoute,routeHref} from './routes.ts';
 import {invitationMailNotice} from './invitation-mail-status.ts';
 import ThinkingIndicator from './ThinkingIndicator.tsx';
-import Mascot from './Mascot.tsx';
+import Mascot,{type MascotMood} from './Mascot.tsx';
+// The agent reads the error: an exhausted limit makes it sleepy, a provider refusal angry, a lost connection dizzy.
+const errorMood=(text:string):MascotMood=>/лимит/i.test(text)?'sleepy':/отклонил|403/.test(text)?'angry':/недоступ|соединени|сеть|504|тайм/i.test(text)?'dizzy':'sad';
 import ResearchCatalog from './ResearchCatalog.tsx';
 import {useResearchChats} from './useResearchChats.ts';
 import ProjectFolder from './ProjectFolder.tsx';
@@ -249,7 +251,7 @@ function ProjectChatDock(){
     <div className="project-answer-head"><span>Мнемоника · про этот проект</span><IconButton icon={MessageSquare} label="Открыть в чате" size="m" disabled={!chatHistory.activeId&&!chatId} onClick={()=>chatId&&go('conversation/'+chatId)}/><IconButton icon={Minimize2} label="Свернуть" size="m" onClick={()=>setOpen(false)}/></div>
     <div className="project-answer-body"><ConversationLog label="Чат проекта"/></div>
    </div></div>
-   {globalError?<p className="form-error composer-help chat-error" role="alert"><Mascot mood="sad" size={20}/>{globalError}</p>:null}
+   {globalError?<p className="form-error composer-help chat-error" role="alert"><Mascot mood={errorMood(globalError)} size={20}/>{globalError}</p>:null}
    <ChatComposer value={draft} onChange={setDraft} loading={typing} available={available} inputLabel="Вопрос по исследованиям" sendLabel="Отправить вопрос" placeholder={question} suggestion={question} onSubmit={submit}/>
    {!available?<p className="composer-help">Подключите модель в настройках проекта, чтобы задать вопрос.</p>:null}
   </div>
@@ -259,7 +261,7 @@ function ProjectChatDock(){
 function ConversationLog({label}:{label:string}){
  const {chatHistory,globalMessages,globalTyping,openGlobalSource,notify,setAnswerRating}=useApp();const bottom=useRef<HTMLDivElement>(null);
  useEffect(()=>{bottom.current?.scrollIntoView({block:'end',behavior:'instant'})},[globalMessages.length,globalTyping]);
- return <>{globalMessages.length?<div className="messages" role="log" aria-live="polite" aria-relevant="additions" aria-label={label}>{globalMessages.map((m,mi)=><article ref={m.id===chatHistory.latestReplyId?revealMessage:undefined} className={'message '+m.role+(m.id===chatHistory.latestReplyId||m.role==='user'&&globalTyping&&mi===globalMessages.length-1?' message-arrive':'')} key={m.id}>{m.role==='user'?m.text:<><AnswerText text={m.answer} sources={m.sources} onCite={openGlobalSource}/><div className="answer-sign"><Mascot mood={!m.sources?.length?'puzzled':m.id===chatHistory.latestReplyId?'happy':'idle'} live={mi===globalMessages.length-1&&!globalTyping}/>Мнемоника</div><AnswerActions message={m} notify={notify} onRated={rating=>setAnswerRating(m.id,rating)}/></>}</article>)}</div>:null}
+ return <>{globalMessages.length?<div className="messages" role="log" aria-live="polite" aria-relevant="additions" aria-label={label}>{globalMessages.map((m,mi)=><article ref={m.id===chatHistory.latestReplyId?revealMessage:undefined} className={'message '+m.role+(m.id===chatHistory.latestReplyId||m.role==='user'&&globalTyping&&mi===globalMessages.length-1?' message-arrive':'')} key={m.id}>{m.role==='user'?m.text:<><AnswerText text={m.answer} sources={m.sources} onCite={openGlobalSource}/><div className="answer-sign"><Mascot mood={m.rating==='up'?'love':m.rating==='down'?'shy':!m.sources?.length?'puzzled':m.id===chatHistory.latestReplyId?'happy':'idle'} live={mi===globalMessages.length-1&&!globalTyping}/>Мнемоника</div><AnswerActions message={m} notify={notify} onRated={rating=>setAnswerRating(m.id,rating)}/></>}</article>)}</div>:null}
  {globalTyping?<ThinkingIndicator/>:null}<div ref={bottom}/></>;
 }
 
