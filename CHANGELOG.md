@@ -1,3 +1,9 @@
+## 0.9.35 — 2026-11-15
+
+- The agent under the latest answer no longer freezes: the joy of a new answer lasts 2.6 s, then it rests alive (sway, breath, blink, glance, logo split). Every 8–14 s a live agent shows a short emotion for about 2 s: a smile with a hop, a puzzled tilt or a look down at the composer. A puzzled agent (nothing found) keeps its meaning and also blinks and glances.
+- Fix: the glance keyframes lost in 0.9.34 are back, so the resting agent looks around again.
+- Random emotions are off under reduced motion. No server or dependency changes.
+
 ## 0.9.34 — 2026-11-15
 
 - Mnemonika's agent: the brand mark extruded into a small 3D character (stacked SVG slices in CSS `preserve-3d`, the logo on its back). It stands above the empty chat, looks at the composer while you type, sways and turns to show the logo while an answer is prepared, hops when an answer with sources arrives, tilts when nothing was found and slumps on an error. A small agent signs every answer «Мнемоника».

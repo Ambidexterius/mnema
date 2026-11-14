@@ -1034,6 +1034,7 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .chat-welcome .mascot{margin:0 auto 16px}
 @media(prefers-reduced-motion:no-preference){
  .mascot[data-live] .mascot-figure{animation:mascot-breathe 3.8s ease-in-out infinite}
+ .mascot[data-live][data-mood=idle] .mascot-face,.mascot[data-live][data-mood=puzzled] .mascot-face{animation:mascot-glance 7s ease-in-out infinite}
  .mascot[data-live][data-mood=idle] .mascot-spin{animation:mascot-sway 7s cubic-bezier(.45,0,.55,1) infinite}
  .mascot[data-live][data-mood=idle] .mascot-petal{animation:mascot-split-rest 11s cubic-bezier(.2,0,0,1) infinite}
  .mascot[data-live] .mascot-eye{animation:mascot-blink 4.6s ease-in-out infinite}
@@ -1043,6 +1044,7 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
  .mascot[data-mood=happy] .mascot-figure{animation:mascot-hop .7s cubic-bezier(.2,0,0,1) both}
  .mascot[data-mood=happy] .mascot-spin{animation:mascot-wiggle .9s cubic-bezier(.2,0,0,1) both}
  @keyframes mascot-breathe{0%,100%{transform:none}50%{transform:scale(1.03,.975)}}
+ @keyframes mascot-glance{0%,36%,100%{transform:none}42%,56%{transform:translate(-3px,.5px)}62%,80%{transform:translate(2.5px,-1px)}}
  @keyframes mascot-sway{0%,100%{transform:rotateX(10deg) rotateY(-22deg)}50%{transform:rotateX(8deg) rotateY(-6deg)}}
  @keyframes mascot-split-rest{0%,84%,100%{transform:translate(var(--mx),var(--my))}88%,94%{transform:none}}
  /* Think: sway side to side, then one full turn that shows the logo on the back, then settle. */

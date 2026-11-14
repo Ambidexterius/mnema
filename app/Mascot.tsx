@@ -1,4 +1,4 @@
-import React,{useId} from 'react';
+import React,{useEffect,useId,useState} from 'react';
 
 export type MascotMood='idle'|'listening'|'thinking'|'happy'|'puzzled'|'sad';
 
@@ -18,8 +18,21 @@ const DEPTH=[-4,-3,-2,-1,0,1,2,3]; // slice offsets in 1/64 of the size
 const EYES=[[21,22],[39,21]] as const;
 const INK='#2b1218';
 
-export default function Mascot({mood='idle',size=20,live=false}:{mood?:MascotMood;size?:number;live?:boolean}){
+// While a live agent rests it now and then shows a short emotion, so it never freezes after an answer.
+const MOMENTS:MascotMood[]=['happy','puzzled','listening'];
+
+export default function Mascot({mood:asked='idle',size=20,live=false}:{mood?:MascotMood;size?:number;live?:boolean}){
  const id='m'+useId().replace(/[^a-z0-9]/gi,''),fill=`url(#${id}f)`;
+ const [settled,setSettled]=useState(false),[moment,setMoment]=useState<MascotMood|null>(null);
+ // The joy of a new answer lasts 2.6 s, then the agent calms down into its live rest.
+ useEffect(()=>{setSettled(false);if(!live||asked!=='happy')return;const t=setTimeout(()=>setSettled(true),2600);return()=>clearTimeout(t)},[live,asked]);
+ const base=settled?'idle':asked;
+ useEffect(()=>{
+  if(!live||base!=='idle'||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  let t=0;const next=()=>{t=window.setTimeout(()=>{setMoment(MOMENTS[Math.floor(Math.random()*MOMENTS.length)]);t=window.setTimeout(()=>{setMoment(null);next()},1800)},8000+Math.random()*6000)};
+  next();return()=>{clearTimeout(t);setMoment(null)};
+ },[live,base]);
+ const mood=moment||base;
  const layer=(z:number,children:React.ReactNode,cls='')=><svg key={z+cls} className={'mascot-layer '+cls} style={{transform:`translateZ(calc(var(--u) * ${z}))`}} viewBox="-4 -4 72 72">{children}</svg>;
  const eye=([x,y]:readonly [number,number],i:number)=>{
   if(mood==='happy')return <path key={i} d={`M${x-5} ${y+2}Q${x} ${y-6} ${x+5} ${y+2}`} fill="none" stroke={INK} strokeWidth="3.6" strokeLinecap="round"/>;
