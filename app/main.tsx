@@ -21,6 +21,7 @@ import ChatComposer from './ChatComposer.tsx';
 import ModelConnectionDialog from './ModelConnectionDialog.tsx';
 import MCPSettings,{MCPConsent} from './MCPSettings.tsx';
 import IntegrationsPage from './IntegrationsPage.tsx';
+import AnswerFeedbackPage from './AnswerFeedbackPage.tsx';
 import {materialActivity} from './material-activity.ts';
 import {APP_VERSION} from './version.ts';
 import {useCompletionSound} from './completion.ts';
@@ -31,7 +32,7 @@ import AuthPage from './AuthPage.tsx';
 import {api,setApiWorkspace,projectFile,projectFileDownload} from './api.ts';
 import React, {createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {configure, Accordion, Modal, Avatar, Button, Card, Checkbox, Dialog, DropdownMenu, Popup, Label, Progress, SegmentedRadioGroup, Select, Switch, Table, TextArea, TextInput, ThemeProvider, Tooltip} from '@gravity-ui/uikit';
-import {ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, Box, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RefreshCw, RotateCcw, Search, ShieldCheck, Sparkles, Sun, Upload, Users, Video, LogOut, X} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, Box, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RefreshCw, RotateCcw, Search, ShieldCheck, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
 import type {LucideIcon} from 'lucide-react';
 import type {Finding, Study, Segment, ChatSource, WorkspaceUser} from './types.ts';
 import '@gravity-ui/uikit/styles/styles.css';
@@ -69,7 +70,7 @@ const where=seg=>seg?.page?'Стр. '+seg.page:seg?.speaker==='Документ'
 const WHATS_NEW='ui-0.9.16-findings-2026-11-13';
 const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const navs:[string,string,LucideIcon][]=[['home','Обзор проекта',House],['library','Исследования',Library]];
-const management:[string,string,LucideIcon][]=[['models','Модели',Box],['integrations','Интеграции',Plug],['mcp','MCP',Cable],['users','Пользователи',Users]];
+const management:[string,string,LucideIcon][]=[['models','Модели',Box],['integrations','Интеграции',Plug],['mcp','MCP',Cable],['users','Пользователи',Users],['feedback','Оценки ответов',ThumbsUp]];
 function load(){try{const v=JSON.parse(localStorage.getItem(storage));const local=v?.version===1?v.data:{};return DEMO?{...structuredClone(defaults),...local}:{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:local.theme||'light',sidebarCollapsed:!!local.sidebarCollapsed,soundEnabled:local.soundEnabled!==false}}catch{return DEMO?structuredClone(defaults):{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:'light'}}}
 function IconButton({icon:Icon,label,size="l",...props}:{icon:LucideIcon;label:string;[prop:string]:any}){return <Tooltip content={label}><Button view="flat" size={size} aria-label={label} {...props}><Icon size={size==="s"?14:18} aria-hidden="true"/></Button></Tooltip>}
 function NavigationHint({label,enabled,children}:{label:string;enabled:boolean;children:React.ReactElement}){return <Tooltip content={label} disabled={!enabled} placement="right" openDelay={200} closeDelay={80}>{children}</Tooltip>}
@@ -178,7 +179,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  const context={chatHistory,projectAction:(action,project)=>{setMenuOpen(false);if(action==='invite'&&authInfo.user?.manageUsers){open({type:'invite'});return}if(action==='files'){if(uploadingBatch.current){notify('Дождитесь завершения загрузки перед сменой проекта.');return}switchWorkspaceRef.current?.(project.id).then(()=>go('library')).catch(()=>{});return}setProjectAction({action,project})},setAnswerRating,globalMessages,globalTyping,globalError,askGlobal,clearGlobalChat:chatHistory.newChat,openGlobalSource:async(source)=>{try{if(!DEMO){if(source.workspaceId!==authInfo.user?.workspaceId)await switchWorkspaceRef.current?.(source.workspaceId,false);else await refresh()}setPanel({studyId:source.studyId,segmentId:source.segmentId,number:source.number})}catch{notify('Не удалось открыть источник. Проверьте доступ к проекту.')}},projectName:state.workspace?.name||'Проект',workspaces:(authInfo.user?.workspaces||[]).filter(w=>!w.emptyDefault),switchingProject,switchWorkspace:(id:string)=>switchWorkspaceRef.current?.(id),markSeen,state,update,receive,user:authInfo.user,real:!DEMO,reader,route:pageRoute,go,dialog,open,notify,selected,setSelected,files,panel:shownPanel,panelClosing,setPanel,openPanel};
  const base=pageRoute.split('?')[0];const globalView=['chat','research','projects','all-findings'].includes(base)||pageRoute.startsWith('conversation/');const studyOpen=pageRoute.startsWith('study/');if(!studyOpen&&['home','library','findings'].includes(base))backdropRoute.current=base;const view=studyOpen?backdropRoute.current:base;
  const findingCounts=state.findings.map(normalize).reduce((c,f)=>({...c,[f.status]:(c[f.status]||0)+1}),{});
- const canManage=!reader&&(DEMO||authInfo.user?.admin);const canUseSettings=DEMO||Boolean(authInfo.user);const visibleManagement=management.filter(([id])=>canManage||id==='mcp');const userName=authInfo.user?.name||'Глеб';
+ const canManage=!reader&&(DEMO||authInfo.user?.admin);const canUseSettings=DEMO||Boolean(authInfo.user);const visibleManagement=management.filter(([id])=>id==='feedback'?DEMO||Boolean(authInfo.user?.manageUsers):canManage||id==='mcp');const userName=authInfo.user?.name||'Глеб';
  const signOut=async()=>{setAccountOpen(false);setGlobalMessages([]);await api('/api/auth/sign-out',{});setApiWorkspace(null);setState(s=>({...s,messages:[]}));setAuthInfo({user:null,loading:false});navigate('login')};
  const workspaces=(authInfo.user?.workspaces||[]).filter(w=>!w.emptyDefault);const workspaceName=state.workspace?.name||workspaces.find(w=>w.id===authInfo.user?.workspaceId)?.name||'Команда';
  const switchWorkspace=async(id:string,navigate=true)=>{if(switching.current)return;if(uploadingBatch.current){notify('Дождитесь завершения загрузки перед сменой проекта.');return}const previous=authInfo.user?.workspaceId;switching.current=true;setSwitchingProject(true);try{await pending.current;setApiWorkspace(id);document.cookie='mnema_ws='+encodeURIComponent(id)+'; path=/; SameSite=Lax';setPanel(null);receive(await api('/api/state'));if(navigate)go('home')}catch(e){setApiWorkspace(previous||null);document.cookie='mnema_ws='+encodeURIComponent(previous||'')+'; path=/; SameSite=Lax';notify('Не удалось открыть проект. Попробуйте ещё раз.');throw e}finally{switching.current=false;setSwitchingProject(false)}};
@@ -310,7 +311,7 @@ function SettingsModal({tab,tabs,ctx}:{tab:string;tabs:[string,string,LucideIcon
   <div className="settings-main">
    {/* Title and close stay pinned; only the section below scrolls. */}
    <header className="settings-header" data-scrolled={scrolled||undefined}><h2>{tabs.find(([id])=>id===shown)?.[1]}</h2><IconButton icon={X} label="Закрыть настройки" className="settings-close" onClick={()=>setOpen(false)}/></header>
-   <div className="settings-body" ref={body} onScroll={e=>setScrolled(e.currentTarget.scrollTop>0)}><div className="settings-pane" key={shown}>{shown==='models'?<Models/>:shown==='integrations'?<IntegrationsPage/>:shown==='users'?<UsersPage/>:<MCPSettings ctx={ctx}/>}</div></div>
+   <div className="settings-body" ref={body} onScroll={e=>setScrolled(e.currentTarget.scrollTop>0)}><div className="settings-pane" key={shown}>{shown==='models'?<Models/>:shown==='integrations'?<IntegrationsPage/>:shown==='users'?<UsersPage/>:shown==='feedback'?<AnswerFeedbackPage real={ctx.real}/>:<MCPSettings ctx={ctx}/>}</div></div>
   </div>
  </Modal>;
 }

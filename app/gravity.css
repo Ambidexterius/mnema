@@ -1288,3 +1288,19 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 .settings-body .storage-card-main p{margin-top:4px;font:var(--g-text-caption-2-font);color:var(--g-color-text-secondary)}
 @media(max-width:639px){.settings-body .setting-actions .g-button{min-width:44px;min-height:44px}.settings-body .setting-row{flex-wrap:wrap;row-gap:4px}.settings-body .setting-main{flex:1 1 120px}.settings-body .setting-actions{margin-inline-start:auto}}
 .settings-body .mcp-settings{display:block}
+/* Answer ratings review: each row is a <details>; the summary is the row, the answer and sources open below. */
+.settings-body .feedback-row{display:block;padding:0}
+.feedback-row summary{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 12px;cursor:pointer;list-style:none}
+.feedback-row summary::-webkit-details-marker{display:none}
+.feedback-row summary:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:-2px;border-radius:12px}
+@media(hover:hover){.feedback-row summary:hover{background:var(--g-color-base-simple-hover)}}
+.feedback-row .setting-main{min-width:0;flex:1}
+.feedback-row .setting-main strong{display:block;overflow-wrap:anywhere}
+.feedback-chevron{flex:none;color:var(--g-color-text-secondary);transition:transform .2s cubic-bezier(.2,0,0,1)}
+.feedback-row details[open] .feedback-chevron{transform:rotate(90deg)}
+.feedback-detail{display:grid;gap:6px;padding:0 12px 16px 56px}
+.feedback-detail h4{margin:8px 0 0;font:var(--g-text-caption-2-font);font-weight:500;color:var(--g-color-text-secondary)}
+.feedback-answer{margin:0;max-width:68ch;white-space:pre-wrap;line-height:1.55}
+.feedback-sources{margin:0;padding-inline-start:18px}.feedback-sources .setting-meta{margin-inline-start:6px}
+.feedback-settings .g-segmented-radio-group__option-text{display:inline-flex;align-items:center;gap:6px}
+@media(max-width:639px){.feedback-detail{padding-inline-start:12px}.feedback-filter-text{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}

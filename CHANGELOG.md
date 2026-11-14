@@ -1,3 +1,9 @@
+## 0.9.37 — 2026-11-15
+
+- Settings get «Оценки ответов» for administrators who manage users: every 👍/👎 on chat answers with the question, who rated it and when, the project, and on expand the model's answer, its source materials and the model. Filter «Неполезные» (default), «Полезные», «Все»; latest 200 ratings.
+- `GET /api/chat/feedback` returns the list to the owner and user managers only (403 for others); signatures, build and author grants are not included. Tests cover the list content and the access rule.
+- Ratings still do not change answers or reach the model provider; the section is for reviewing where answers go wrong. No dependency changes.
+
 ## 0.9.36 — 2026-11-15
 
 - The agent has 13 emotions with brows, mouth and blush: idle, listening, thinking, happy, wink, love, surprised, shy, puzzled, sad, angry, dizzy and sleepy, each with its own 3D pose and motion.

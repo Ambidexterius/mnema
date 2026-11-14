@@ -31,7 +31,7 @@ test('invitation status and all-project access cover registration, expiry, futur
   const session=(await req('/api/session',global.cookie)).data.user;assert.deepEqual(session.workspaces.map(w=>w.id).sort(),['main',second,third].sort());assert(session.workspaces.every(w=>w.role==='view'&&!w.admin));
   assert.equal((await req('/api/state',limited.cookie,undefined,second)).status,403);assert.equal((await req('/api/research-library',limited.cookie)).data.projects.length,1);
   assert.equal((await req('/api/research-library',global.cookie)).data.projects.length,3);
-  const globalMcp=(await req('/api/mcp/settings',global.cookie)).data;assert.equal(globalMcp.projects.length,3);assert.equal(globalMcp.team,undefined,'only administrators see team MCP connections');
+  const globalMcp=(await req('/api/mcp/settings',global.cookie)).data;assert.equal(globalMcp.projects.length,3);assert.equal(globalMcp.team,undefined,'only administrators see team MCP connections');assert.equal((await req('/api/chat/feedback',global.cookie)).status,403,'answer ratings are for administrators');const ownerFeedback=await req('/api/chat/feedback',owner);assert.equal(ownerFeedback.status,200);assert.deepEqual(ownerFeedback.data.feedback,[]);
   assert.equal((await req('/api/state',global.cookie,{changes:{models:[]}},third,'PATCH')).status,403);
   // Both users may create their own project, but only the service owner can grant global access.
   const personal=(await req('/api/workspaces',limited.cookie,{name:'Personal'})).data.id;

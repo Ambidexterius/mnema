@@ -69,5 +69,19 @@ export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string)
       WHERE json_extract(r.value,'$.workspaceId')=? AND json_extract(r.value,'$.studyId')=?
     )`).run(workspaceId,studyId);
   }
-  return {issue,rate,forgetStudy};
+  // Admin review: newest ratings with author name, project names and source titles; tokens and signatures stay out.
+  function list() {
+    const workspace=db.prepare('SELECT name,data FROM mnema_workspaces WHERE id=?');
+    const cache=new Map<string,{name:string;studies:{id:string;title?:string}[]}|null>();
+    const ws=(id:string)=>{if(!cache.has(id)){const row=workspace.get(id) as any;cache.set(id,row?{name:String(row.name||''),studies:JSON.parse(String(row.data)).studies||[]}:null)}return cache.get(id)};
+    return (db.prepare(`SELECT f.answer_id,f.rating,f.updated,f.example,u.name AS user_name FROM mnema_answer_feedback f
+      LEFT JOIN user u ON u.id=f.user_id ORDER BY f.updated DESC LIMIT 200`).all() as any[]).map(row=>{
+      const e:Receipt=JSON.parse(String(row.example));
+      const sources=[...new Map(e.references.map(r=>[r.workspaceId+'/'+r.studyId,r])).values()]
+        .map(r=>({projectId:r.workspaceId,studyId:r.studyId,title:ws(r.workspaceId)?.studies.find(s=>s.id===r.studyId)?.title||'Материал удалён'}));
+      return {id:String(row.answer_id),rating:row.rating as 'up'|'down',updated:Number(row.updated),userName:row.user_name?String(row.user_name):'Пользователь удалён',
+        question:e.question,answer:e.answer,model:e.model,kind:e.kind,scope:e.scope,projects:e.projectIds.map(id=>({id,name:ws(id)?.name||'Проект удалён'})),sources};
+    });
+  }
+  return {issue,rate,forgetStudy,list};
 }

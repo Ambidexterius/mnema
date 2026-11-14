@@ -394,6 +394,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       if(!current)fail(401,'Войдите в Мнемонику.');
       return json(res,200,feedback.rate(current,input.token,input.rating));
      }
+     if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list()})}
      if(path==='/api/users'&&req.method==='GET'){if(!person.manageUsers)fail(403,'Список пользователей доступен участникам с полным доступом.');return json(res,200,{users:userDirectory()})}
      if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
      if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}
