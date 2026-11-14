@@ -1003,18 +1003,56 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 }
 /* State indication while an actual chat request is pending. Stars cycle follows BoardUI. */
 .thinking-indicator{display:flex;align-items:center;gap:8px;min-height:24px;margin:16px 0;color:var(--g-color-text-secondary);font-size:14px;line-height:24px}
-.thinking-stars{position:relative;display:block;flex:none;width:24px;height:24px}
-.thinking-star{position:absolute;transform-origin:center;animation:thinking-twinkle 1.4s cubic-bezier(.77,0,.175,1) infinite;opacity:.25}
-.thinking-star-0{width:16px;height:16px;left:4px;top:3px}
-.thinking-star-1{width:8px;height:8px;left:0;top:1px;animation-delay:.196s}
-.thinking-star-2{width:7px;height:7px;right:0;top:2px;animation-delay:.392s}
-.thinking-star-3{width:8px;height:8px;right:1px;bottom:0;animation-delay:.588s}
-.thinking-star-4{width:6px;height:6px;left:1px;bottom:0;animation-delay:.784s}
-.thinking-label{color:var(--g-color-text-secondary);animation:thinking-label-pulse 2.6s linear infinite}
+.thinking-label{color:var(--g-color-text-secondary)}
+/* Step label: enters like a new line of thought, then a highlight sweeps across it while waiting. */
+@media(prefers-reduced-motion:no-preference){.thinking-label{background:linear-gradient(90deg,var(--g-color-text-secondary) 35%,var(--g-color-text-primary) 50%,var(--g-color-text-secondary) 65%) 100% 0/250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:thinking-step-in .3s cubic-bezier(.2,0,0,1) both,thinking-shimmer 2.2s linear infinite}}
 .thinking-elapsed{font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
-@keyframes thinking-twinkle{0%,100%{opacity:.25;transform:scale(.9)}50%{opacity:1;transform:scale(1)}}
-@keyframes thinking-label-pulse{0%,100%{opacity:.65}50%{opacity:1}}
-@media(prefers-reduced-motion:reduce){.thinking-star,.thinking-label{animation:none;transform:none;opacity:1}}
+@keyframes thinking-step-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
+@keyframes thinking-shimmer{to{background-position:-150% 0}}
+/* Mascot: Mnemonika's agent, a 3D-extruded brand mark. Slices sit in preserve-3d; the spin wrapper carries the pose.
+   Motion only without reduced motion; text status always stays. */
+.mascot{position:relative;flex:none;display:block;perspective:calc(var(--u) * 260)}
+.mascot-figure,.mascot-spin,.mascot-layer{position:absolute;inset:0}
+.mascot-figure{transform-origin:50% 90%}
+.mascot-spin{transform-style:preserve-3d;transform:rotateX(10deg) rotateY(-22deg);transition:transform .45s cubic-bezier(.2,0,0,1)}
+.mascot-layer{width:100%;height:100%;overflow:visible;backface-visibility:visible}
+.mascot-slice{fill:#c3173f}.mascot-slice:nth-child(2),.mascot-slice:nth-child(3){fill:#a9123a}
+.mascot-back .mascot-logo{fill:#ee204d}
+.mascot-face-layer{pointer-events:none}
+.mascot-face,.mascot-eye{transform-box:fill-box;transform-origin:center}
+.mascot-face{transition:transform .3s cubic-bezier(.2,0,0,1)}
+/* Petals overlap by 3px at rest (one body); the split keyframe parts them into the brand mark. */
+.mascot-petal-tl{--mx:3.5px;--my:3.5px}.mascot-petal-tr{--mx:-3.5px;--my:3.5px}.mascot-petal-bl{--mx:3.5px;--my:-3.5px}.mascot-petal-br{--mx:-3.5px;--my:-3.5px}
+.mascot-petal{transform:translate(var(--mx),var(--my))}
+.mascot[data-mood=listening] .mascot-spin{transform:rotateX(24deg) rotateY(-12deg)}
+.mascot[data-mood=listening] .mascot-face{transform:translateY(3px)}
+.mascot[data-mood=puzzled] .mascot-spin{transform:rotateX(6deg) rotateY(-30deg) rotateZ(-9deg)}
+.mascot[data-mood=sad] .mascot-spin{transform:rotateX(-14deg) rotateY(-14deg)}
+.mascot[data-mood=sad] .mascot-face{transform:translateY(3px)}
+.answer-sign{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:13px;line-height:20px;color:var(--g-color-text-secondary)}
+.chat-error{display:flex;align-items:flex-start;gap:8px}
+.chat-welcome .mascot{margin:0 auto 16px}
+@media(prefers-reduced-motion:no-preference){
+ .mascot[data-live] .mascot-figure{animation:mascot-breathe 3.8s ease-in-out infinite}
+ .mascot[data-live][data-mood=idle] .mascot-spin{animation:mascot-sway 7s cubic-bezier(.45,0,.55,1) infinite}
+ .mascot[data-live][data-mood=idle] .mascot-petal{animation:mascot-split-rest 11s cubic-bezier(.2,0,0,1) infinite}
+ .mascot[data-live] .mascot-eye{animation:mascot-blink 4.6s ease-in-out infinite}
+ .mascot[data-mood=thinking] .mascot-spin{animation:mascot-think 3.6s cubic-bezier(.45,0,.55,1) infinite}
+ .mascot[data-mood=thinking] .mascot-petal{animation:mascot-split-think 3.6s cubic-bezier(.45,0,.55,1) infinite}
+ .mascot[data-mood=thinking] .mascot-face{animation:mascot-look 3.6s ease-in-out infinite}
+ .mascot[data-mood=happy] .mascot-figure{animation:mascot-hop .7s cubic-bezier(.2,0,0,1) both}
+ .mascot[data-mood=happy] .mascot-spin{animation:mascot-wiggle .9s cubic-bezier(.2,0,0,1) both}
+ @keyframes mascot-breathe{0%,100%{transform:none}50%{transform:scale(1.03,.975)}}
+ @keyframes mascot-sway{0%,100%{transform:rotateX(10deg) rotateY(-22deg)}50%{transform:rotateX(8deg) rotateY(-6deg)}}
+ @keyframes mascot-split-rest{0%,84%,100%{transform:translate(var(--mx),var(--my))}88%,94%{transform:none}}
+ /* Think: sway side to side, then one full turn that shows the logo on the back, then settle. */
+ @keyframes mascot-think{0%{transform:rotateX(10deg) rotateY(-22deg)}22%{transform:rotateX(8deg) rotateY(26deg)}44%{transform:rotateX(10deg) rotateY(-22deg)}78%,100%{transform:rotateX(10deg) rotateY(338deg)}}
+ @keyframes mascot-split-think{0%,50%,86%,100%{transform:translate(var(--mx),var(--my))}60%,72%{transform:none}}
+ @keyframes mascot-look{0%,44%,100%{transform:none}14%{transform:translate(2px,-1px)}30%{transform:translate(-2px,-1px)}}
+ @keyframes mascot-blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+ @keyframes mascot-hop{0%{transform:none}28%{transform:translateY(-12%) scale(.95,1.06)}56%{transform:translateY(0) scale(1.06,.94)}100%{transform:none}}
+ @keyframes mascot-wiggle{0%{transform:rotateX(10deg) rotateY(-22deg)}35%{transform:rotateX(4deg) rotateY(12deg)}70%{transform:rotateX(10deg) rotateY(-30deg)}100%{transform:rotateX(10deg) rotateY(-22deg)}}
+}
 
 /* Only a newly received answer enters; restored history is rendered immediately. */
 .message-arrive{animation:message-arrive 200ms cubic-bezier(.23,1,.32,1) both}

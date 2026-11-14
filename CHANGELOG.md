@@ -1,3 +1,10 @@
+## 0.9.34 — 2026-11-15
+
+- Mnemonika's agent: the brand mark extruded into a small 3D character (stacked SVG slices in CSS `preserve-3d`, the logo on its back). It stands above the empty chat, looks at the composer while you type, sways and turns to show the logo while an answer is prepared, hops when an answer with sources arrives, tilts when nothing was found and slumps on an error. A small agent signs every answer «Мнемоника».
+- The waiting line shows rotating steps («Читаю вопрос», «Ищу в исследованиях», «Сверяю цитаты»…) with a sweeping highlight and an elapsed timer (seconds, then minutes). Steps follow time, not server progress. Screen readers hear «Готовлю ответ» once.
+- The empty chat heading is «Чем вам помочь?».
+- All motion stops under reduced motion; the text status always stays. No server or dependency changes.
+
 ## 0.9.33 — 2026-11-15
 
 - MCP bot tokens are issued for one year instead of 30 days. Tokens issued earlier keep their expiry date. OAuth connections are unchanged.
