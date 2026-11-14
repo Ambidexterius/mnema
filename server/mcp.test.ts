@@ -35,6 +35,8 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
   const modern=await connect(token),legacy=await connect(token,false);
   const tools=await modern.listTools();assert.deepEqual(new Set(tools.tools.map(t=>t.name)),new Set(['list_projects','search','fetch','get_findings']));assert(tools.tools.every(t=>t.annotations.readOnlyHint));
   assert.equal((await legacy.listTools()).tools.length,4);
+  // Administrators see who uses MCP: the bot shows its owner and last use, never the token.
+  const team=(await req('/api/mcp/settings',{cookie})).data.team,bot=team.find(g=>g.name==='Fixture bot');assert.equal(bot.user_email,'mcp-owner@example.com');assert(bot.last_used);assert.deepEqual(bot.projects.map(p=>p.id),['main']);assert(!JSON.stringify(team).includes(token));assert(!('token_hash' in bot));
   const projects=content(await modern.callTool({name:'list_projects',arguments:{}}));assert.deepEqual(projects.projects.map(p=>p.id),['main']);assert(!JSON.stringify(projects).includes('Hidden fixture'));
   const search=content(await modern.callTool({name:'search',arguments:{query:'выбранные даты'}}));assert.equal(search.results.length,1);assert(search.results[0].url.includes('/projects/main/studies/'));
   const fragment=content(await modern.callTool({name:'fetch',arguments:{id:search.results[0].id}}));assert.equal(fragment.text,state.studies[0].segments[0].text);assert.equal(fragment.metadata.time,67);

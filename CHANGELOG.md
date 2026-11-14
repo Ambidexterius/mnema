@@ -1,3 +1,11 @@
+## 0.9.32 — 2026-11-15
+
+- Settings open as a dialog over the current page instead of a separate page: section rail on the left (icon rail on phones), title and close button pinned while the content scrolls. Escape, outside click or browser «Назад» close it, and focus returns to «Настройки». Each section keeps its own address (`/models`, `/integrations`, `/mcp`, `/users`); switching sections replaces the address, so one «Назад» closes the dialog. Built on Gravity UI `Modal`; works in both themes and at 375 px.
+- Models, processors, storage and integrations use grouped rows: status dot, switch and a «…» menu with «Проверить подключение», «Настроить» and «Удалить» instead of three buttons in a row. «Добавить модель» is the last row of the group.
+- MCP shows who is connected: person, assistant, projects, last use, OAuth or token with expiry, and a green dot for use in the last 7 days. Your own connections can be revoked from the «…» menu.
+- `/api/mcp/settings` returns `team` (active connections of all active members) to administrators only. Token values and hashes are never included. Tests cover both rules.
+- Removed 37 unused CSS selectors of the old settings and MCP pages.
+
 ## 0.9.31 — 2026-11-14
 
 - «Назад» on the project findings list and on the project research list now returns to the previous screen, like a single finding does. Opened from a direct link, it leads to the project overview instead of the list of all projects.
