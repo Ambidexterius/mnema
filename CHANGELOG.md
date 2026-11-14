@@ -1,3 +1,8 @@
+## 0.9.33 — 2026-11-15
+
+- MCP bot tokens are issued for one year instead of 30 days. Tokens issued earlier keep their expiry date. OAuth connections are unchanged.
+- The project picker in «Токен для бота» and on the MCP consent page has «Все проекты»: one click selects or clears every project available now; a partial choice shows a dash. Projects created later are not added to an existing token.
+
 ## 0.9.32 — 2026-11-15
 
 - Settings open as a dialog over the current page instead of a separate page: section rail on the left (icon rail on phones), title and close button pinned while the content scrolls. Escape, outside click or browser «Назад» close it, and focus returns to «Настройки». Each section keeps its own address (`/models`, `/integrations`, `/mcp`, `/users`); switching sections replaces the address, so one «Назад» closes the dialog. Built on Gravity UI `Modal`; works in both themes and at 375 px.

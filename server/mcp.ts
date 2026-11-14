@@ -117,7 +117,7 @@ export function createMcpService({db,auth,baseURL,version,getPerson,readProject}
    return response;
   },
   createToken(person:any,body:any){const roles=projectRoles(person,body.projects),name=String(body.name||'').trim();if(!name||name.length>60)denied('Назовите подключение: до 60 символов.',400);if(activeCount(person)>=30)denied('Отзовите один из прежних доступов: максимум 30 активных подключений.',400);
-   const id=randomUUID(),token='mnm_'+randomBytes(32).toString('base64url'),expires=Date.now()+30*86400000;
+   const id=randomUUID(),token='mnm_'+randomBytes(32).toString('base64url'),expires=Date.now()+365*86400000;
    db.prepare("INSERT INTO mnema_mcp_grants(id,user_id,client_id,kind,name,origin,roles,token_hash,created,expires) VALUES(?,?,?,'token',?,'',?,?,?,?)").run(id,person.id,id,name,JSON.stringify(roles),hash(token),Date.now(),expires);
    return {id,token,expires,endpoint:resource};
   },
