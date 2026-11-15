@@ -8,7 +8,8 @@ import {createS3Mirror,s3Config} from './s3-storage.ts';
 import {documentPreview} from './document-preview.ts';
 import {materialActivity} from '../app/material-activity.ts';
 import {collectGlobalResearch,chatEvidence} from './global-research.ts';
-import {createCompletionMailer,type CompletionMail} from './completion-mail.ts';
+import {createCompletionMailer,sendSmtp,smtpConfigured,type CompletionMail} from './completion-mail.ts';
+import {createIdeas} from './ideas.ts';
 import {sendInvitationEmail} from './invitation-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
 import {selectEvidence} from './retrieval.ts';
@@ -117,6 +118,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  CREATE TABLE IF NOT EXISTS mnema_members(workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(workspace_id,user_id));`);
  const chats=createChatHistory(db,(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]});
  const feedback=createAnswerFeedback(db,authSecret,BUILD_ID);
+ const ideas=createIdeas(db,{baseURL,send:options.sendCompletionMail||(smtpConfigured()?sendSmtp:undefined)});
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
   const references=reply.sources.map(source=>({
    workspaceId:source.workspaceId||person.workspaceId,studyId:source.studyId,segmentId:source.segmentId||source.id
@@ -395,6 +397,18 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       return json(res,200,feedback.rate(current,input.token,input.rating));
      }
      if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list()})}
+     if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person),admin:person.owner});
+     if(path==='/api/ideas'&&req.method==='POST'){limit('ideas:'+person.id,20);return json(res,200,ideas.create(person,await body(req)))}
+     if(path==='/api/interface-rating'&&req.method==='POST'){limit('rating:'+person.id,20);return json(res,200,ideas.rate(person,(await body(req)).rating))}
+     {const m=path.match(/^\/api\/ideas\/([\w-]{1,64})\/(vote|comments|status)$/);if(m){
+      const [,id,action]=m;
+      if(action==='comments'&&req.method==='GET')return json(res,200,{comments:ideas.comments(person,id)});
+      if(req.method!=='POST')fail(405,'Метод недоступен.');
+      limit('ideas:'+person.id,60);const b=await body(req);
+      if(action==='vote')return json(res,200,ideas.vote(person,id,b.vote));
+      if(action==='comments')return json(res,200,ideas.comment(person,id,b));
+      return json(res,200,await ideas.moderate(person,id,b));
+     }}
      if(path==='/api/users'&&req.method==='GET'){if(!person.manageUsers)fail(403,'Список пользователей доступен участникам с полным доступом.');return json(res,200,{users:userDirectory()})}
      if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
      if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}

@@ -1,3 +1,10 @@
+## 0.9.39 — 2026-11-15
+
+- «Обратная связь» at the bottom of the menu: «Как вам Мнемоника?» with 👍/👎 cards. 👍 is saved and shows a thank-you screen leading to «Открыть портал идей»; 👎 asks «Что улучшить?» and publishes the answer as an idea.
+- «Портал идей» side sheet (also in the profile menu and at `/chat#ideas`): search across ideas, tabs «Голосование», «В работе», «Сделали», «Мои идеи», one vote per person, comments in the chat composer. The owner sets the status, gives a mandatory reason when declining and can hide an idea.
+- Email: the owner gets every new idea; the author and voters get one message when an idea is done or declined. No mail for intermediate statuses.
+- New SQLite tables `mnema_ideas`, `mnema_idea_votes`, `mnema_idea_comments`, `mnema_interface_ratings`; API `/api/ideas`, `/api/ideas/:id/vote|comments|status`, `/api/interface-rating`. All popups use the 24 px corner radius of settings. No dependency changes.
+
 ## 0.9.38 — 2026-11-15
 
 - Answer citations show who said it instead of a number: a neutral chip «❝ Респондент 1» named after the material (the last « · » part, shortened). The number read as "how often the problem occurred", so it is gone, along with the blue/yellow colour coding and the lightbulb.
