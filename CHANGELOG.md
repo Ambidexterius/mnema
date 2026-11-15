@@ -1,3 +1,7 @@
+## 0.9.40 — 2026-11-15
+
+- Ideas portal empty states: every empty tab and an empty search show an icon, a title and a short explanation. «Голосование», «Мои идеи» and search also offer «Предложить идею»; from search the query becomes the draft. No server or dependency changes.
+
 ## 0.9.39 — 2026-11-15
 
 - «Обратная связь» at the bottom of the menu: «Как вам Мнемоника?» with 👍/👎 cards. 👍 is saved and shows a thank-you screen leading to «Открыть портал идей»; 👎 asks «Что улучшить?» and publishes the answer as an idea.

@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {Button,Dialog,Label,Modal,SegmentedRadioGroup,Select,TextArea,TextInput} from '@gravity-ui/uikit';
-import {ArrowLeft,Check,EyeOff,MessageSquare,Search,ThumbsDown,ThumbsUp,X} from 'lucide-react';
+import {ArrowLeft,Check,EyeOff,Lightbulb,MessageSquare,Search,ThumbsDown,ThumbsUp,X} from 'lucide-react';
 import {api} from './api.ts';
 import ChatComposer from './ChatComposer.tsx';
 
@@ -11,7 +11,12 @@ type Comment={id:string;text:string;created:number;author:string};
 const TABS:[string,string][]=[['open','Голосование'],['progress','В работе'],['done','Сделали'],['mine','Мои идеи']];
 const LABEL:Record<Status,string>={open:'Голосование',progress:'В работе',done:'Сделали',declined:'Отклонили'};
 const THEME:Record<Status,'normal'|'info'|'success'|'danger'>={open:'normal',progress:'info',done:'success',declined:'danger'};
-const EMPTY:Record<string,string>={open:'Идей пока нет. Предложите первую — коллеги смогут её поддержать',progress:'Сейчас в работе ничего нет',done:'Здесь появятся идеи, которые мы сделали',mine:'Вы ещё не предлагали идей'};
+const EMPTY:Record<string,[string,string]>={
+ open:['Идей пока нет','Предложите первую — коллеги смогут её поддержать, а\u00a0мы возьмём в\u00a0работу самые нужные'],
+ progress:['Сейчас в\u00a0работе ничего нет','Сюда попадут идеи, которые мы начали делать'],
+ done:['Пока ничего не\u00a0сделали','Здесь появятся идеи, которые уже в\u00a0Мнемонике'],
+ mine:['Вы ещё не\u00a0предлагали идей','Расскажите, чего не\u00a0хватает. Напишем на\u00a0почту, когда сделаем'],
+ search:['Ничего не\u00a0нашлось','Похоже, такую идею ещё не\u00a0предлагали. Предложите её — коллеги смогут поддержать']};
 const when=(t:number)=>new Date(t).toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const PLACEHOLDER='Например: нужна выгрузка находок в Excel, чтобы собирать отчёт для бизнеса';
 
@@ -67,7 +72,7 @@ export function IdeasPanel({open,onClose}:{open:boolean;onClose:()=>void}){
     {!words?<SegmentedRadioGroup className="ideas-tabs" size="l" name="Раздел идей" value={tab} onUpdate={setTab} options={TABS.map(([value,content])=>({value,content}))}/>:null}
     {ideas===null&&!error?<p role="status">Загружаем идеи…</p>:null}
     {ideas?<ul className="ideas-list" aria-label={words?'Результаты поиска':TABS.find(([id])=>id===tab)?.[1]}>
-     {!shown.length?<li className="ideas-empty">{words?'Ничего не нашлось. Предложите эту идею — коллеги смогут её поддержать':EMPTY[tab]}</li>:null}
+     {!shown.length?<li className="ideas-empty"><span className="feedback-done-icon" aria-hidden="true">{words?<Search size={28}/>:<Lightbulb size={28}/>}</span><h3>{EMPTY[words?'search':tab][0]}</h3><p>{EMPTY[words?'search':tab][1]}</p>{tab==='open'||tab==='mine'||words?<Button view="action" size="l" onClick={()=>{setDraft(query.trim());setAdding(true)}}>Предложить идею</Button>:null}</li>:null}
      {shown.map(i=><li key={i.id} className="ideas-row">
       <button type="button" className="ideas-row-main" onClick={()=>setOpenId(i.id)}>
        <span className="ideas-text">{i.text}</span>
