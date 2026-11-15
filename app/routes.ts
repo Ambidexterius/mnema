@@ -18,7 +18,7 @@ export function readRoute(url:URL){
  if(path==='settings/mcp')path='mcp';
  if(url.pathname==='/mcp/consent')path='mcp-consent';
  if(url.pathname==='/mcp/login'&&url.searchParams.has('sig'))path='login';
- const routeQuery=legacy?query:path==='findings'?url.search.slice(1):'';
+ const routeQuery=legacy?query:path==='findings'||path==='all-findings'?url.search.slice(1):'';
  return {route:path+(routeQuery?'?'+routeQuery:''),workspace};
 }
 
@@ -47,7 +47,30 @@ export function canonicalizeRoute(){
  if(location.pathname==='/mcp/login'||location.pathname==='/mcp/consent')return;
  history.replaceState(history.state,'',canonicalHref(new URL(location.href),currentWorkspace));
 }
-export function navigate(route:string,replace=false){
- const href=appHref(route);if(location.pathname+location.search+location.hash===href)return;
- history[replace?'replaceState':'pushState'](replace?history.state:{app:1},'',href);window.dispatchEvent(new PopStateEvent('popstate'));
+export interface NavigationState{app?:number;previous?:string;findingsRoot?:string;returnTo?:string;scrollTop?:number;findingsScroll?:number}
+export function navigationState(current:URL,next:URL,previous:NavigationState={}):NavigationState{
+ const before=readRoute(current),after=readRoute(next),path=current.pathname+current.search;
+ const beforeScreen=before.route.split('?')[0];
+ const finding=after.route.startsWith('finding/'),material=after.route.startsWith('study/');
+ const settings=['models','integrations','mcp','users','feedback'].includes(after.route);
+ let findingsRoot:string|undefined;
+ if(finding||material||settings){
+  findingsRoot=beforeScreen==='all-findings'||beforeScreen==='findings'?path:previous.findingsRoot;
+  if(finding&&!findingsRoot)findingsRoot=routeHref('findings',after.workspace||before.workspace);
+ }
+ const findingsScroll=beforeScreen==='all-findings'||beforeScreen==='findings'?previous.scrollTop:previous.findingsScroll;
+ const returningToList=previous.findingsRoot===next.pathname+next.search;
+ return {app:1,previous:path,...(findingsRoot?{findingsRoot,findingsScroll:findingsScroll||0}:{}),...(returningToList?{scrollTop:previous.findingsScroll||0}:{}),...(material?{returnTo:path}:{})};
 }
+export function restoreRouteScroll(){const top=history.state?.scrollTop;if(Number.isFinite(top)&&top>=0)requestAnimationFrame(()=>document.querySelector('.content-shell')?.scrollTo({top}))}
+export function navigateHref(href:string,replace=false){
+ const current=new URL(location.href),next=new URL(href,current);
+ if(next.origin!==current.origin)throw new Error('Внутренний переход должен оставаться в Мнемонике.');
+ const target=next.pathname+next.search+next.hash;
+ if(current.pathname+current.search+current.hash===target)return;
+ if(readRoute(current).route.startsWith('study/')&&history.state?.returnTo===target){history.back();return}
+ history.replaceState({...history.state,scrollTop:document.querySelector('.content-shell')?.scrollTop||0},'');
+ history[replace?'replaceState':'pushState'](navigationState(current,next,history.state||{}),'',target);
+ window.dispatchEvent(new PopStateEvent('popstate'));
+}
+export function navigate(route:string,replace=false){navigateHref(appHref(route),replace)}

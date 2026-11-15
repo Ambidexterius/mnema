@@ -12,11 +12,11 @@ const TABS:[string,string][]=[['open','Голосование'],['progress','В 
 const LABEL:Record<Status,string>={open:'Голосование',progress:'В работе',done:'Сделали',declined:'Отклонили'};
 const THEME:Record<Status,'normal'|'info'|'success'|'danger'>={open:'normal',progress:'info',done:'success',declined:'danger'};
 const EMPTY:Record<string,[string,string]>={
- open:['Идей пока нет','Предложите первую — коллеги смогут её поддержать, а\u00a0мы возьмём в\u00a0работу самые нужные'],
+ open:['Идей пока нет','Предложите улучшение. Коллеги смогут поддержать вашу идею.'],
  progress:['Сейчас в\u00a0работе ничего нет','Сюда попадут идеи, которые мы начали делать'],
  done:['Пока ничего не\u00a0сделали','Здесь появятся идеи, которые уже в\u00a0Мнемонике'],
- mine:['Вы ещё не\u00a0предлагали идей','Расскажите, чего не\u00a0хватает. Напишем на\u00a0почту, когда сделаем'],
- search:['Ничего не\u00a0нашлось','Похоже, такую идею ещё не\u00a0предлагали. Предложите её — коллеги смогут поддержать']};
+ mine:['Вы ещё не\u00a0предлагали идей','Расскажите, что улучшить в сервисе. Напишем, когда реализуем идею.'],
+ search:['Ничего не\u00a0нашлось','Измените запрос или предложите новую идею.']};
 const when=(t:number)=>new Date(t).toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const PLACEHOLDER='Например: нужна выгрузка находок в Excel, чтобы собирать отчёт для бизнеса';
 
@@ -28,7 +28,7 @@ export function FeedbackDialog({open,onClose,onIdeas}:{open:boolean;onClose:()=>
  const send=async()=>{setBusy(true);setError('');try{await api('/api/ideas',{text},'POST',false);setStep('sent')}catch(e:any){setError(e.message)}finally{setBusy(false)}};
  const done=step==='liked'||step==='sent';
  return <Dialog open={open} onClose={onClose} size="s" aria-labelledby="feedback-title">
-  {done?null:<Dialog.Header caption={<span id="feedback-title">{step==='idea'?'Что улучшить?':'Как вам Мнемоника?'}</span>}/>}
+  {done?null:<Dialog.Header caption={<span id="feedback-title">{step==='idea'?'Что улучшить?':'Как оцениваете сервис?'}</span>}/>}
   <Dialog.Body>
    {step==='ask'?<div className="feedback-rate"><button type="button" className="feedback-choice" onClick={()=>rate('up')}><ThumbsUp size={32} aria-hidden="true"/>Нравится</button><button type="button" className="feedback-choice" onClick={()=>rate('down')}><ThumbsDown size={32} aria-hidden="true"/>Есть что улучшить</button></div>:null}
    {step==='idea'?<><TextArea value={text} onUpdate={setText} minRows={4} maxRows={10} placeholder={PLACEHOLDER} controlProps={{'aria-label':'Что улучшить'}} autoFocus/><p className="feedback-hint">Идею увидят коллеги и смогут её поддержать</p></>:null}
@@ -36,12 +36,12 @@ export function FeedbackDialog({open,onClose,onIdeas}:{open:boolean;onClose:()=>
     <span className="feedback-done-icon" aria-hidden="true">{step==='liked'?<ThumbsUp size={32}/>:<Check size={32}/>}</span>
     <h2 id="feedback-title">{step==='liked'?'Спасибо за оценку':'Идея опубликована'}</h2>
     <p>{step==='liked'?'Посмотрите, что предлагают коллеги, и\u00a0поддержите полезные идеи':'Напишем на\u00a0почту, когда сделаем её или решим не\u00a0делать'}</p>
-    <Button view="action" size="xl" width="max" onClick={onIdeas}>Открыть портал идей</Button>
+    <Button view="flat" size="l" width="max" onClick={onIdeas}>Открыть портал идей</Button>
     <Button view="flat-secondary" size="xl" width="max" onClick={onClose}>Закрыть</Button>
    </div>:null}
    {error?<p className="auth-error" role="alert">{error}</p>:null}
   </Dialog.Body>
-  {step==='ask'?<Dialog.Footer><Button view="flat-secondary" onClick={onIdeas}>Открыть портал идей</Button></Dialog.Footer>:null}
+  {step==='ask'?<Dialog.Footer className="feedback-portal-footer"><Button view="flat" size="l" onClick={onIdeas}>Открыть портал идей</Button></Dialog.Footer>:null}
   {step==='idea'?<Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={onClose} textButtonApply="Отправить" onClickButtonApply={send} loading={busy} propsButtonApply={{disabled:text.trim().length<3}}/>:null}
  </Dialog>;
 }
@@ -58,21 +58,21 @@ export function IdeasPanel({open,onClose}:{open:boolean;onClose:()=>void}){
  // Search looks across the public tabs so a duplicate is found wherever it sits.
  const shown=(ideas||[]).filter(i=>words?i.text.toLowerCase().includes(words)&&(i.status!=='declined'||i.mine):tab==='mine'?i.mine:i.status===tab);
  const current=ideas?.find(i=>i.id===openId);
- return <Modal open={open} onOpenChange={o=>{if(!o)onClose()}} className="ideas-modal" contentClassName="ideas-sheet" aria-labelledby="ideas-title">
+ return <><Modal open={open&&!adding} keepMounted onOpenChange={o=>{if(!o)onClose()}} className="ideas-modal" contentClassName="ideas-sheet" aria-labelledby="ideas-title">
   <header className="ideas-header">
    {current?<Button view="flat" size="l" aria-label="Назад в портал идей" onClick={()=>setOpenId(null)}><ArrowLeft size={18}/></Button>:null}
    <h2 id="ideas-title">{current?'Идея':'Портал идей'}</h2>
-   {!current?<Button view="action" size="l" onClick={()=>setAdding(true)}>Предложить идею</Button>:null}
+   {!current?<Button view="outlined" size="l" onClick={()=>{setError('');setAdding(true)}}>Предложить идею</Button>:null}
    <Button view="flat" size="l" aria-label="Закрыть портал идей" onClick={onClose}><X size={18}/></Button>
   </header>
   <div className="ideas-body">
-   {error?<div className="processing-notice" role="alert"><p>{error}</p><Button onClick={load}>Повторить</Button></div>:null}
+   {error&&!adding?<div className="processing-notice" role="alert"><p>{error}</p><Button onClick={load}>Повторить</Button></div>:null}
    {current?<IdeaPage idea={current} admin={admin} busy={busy} onVote={()=>vote(current)} onChanged={load}/>:<>
-    <TextInput size="l" value={query} onUpdate={setQuery} placeholder="Поиск по идеям" startContent={<Search size={16} className="ideas-search-icon" aria-hidden="true"/>} hasClear controlProps={{'aria-label':'Поиск по идеям'}}/>
+    <TextInput className="ideas-search" view="normal" size="l" value={query} onUpdate={setQuery} placeholder="Поиск по идеям" startContent={<Search size={16} className="ideas-search-icon" aria-hidden="true"/>} hasClear controlProps={{'aria-label':'Поиск по идеям'}}/>
     {!words?<SegmentedRadioGroup className="ideas-tabs" size="l" name="Раздел идей" value={tab} onUpdate={setTab} options={TABS.map(([value,content])=>({value,content}))}/>:null}
     {ideas===null&&!error?<p role="status">Загружаем идеи…</p>:null}
     {ideas?<ul className="ideas-list" aria-label={words?'Результаты поиска':TABS.find(([id])=>id===tab)?.[1]}>
-     {!shown.length?<li className="ideas-empty"><span className="feedback-done-icon" aria-hidden="true">{words?<Search size={28}/>:<Lightbulb size={28}/>}</span><h3>{EMPTY[words?'search':tab][0]}</h3><p>{EMPTY[words?'search':tab][1]}</p>{tab==='open'||tab==='mine'||words?<Button view="action" size="l" onClick={()=>{setDraft(query.trim());setAdding(true)}}>Предложить идею</Button>:null}</li>:null}
+     {!shown.length?<li className="ideas-empty"><span className="feedback-done-icon" aria-hidden="true">{words?<Search size={28}/>:<Lightbulb size={28}/>}</span><h3>{EMPTY[words?'search':tab][0]}</h3><p>{EMPTY[words?'search':tab][1]}</p>{tab==='open'||tab==='mine'||words?<Button view="outlined" size="l" onClick={()=>{setDraft(query.trim());setAdding(true)}}>Предложить идею</Button>:null}</li>:null}
      {shown.map(i=><li key={i.id} className="ideas-row">
       <button type="button" className="ideas-row-main" onClick={()=>setOpenId(i.id)}>
        <span className="ideas-text">{i.text}</span>
@@ -84,12 +84,13 @@ export function IdeasPanel({open,onClose}:{open:boolean;onClose:()=>void}){
     </ul>:null}
    </>}
   </div>
-  <Dialog open={adding} onClose={()=>setAdding(false)} size="s" aria-label="Новая идея">
+ </Modal>
+  <Dialog open={open&&adding} onClose={()=>{setAdding(false);setError('')}} size="s" aria-label="Новая идея">
    <Dialog.Header caption="Новая идея"/>
-   <Dialog.Body><TextArea value={draft} onUpdate={setDraft} minRows={4} maxRows={10} placeholder={PLACEHOLDER} controlProps={{'aria-label':'Описание идеи'}} autoFocus/><p className="feedback-hint">Идею увидят коллеги и смогут её поддержать</p></Dialog.Body>
-   <Dialog.Footer onClickButtonCancel={()=>setAdding(false)} textButtonCancel="Отмена" onClickButtonApply={add} textButtonApply="Отправить" loading={busy} propsButtonApply={{disabled:draft.trim().length<3}}/>
+   <Dialog.Body>{error?<p className="form-error" role="alert">{error}</p>:null}<TextArea value={draft} onUpdate={setDraft} minRows={4} maxRows={10} placeholder={PLACEHOLDER} controlProps={{'aria-label':'Описание идеи'}} autoFocus/><p className="feedback-hint">Идею увидят коллеги и смогут её поддержать</p></Dialog.Body>
+   <Dialog.Footer onClickButtonCancel={()=>{setAdding(false);setError('')}} textButtonCancel="Отмена" onClickButtonApply={add} textButtonApply="Отправить" loading={busy} propsButtonApply={{disabled:draft.trim().length<3}}/>
   </Dialog>
- </Modal>;
+ </>;
 }
 
 function VoteButton({idea,busy,onVote}:{idea:Idea;busy:boolean;onVote:()=>void}){
@@ -108,7 +109,7 @@ function IdeaPage({idea,admin,busy,onVote,onChanged}:{idea:Idea;admin:boolean;bu
    <p className="idea-admin-title">Видите только вы как администратор</p>
    <Select label="Статус:" width="max" value={[status]} onUpdate={v=>setStatus(v[0] as Status)} options={(Object.keys(LABEL) as Status[]).map(s=>({value:s,content:LABEL[s]}))}/>
    {status==='declined'?<TextArea value={reason} onUpdate={setReason} minRows={2} placeholder="Почему отклоняем. Причину увидят автор и проголосовавшие" controlProps={{'aria-label':'Причина отказа'}}/>:null}
-   <div className="idea-admin-actions"><Button view="action" loading={sending} disabled={status===idea.status&&reason===idea.reason} onClick={()=>moderate({status,reason})}>Сохранить</Button><Button view="flat" onClick={()=>moderate({hidden:!idea.hidden})}>{idea.hidden?'Показать всем':'Скрыть идею'}</Button></div>
+   <div className="idea-admin-actions"><Button view="outlined" loading={sending} disabled={status===idea.status&&reason===idea.reason} onClick={()=>moderate({status,reason})}>Сохранить</Button><Button view="flat" onClick={()=>moderate({hidden:!idea.hidden})}>{idea.hidden?'Показать всем':'Скрыть идею'}</Button></div>
    <p className="feedback-hint">Когда идею сделают или отклонят, автор и проголосовавшие получат письмо</p>
   </section>:null}
   <h3 className="idea-comments-title">Комментарии</h3>

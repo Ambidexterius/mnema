@@ -1366,3 +1366,46 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 @media(prefers-reduced-motion:reduce){.ideas-modal .ideas-sheet{transform:none!important;transition:none!important}}
 @media(max-width:480px){.ideas-header{padding-inline-start:16px}.ideas-body{padding-inline:16px}}
 .sidebar-bottom button.nav-item{width:100%;border:0;background:transparent;text-align:left;cursor:pointer;font:inherit;color:var(--g-color-text-primary)}
+
+/* The footer stays fixed; the boundary appears only when more chats remain below. */
+.chat-history-scroll{position:relative;display:flex;flex-direction:column;flex:1;min-height:0}
+.chat-history-scroll>.recent-chats{flex:1;min-height:0}
+.recent-chats-content{flex:none;display:flex;flex-direction:column;gap:4px}
+.chat-history-scroll[data-more-below]::after{content:"";position:absolute;inset:auto 0 0;height:0;border-top:1px solid var(--g-color-line-generic-accent);box-shadow:0 -3px 8px rgba(0,0,0,.12);pointer-events:none}
+.file-size{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--g-color-text-secondary)}
+.study-table .material-status{max-width:100%}
+
+.finding-project-link{display:flex;align-items:center;gap:8px;min-height:44px;color:var(--g-color-text-secondary);font-size:13px}
+.finding-project-link:hover{color:var(--g-color-text-primary);text-decoration:underline}
+.study-table .g-table__table{table-layout:fixed;min-width:808px}
+.study-table .table-study{min-width:0;max-width:none}
+.study-table .g-table__cell{overflow-wrap:anywhere}
+
+.table-scroll .status-column{box-sizing:border-box;width:160px;min-width:160px;max-width:160px;padding-inline:12px;text-align:start}
+
+/* Project heading and the shared settings rhythm are part of DESIGN.md. */
+.g-root{--mn-motion-fast:160ms;--mn-motion-drawer:240ms;--mn-ease-out:cubic-bezier(.23,1,.32,1);--mn-ease-drawer:cubic-bezier(.32,.72,0,1)}
+.projects-heading{display:block}
+.projects-heading>.page-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%}
+.projects-heading>.page-title-row h1{min-width:0}
+.projects-heading>p{font-size:14px;line-height:22px;color:var(--g-color-text-secondary);margin-top:8px}
+.settings-toolbar{display:flex;justify-content:flex-start;margin:0 0 16px}
+.settings-body .result-count{margin:0 0 16px;font-size:14px;line-height:22px}
+.feedback-settings>.settings-note{display:block;margin:0 0 20px;padding:0;font-size:14px;line-height:22px}
+.feedback-settings>.settings-group-head{margin:0 0 8px}
+.settings-body .settings-list{margin-inline:0}
+.feedback-hint,.feedback-done p,.ideas-empty p{font-size:14px;line-height:22px}
+.feedback-portal-footer .g-dialog-footer__children{display:flex;justify-content:center;width:100%;margin:0}
+.ideas-search{--g-text-input-border-color:var(--g-color-line-generic);--g-text-input-border-color-hover:var(--g-color-line-generic-accent);--g-text-input-border-color-active:var(--g-color-line-focus);--g-text-input-focus-outline-color:var(--g-color-line-focus);--g-text-input-background-color:var(--g-color-base-background)}
+.ideas-header,.ideas-body{padding-inline:24px}
+.finding-side .finding-project-link{margin-top:4px}
+.app-shell{overflow-x:clip}
+.g-modal.mobile-nav-modal{--g-modal-margin:0;--g-modal-border-radius:0 24px 24px 0}
+.mobile-nav-modal .mobile-nav-sheet{position:fixed;inset:0 auto 0 0;width:min(320px,calc(100vw - 40px));height:100dvh;background:var(--mn-color-shell,var(--g-color-base-simple-hover-solid));overflow:hidden;border-radius:0 24px 24px 0}
+.mobile-nav-sheet .mobile-nav{height:100%;min-height:0;padding:max(16px,env(safe-area-inset-top)) 12px max(16px,env(safe-area-inset-bottom))}
+.mobile-nav-sheet .project-navigation{max-height:none}
+.mobile-nav-modal[data-floating-ui-status=initial] .mobile-nav-sheet,.mobile-nav-modal[data-floating-ui-status=close] .mobile-nav-sheet{transform:translateX(-100%)}
+.mobile-nav-modal[data-floating-ui-status=open] .mobile-nav-sheet{transform:translateX(0);transition:transform var(--mn-motion-drawer) var(--mn-ease-drawer)}
+.mobile-nav-modal[data-floating-ui-status=close] .mobile-nav-sheet{transition:transform var(--mn-motion-fast) var(--mn-ease-out)}
+@media(max-width:639px){.projects-grid{grid-template-columns:minmax(0,1fr)}.project-folder-stage{max-width:none}.projects-heading>.page-title-row{flex-wrap:nowrap}.projects-heading .g-button{flex:none}.ideas-header,.ideas-body{padding-inline:16px}.settings-header{padding:16px 12px 12px 16px}.mobile-nav-sheet .mobile-close{top:max(16px,env(safe-area-inset-top));right:12px}}
+@media(prefers-reduced-motion:reduce){.mobile-nav-modal .mobile-nav-sheet{transform:none!important;transition:none!important}}

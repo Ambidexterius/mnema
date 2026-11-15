@@ -13,11 +13,6 @@ const plannedIntegrations = [
 
 export default function IntegrationsPage() {
   return <>
-    <div className="page-heading"><div>
-      <div className="overline">Настройки</div>
-      <h1>Интеграции</h1>
-      <p>Готовим подключения к сервисам команды.</p>
-    </div></div>
     <ul className="settings-list integrations-list" role="list" aria-label="Планируемые интеграции">
       {plannedIntegrations.map(({id, name, icon: Icon, description}) =>
         <li className="setting-row integration-row" role="listitem" key={id}>

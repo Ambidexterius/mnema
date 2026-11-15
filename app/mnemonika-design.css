@@ -1,0 +1,44 @@
+/* Local implementation of the project-wide DESIGN.md. */
+.g-root{
+ font-feature-settings:'cv01' 1,'ss03' 1,'zero' 1;
+ letter-spacing:-.01em;
+}
+.g-root_theme_light :is(.settings-sheet,.settings-main,.settings-header,.settings-body){background:#fff}
+.g-root_theme_light .settings-nav{background:#f2f2f2}
+.g-root_theme_dark{
+ --mn-color-shell:#09090a;
+ --g-color-base-background:#121213;
+ --g-color-base-float:#17181a;
+ --g-color-base-modal:#121213;
+ --g-color-base-float-heavy:#232325;
+ --g-color-base-generic:#161617;
+ --g-color-base-generic-hover:#1a1a1b;
+ --g-color-base-generic-medium:#232325;
+ --g-color-base-generic-ultralight:rgba(255,255,255,.02);
+ --g-color-base-simple-hover:rgba(255,255,255,.05);
+ --g-color-base-simple-hover-solid:#161617;
+ --g-color-text-primary:#e5e5e6;
+ --g-color-text-complementary:#d0d6e0;
+ --g-color-text-secondary:#a1a5ad;
+ --g-color-text-hint:#8a8f98;
+ --g-color-text-link:#d0d6e0;
+ --g-color-text-link-hover:#fff;
+ --g-color-line-generic:#232426;
+ --g-color-line-generic-accent:#28282b;
+}
+.g-root_theme_dark :is(.sidebar,.app-shell,.settings-nav){background:var(--mn-color-shell)}
+.g-root_theme_dark .content-shell{box-shadow:inset 0 0 0 1px #1a1b1d}
+.g-root_theme_dark .digest-list a:not(:hover){background:var(--g-color-base-generic);box-shadow:inset 0 0 0 1px var(--g-color-line-generic)}
+.g-root_theme_dark :is(.shared-composer,.project-question-body){background:var(--g-color-base-generic);box-shadow:0 0 0 1px var(--g-color-line-generic-accent)}
+.g-root_theme_dark :is(.source-panel,.settings-sheet,.ideas-sheet){background:var(--g-color-base-modal)}
+.g-root_theme_dark .settings-body{--settings-group-bg:#1a1a1b}
+.brand-text strong{font-weight:510;letter-spacing:-.02em}
+:is(h1,h2,h3,.g-dialog-header__caption){font-weight:510;letter-spacing:-.022em}
+.page-heading h1{font-size:28px;line-height:36px}
+:is(.nav-item,.sidebar-bottom button.nav-item){font-size:13px}
+.project-list-label{font-size:11px;letter-spacing:.025em}
+.g-button{font-weight:400;letter-spacing:-.01em}
+.g-button_view_action{font-weight:510}
+.digest-title{font-size:15px;font-weight:400;line-height:24px}
+.research-chat h1{font-weight:510;letter-spacing:-.022em}
+@media(max-width:639px){.page-heading h1{font-size:24px;line-height:32px}}

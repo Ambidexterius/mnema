@@ -15,7 +15,7 @@ export default function AnswerFeedbackPage({real}:{real:boolean}){
  const count=(r:string)=>(items||[]).filter(i=>i.rating===r).length;
  const shown=(items||[]).filter(i=>filter==='all'||i.rating===filter);
  return <div className="feedback-settings">
-  <p className="settings-note">Оценки 👍 и 👎 из чатов команды. Они не меняют ответы модели: это материал для разбора, где Мнемоника ошибается — в поиске фрагментов, в источниках или в формулировке.</p>
+  <p className="settings-note">Проверяйте ответы, которые оценили коллеги. Это поможет найти ошибки в поиске, источниках и формулировках.</p>
   <div className="settings-group-head">
    <SegmentedRadioGroup size="m" name="Оценки" value={filter} onUpdate={setFilter} options={[{value:'down',content:<><ThumbsDown size={14} aria-hidden="true"/><span className="feedback-filter-text">Неполезные</span> {count('down')}</>},{value:'up',content:<><ThumbsUp size={14} aria-hidden="true"/><span className="feedback-filter-text">Полезные</span> {count('up')}</>},{value:'all',content:'Все'}]}/>
    <Button view="flat-secondary" size="s" onClick={load} loading={loading}>Обновить</Button>

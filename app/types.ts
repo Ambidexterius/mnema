@@ -52,6 +52,7 @@ export interface Finding {
 export interface Study {
   id: string;
   fileId?: string;
+  fileSize?: number;
   title: string;
   description: string;
   project: string;
