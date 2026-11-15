@@ -1,3 +1,11 @@
+## 0.9.38 — 2026-11-15
+
+- Answer citations show who said it instead of a number: a neutral chip «❝ Респондент 1» named after the material (the last « · » part, shortened). The number read as "how often the problem occurred", so it is gone, along with the blue/yellow colour coding and the lightbulb.
+- Adjacent citations such as [1][2] [3] become one chip «Анна +2», where +N counts the other materials.
+- A chip opens the side panel in a new list mode: quotes grouped by material with speaker, time or page, project and «Открыть фрагмент», which switches to the existing detailed view. The clicked chip stays highlighted.
+- Under each answer «Опирается на N материалов (из M проектов)» opens every quote of the answer.
+- The detailed source view no longer shows «Источник [N]». On touch screens the chip stays 20 px in the text line with a 44 px tap area. No server or dependency changes.
+
 ## 0.9.37 — 2026-11-15
 
 - Settings get «Оценки ответов» for administrators who manage users: every 👍/👎 on chat answers with the question, who rated it and when, the project, and on expand the model's answer, its source materials and the model. Filter «Неполезные» (default), «Полезные», «Все»; latest 200 ratings.
