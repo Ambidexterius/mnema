@@ -83,3 +83,20 @@ test('an unfinished registration body does not block other signups',async()=>{
   }
  }finally{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true})}
 });
+
+test('explicit invitations retain view access when corporate self-registration is enabled',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'mnema-invite-corporate-')),base='http://127.0.0.1:4498',setup=randomBytes(32).toString('hex');
+ const app=await createMnemaServer({dataDir:dir,baseURL:base,setupToken:setup,authSecret:randomBytes(48).toString('hex'),corporateRegistration:true,sendInvitationMail:async()=>{}});await new Promise<void>(resolve=>app.server.listen(4498,'127.0.0.1',resolve));
+ const post=async(path:string,data:any,cookie='')=>{const r=await fetch(base+path,{method:'POST',headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json','X-Mnema-Request':'1','X-Mnema-Workspace':'main'},body:JSON.stringify(data)});return{status:r.status,data:await r.json(),cookie:r.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')}};
+ try{
+  const owner=await post('/api/register',{email:'owner@sutochno.ru',password:'fixture-owner-password',setupToken:setup});assert.equal(owner.status,200);
+  const invitation=await post('/api/invitations',{name:'Viewer',email:'viewer@example.test',role:'view'},owner.cookie);assert.equal(invitation.status,201);const token=new URL(invitation.data.inviteURL).searchParams.get('invite');
+  assert.equal((await post('/api/register',{email:'outside@example.test',password:'abcdefgh'})).status,400);
+  assert.equal((await post('/api/register',{email:'outside@example.test',password:'abcdefgh',inviteToken:'invalid'})).status,403);
+  assert.equal((await post('/api/register',{email:'wrong@example.test',password:'abcdefgh',inviteToken:token})).status,403);
+  const joined=await post('/api/register',{email:'viewer@example.test',password:'abcdefgh',inviteToken:token,role:'full',admin:true});assert.equal(joined.status,200,JSON.stringify(joined.data));
+  const access=app.db.prepare('SELECT a.* FROM mnema_access a JOIN user u ON u.id=a.user_id WHERE u.email=?').get('viewer@example.test') as any;assert.equal(access.role,'view');assert.equal(access.admin,0);assert.equal(access.self_registered,0);
+  const info=await(await fetch(base+'/api/session',{headers:{Cookie:joined.cookie}})).json() as any;assert.equal(info.user.role,'view');assert.equal(info.user.manageUsers,false);
+  assert.equal((await post('/api/register',{email:'viewer@example.test',password:'abcdefgh',inviteToken:token})).status,403);
+ }finally{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true})}
+});

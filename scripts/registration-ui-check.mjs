@@ -13,13 +13,13 @@ await mkdir('artifacts/ui-registration',{recursive:true});const results=[],jsErr
 const png=await readFile(new URL('../server/fixtures/avatar.png',import.meta.url));
 async function scenario(name,fn,{theme='light',clock,viewport={width:1440,height:980}}={}){
  // Better Auth shares its in-memory rate limiter across otherwise isolated fixtures.
- const dir=await mkdtemp(join(tmpdir(),'mnema-signup-browser-')),stand=await startRegistrationFixture({port:4481,dataDir:dir}),context=await browser.newContext({viewport,isMobile:viewport.width<640,hasTouch:viewport.width<640,extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.'+(results.length+1)},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage();
+ const dir=await mkdtemp(join(tmpdir(),'mnema-signup-browser-')),stand=await startRegistrationFixture({port:4494,dataDir:dir}),context=await browser.newContext({viewport,isMobile:viewport.width<640,hasTouch:viewport.width<640,extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.'+(results.length+1)},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage();
  page.setDefaultTimeout(7000);page.on('pageerror',error=>jsErrors.push({scenario:name,error:error.message}));
  await context.addInitScript(theme=>localStorage.setItem('ai-hyposut.demo.v1',JSON.stringify({version:1,data:{theme}})),theme);
  if(clock)await page.clock.install({time:clock});
  const begin=async(email='ivan.petrov@sutochno.ru')=>{await page.goto(stand.base+'/signup');await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();await page.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill(email);await page.getByRole('button',{name:'Получить код',exact:true}).click();await page.getByRole('heading',{name:'Подтвердите почту'}).waitFor();await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Код из письма, цифра 1 из 6')};
  const mailCode=()=>{const match=stand.messages.at(-1).text.match(/\n\n(\d{3}) (\d{3})\n\n/);return match[1]+match[2]};
- const verify=async()=>{await page.getByRole('textbox',{name:'Код из письма, цифра 1 из 6',exact:true}).fill(mailCode());await page.getByRole('button',{name:'Подтвердить',exact:true}).click();await page.getByRole('heading',{name:'Придумайте пароль'}).waitFor()};
+ const verify=async()=>{await page.getByRole('textbox',{name:'Код из письма, цифра 1 из 6',exact:true}).fill(mailCode());await page.getByRole('button',{name:'Подтвердить',exact:true}).click();await page.getByRole('heading',{name:'Придумайте пароль'}).waitFor();const username=page.locator('#registration-email');assert.equal(await username.inputValue(),stand.messages.at(-1).to);assert.equal(await username.isVisible(),false);assert.equal(await page.locator('#registration-password').getAttribute('name'),'new-password')};
  const password=async()=>{await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefg');await page.getByRole('button',{name:'Продолжить',exact:true}).click();await page.getByRole('alert').filter({hasText:'Минимум 8 символов'}).waitFor();await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');await page.getByRole('button',{name:'Продолжить',exact:true}).click();await page.getByRole('heading',{name:'Ваш профиль'}).waitFor()};
  const profile=async()=>{await page.getByRole('textbox',{name:'Имя',exact:true}).fill('Иван');await page.getByRole('textbox',{name:'Фамилия',exact:true}).fill('Петров')};
  try{await fn({stand,context,page,begin,mailCode,verify,password,profile});results.push({name,status:'passed'});console.log('PASS '+name)}
@@ -42,7 +42,7 @@ try{
   await page.setViewportSize(viewport);const fileChooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Загрузить фото',exact:true}).click();await (await fileChooser).setFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото',exact:true}).waitFor();await capture('profile');
   await page.getByRole('button',{name:'Начать работу',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.locator('.project-card').count(),3);await capture('projects');await openNavigation();assert.equal(await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).count(),1);
   const avatar=page.locator('.account .g-avatar img');await avatar.waitFor();await avatar.evaluate(e=>e.decode());assert.ok(await avatar.evaluate(e=>e.complete&&e.naturalWidth>0));await page.reload();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await openNavigation();assert.equal(await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).count(),1);await page.goto(stand.base+'/signup');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await openNavigation();
-  await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();await page.getByRole('button',{name:'Войти',exact:true}).waitFor();await page.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill('ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();await page.getByRole('button',{name:'Войти',exact:true}).waitFor();await page.getByRole('link',{name:'Создать аккаунт',exact:true}).click();await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();await page.getByRole('link',{name:'Войти',exact:true}).click();await page.waitForURL('**/login');await page.getByRole('heading',{name:'Вход в Мнемонику',exact:true}).waitFor();await page.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill('ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  },{theme,viewport});
  }
 
@@ -55,6 +55,13 @@ try{
   const spacing=await page.evaluate(()=>{const box=selector=>document.querySelector(selector).getBoundingClientRect(),label=box('label[for="registration-email"]'),input=box('.registration-email'),button=box('form>.g-button'),footer=box('.registration-bottom'),title=box('.auth-title'),brand=box('.auth-symbol');return {brandToTitle:title.top-brand.bottom,titleToLabel:label.top-title.bottom,labelToInput:input.top-label.bottom,inputToButton:button.top-input.bottom,buttonToFooter:footer.top-button.bottom,linkColor:getComputedStyle(document.querySelector('.registration-bottom a')).color}});
   assert.ok(Math.abs(spacing.labelToInput-8)<1);assert.ok(Math.abs(spacing.inputToButton-16)<1);assert.ok(Math.abs(spacing.buttonToFooter-8)<1);assert.equal(spacing.linkColor,'rgba(0, 0, 0, 0.85)');await writeFile('artifacts/ui-registration/spacing.json',JSON.stringify(spacing,null,2)+'\n');
   await page.screenshot({path:'artifacts/ui-registration/registration-final.png'});
+ });
+
+ await scenario('theme-does-not-validate-untouched-email',async({page,stand})=>{
+  await page.goto(stand.base+'/signup');await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Включить тёмную тему',exact:true}).click();assert.equal(await page.getByRole('alert').filter({hasText:'Используйте рабочую почту'}).count(),0);
+  await page.getByRole('button',{name:'Включить светлую тему',exact:true}).click();assert.equal(await page.getByRole('alert').filter({hasText:'Используйте рабочую почту'}).count(),0);
+  await page.getByRole('button',{name:'Получить код',exact:true}).click();await page.getByRole('alert').filter({hasText:'Используйте рабочую почту @sutochno.ru'}).waitFor();assert.equal(stand.messages.length,0);
  });
 
  await scenario('mail-failure-recovery',async({page,stand})=>{
@@ -105,6 +112,12 @@ try{
  await scenario('existing-account-no-duplicate',async({page,stand,begin,verify,password,profile,mailCode})=>{
   await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Профиль: Иван Петров'}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();stand.app.db.prepare('UPDATE mnema_registration SET resend_at=0').run();
   await begin();await page.locator('.registration-otp input').first().fill(mailCode());await page.getByRole('button',{name:'Подтвердить',exact:true}).click();await page.waitForURL('**/login?email=*');await page.getByRole('button',{name:'Войти',exact:true}).waitFor();assert.equal(await page.getByRole('textbox',{name:'Рабочая почта'}).inputValue(),'ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('incorrect-password');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('alert').filter({hasText:'Почта или пароль не подошли'}).waitFor();assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,1);
+ });
+
+ await scenario('expired-session-keeps-registration',async({page,begin,verify,password,profile})=>{
+  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await page.route('**/api/state',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'synthetic expired session'})}));
+  await page.getByRole('heading',{name:'Вход в Мнемонику',exact:true}).waitFor({timeout:10000});await page.getByRole('link',{name:'Создать аккаунт',exact:true}).click();await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();
  });
 
  await scenario('revoked-account-login-message',async({page,stand,begin,verify,password,profile})=>{

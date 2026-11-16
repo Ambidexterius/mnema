@@ -46,6 +46,25 @@ try{
    await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
    if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-folder-stage').getBoundingClientRect(),grid=document.querySelector('.projects-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
   });
+  await run(theme+': mobile project navigation and desktop table',async()=>{
+   for(const width of [390,1024,1440]){
+    await page.setViewportSize({width,height:844});
+    await goto('/projects/main');
+    const compact=width<960;
+    const tab=page.locator('.project-tabs').getByRole('link',{name:compact?'Документы':'Исследования',exact:true});
+    await tab.waitFor();
+    if(compact){
+     const back=await page.getByRole('link',{name:'К проектам'}).boundingBox();
+     const title=await page.locator('.project-overview h1').boundingBox();
+     assert.equal(back.width,48);
+     assert.equal(back.height,48);
+     assert.equal(title.x-back.x-back.width,4);
+    }
+    await tab.click();
+    await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
+    assert.equal(await page.getByRole('button',{name:compact?'Добавить':'Добавить материал',exact:true}).count(),1);
+   }
+  });
   await run(theme+': single-key creation always enabled, visible hints and no settings switch',async()=>{
    await page.evaluate(()=>{const key='ai-hyposut.demo.v1',saved=JSON.parse(localStorage.getItem(key)||'{}');localStorage.setItem(key,JSON.stringify({...saved,version:1,data:{...saved.data,shortcutsEnabled:false}}))});await page.reload();await page.locator('.app-shell').waitFor();
    await goto('/projects');const main=page.locator('#main'),create=page.getByRole('button',{name:'Создать',exact:true});

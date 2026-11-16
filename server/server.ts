@@ -228,7 +228,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const withRegistration=fn=>{const result=registration.then(fn,fn);registration=result.catch(()=>{});return result};
  const register=async(req,res)=>{
   limit('registration:'+req.socket.remoteAddress,10);const b=await body(req,8*1024**2);return withRegistration(async()=>{
-  const self=Boolean(options.corporateRegistration&&ownerExists());
+  const self=Boolean(options.corporateRegistration&&ownerExists()&&!text(b.inviteToken,256));
   const email=self?corporateEmail(b.email):text(b.email,150).toLowerCase(),providedName=text(b.name,70);if(!/^\S+@\S+\.\S+$/.test(email))fail(400,'Введите рабочую почту, например name@company.ru.');
   let invitation=null,admin=false,role='view',profile=null,photo=null;
   if(!ownerExists()){if(!setupToken||!safeEqual(hash(text(b.setupToken,256)),hash(setupToken)))fail(403,'Для первого входа нужен ключ настройки владельца.');admin=true;role='full'}

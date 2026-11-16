@@ -1,3 +1,4 @@
+import {useCompactLayout,MOBILE_WEB_QUERY} from './useCompactLayout.ts';
 import React, {useRef} from 'react';
 import {Button, TextArea} from '@gravity-ui/uikit';
 import {ArrowUp, Library} from 'lucide-react';
@@ -21,7 +22,7 @@ interface ChatComposerProps {
 /** One presentation for global and project chat; each caller owns its data scope. */
 export default function ChatComposer({value,onChange,onSubmit,placeholder,suggestion,inputLabel,
   sendLabel,scopeLabel,scopeAction,modelControl,available,loading}:ChatComposerProps) {
-  const submitting=useRef(false);
+  const submitting=useRef(false),mobileWeb=useCompactLayout(MOBILE_WEB_QUERY);
   return <form className="composer composer-animated-edge shared-composer"
     onSubmit={async event=>{
       event.preventDefault();
@@ -31,12 +32,12 @@ export default function ChatComposer({value,onChange,onSubmit,placeholder,sugges
     }}>
     <span className="composer-edge" aria-hidden="true"><span className="composer-edge__paint"/></span>
     <div className="composer-row">
-     <TextArea value={value} onUpdate={onChange} onKeyDown={event=>{if(available&&!loading&&acceptChatSuggestion(event,value,suggestion,onChange))return;submitChatOnEnter(event)}}
+     <TextArea value={value} onUpdate={onChange} onKeyDown={event=>{if(mobileWeb)return;if(available&&!loading&&acceptChatSuggestion(event,value,suggestion,onChange))return;submitChatOnEnter(event)}}
       disabled={loading} placeholder={placeholder} minRows={1} maxRows={8}
-      controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':suggestion?'Tab Enter Shift+Enter':'Enter Shift+Enter','aria-description':suggestion?'Tab — использовать пример вопроса; Enter — отправить; Shift+Enter — новая строка.':undefined,maxLength:2000}}/>
+      controlProps={{'aria-label':inputLabel,'aria-keyshortcuts':mobileWeb?undefined:suggestion?'Tab Enter Shift+Enter':'Enter Shift+Enter','aria-description':!mobileWeb&&suggestion?'Tab — использовать пример вопроса; Enter — отправить; Shift+Enter — новая строка.':undefined,maxLength:2000}}/>
      <Button type="submit" view="action" size="m" loading={loading}
         disabled={!available||!value.trim()||loading} aria-label={sendLabel}
-        title="Enter — отправить, Shift+Enter — новая строка">
+        title={mobileWeb?undefined:'Enter — отправить, Shift+Enter — новая строка'}>
        <ArrowUp size={18} aria-hidden="true"/>
      </Button>
     </div>
