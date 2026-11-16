@@ -20,6 +20,9 @@ export async function createUIFixture(port=4461){
  await writeFile(join(dir,'uploads','ui-file'),text);app.db.prepare('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run('ui-file','Интервью.txt','text/plain',Buffer.byteLength(text),'ready');
  state.models=[{id:'fixture',name:'Тестовая модель',model:'fixture',url:'https://api.openai.com/v1',provider:'Совместимый API',apiType:'compatible',keyRef:'LLM_KEY_CUSTOM2',enabled:true}];state.modelId='fixture';
  state.studies=[{id:'sample',title:'Тестовый материал',fileId:'ui-file',fileName:'Интервью.txt',type:'Интервью',format:'TXT',date:'2026-11-16',status:'ready',duration:0,participants:1,tags:[],summary:[],report:'none',segments:[{id:'segment',speaker:'Документ',time:0,text}]}];
+ const reportText='Синтетический отчёт: участнику не ответили до оплаты.';
+ await writeFile(join(dir,'uploads','ui-report'),reportText);app.db.prepare('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run('ui-report','Отчёт.txt','text/plain',Buffer.byteLength(reportText),'ready');
+ state.studies.push({...state.studies[0],id:'report',fileId:'ui-report',fileName:'Отчёт.txt',title:'Отчёт по тестированию бронирования',type:'Отчёт',report:'ready',segments:[{id:'report-segment',speaker:'Документ',time:0,text:reportText}]});
  state.findings=[{id:'finding',studyId:'sample',segmentId:'segment',title:'Нет ответа до оплаты',description:'Синтетический пример для проверки интерфейса.',kind:'Проблема',importance:'Критично',status:'verified',origin:'human',significant:false,history:[]}];
  state.projectProfile={category:'Продукт',report:'none',conducted:'',method:'Тест',audience:'Синтетические данные',contact:'',revision:1};
  app.db.prepare("UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'").run('Тест интерфейса',JSON.stringify(state),user.id);

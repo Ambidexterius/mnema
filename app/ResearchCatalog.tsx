@@ -1,9 +1,9 @@
 import type {Finding} from './types.ts';
 import {findingStatusLabel} from './finding-status.ts';
 import React,{useContext,useEffect,useState} from 'react';
-import {Button,Label,SegmentedRadioGroup,Table} from '@gravity-ui/uikit';
+import {Button,Hotkey,Label,SegmentedRadioGroup,Table} from '@gravity-ui/uikit';
 import {Folder,Lightbulb,Plus} from 'lucide-react';
-import {Context} from './main.tsx';
+import {Context,NavigationHint} from './main.tsx';
 import {api} from './api.ts';
 import {navigate,restoreRouteScroll} from './routes.ts';
 import ProjectFolder from './ProjectFolder.tsx';
@@ -19,7 +19,7 @@ function ProjectsCatalog(){
  const projects=real?workspaces:[{id:'local-demo',name:state.workspace?.name||'Демонстрационный проект',fileCount:state.studies.length}];
  const openProject=async(id:string)=>{setError('');try{if(real)await switchWorkspace(id);else go('home')}catch(e){setError(e.message)}};
  return <>
-  <div className="page-heading projects-heading"><div className="page-title-row"><h1>Проект</h1><Button view="outlined" size="l" onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать</Button></div><p>Храните интервью, документы и находки команды.</p></div>
+  <div className="page-heading projects-heading"><div className="page-title-row"><h1>Проект</h1><NavigationHint label="Создать новый проект" shortcut={state.shortcutsEnabled!==false?'C':undefined} enabled><Button view="outlined" size="l" aria-label="Создать" aria-keyshortcuts={state.shortcutsEnabled!==false?'C':undefined} onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать{state.shortcutsEnabled!==false?<Hotkey className="shortcut-hint" value="C" aria-hidden="true"/>:null}</Button></NavigationHint></div><p>Храните интервью, документы и находки команды.</p></div>
   {error?<p className="form-error" role="alert">{error}</p>:null}
   {projects.length?<div className="projects-grid">{projects.map(project=><article className="project-card" key={project.id}><div className="project-folder-stage"><ProjectFolder project={project} onOpen={()=>openProject(project.id)}/>{real?<ProjectMenu project={project} onAction={projectAction}/>:null}</div></article>)}</div>:<div className="empty"><Folder size={28}/><h2>Проектов пока нет</h2><p>Создайте проект, затем добавьте интервью, документы или видео.</p><Button onClick={()=>open({type:'workspace'})}>Создать</Button></div>}
  </>;

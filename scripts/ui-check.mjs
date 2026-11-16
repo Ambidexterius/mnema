@@ -15,7 +15,7 @@ const run=async(name,fn)=>{await fn();checks.push(name)};
 try{
  for(const theme of ['light','dark']){
   const context=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'reduce'});await context.addCookies(fixture.cookies);
-  await context.addInitScript(theme=>localStorage.setItem('ai-hyposut.demo.v1',JSON.stringify({version:1,data:{theme}})),theme);
+  await context.addInitScript(theme=>{const saved=JSON.parse(localStorage.getItem('ai-hyposut.demo.v1')||'{}');localStorage.setItem('ai-hyposut.demo.v1',JSON.stringify({version:1,data:{...saved.data,theme}}))},theme);
   const page=await context.newPage();page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
   const goto=async path=>{await page.goto(fixture.base+path);await page.locator('.app-shell').waitFor()};
   const screenshot=name=>page.screenshot({path:resolve(out,theme+'-'+name+'.png')});
@@ -27,6 +27,36 @@ try{
   for(const width of [320,390,768,1024,1440])await run(theme+': projects responsive '+width,async()=>{
    await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
    if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-folder-stage').getBoundingClientRect(),grid=document.querySelector('.projects-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
+  });
+  await run(theme+': single-key creation, editing guards and persistent opt-out',async()=>{
+   await goto('/projects');const main=page.locator('#main'),create=page.getByRole('button',{name:'Создать',exact:true});
+   assert.equal(await create.getAttribute('aria-keyshortcuts'),'C');assert.equal(await page.getByRole('link',{name:'Проекты',exact:true}).first().locator('.shortcut-hint').innerText(),'C');assert.equal(await page.locator('.sidebar a[aria-keyshortcuts="T"] .shortcut-hint').isVisible(),true);
+   for(const [selector,label,key] of [['.sidebar a[aria-label="Проекты"]','Создать новый проект','C'],['.sidebar a[aria-label="Новый чат"]','Новый чат','T']]){
+    await page.locator(selector).hover();const tip=page.getByRole('tooltip').filter({hasText:label});await tip.waitFor();assert.equal(await tip.locator('kbd').last().innerText(),key);await screenshot('tooltip-'+key);await page.mouse.move(800,500);await tip.waitFor({state:'hidden'});
+   }
+   await main.press('c');const dialog=page.getByRole('dialog',{name:'Новый проект',exact:true});await dialog.waitFor();
+   const name=page.getByRole('textbox',{name:'Название',exact:true});await name.fill('ct');await name.press('t');assert.equal(await name.inputValue(),'ctt');assert.equal(new URL(page.url()).pathname,'/projects');
+   await name.press('Escape');await dialog.waitFor({state:'hidden'});
+   await main.dispatchEvent('keydown',{key:'с',code:'KeyC',bubbles:true,cancelable:true});await dialog.waitFor();await name.press('Escape');await dialog.waitFor({state:'hidden'});
+   const ignored=await main.evaluate(el=>[{ctrlKey:true},{metaKey:true},{altKey:true},{shiftKey:true},{repeat:true},{isComposing:true},{keyCode:229}].map(options=>{const e=new KeyboardEvent('keydown',{key:'c',code:'KeyC',bubbles:true,cancelable:true,...options});el.dispatchEvent(e);return e.defaultPrevented}));assert.ok(ignored.every(value=>!value));assert.equal(await dialog.count(),0);
+   await main.dispatchEvent('keydown',{key:'е',code:'KeyT',bubbles:true,cancelable:true});await page.waitForURL('**/chat');const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.waitFor();await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Вопрос по всем исследованиям');
+   await composer.fill('ct');await composer.press('c');assert.equal(await composer.inputValue(),'ctc');assert.equal(await dialog.count(),0);
+   await goto('/projects');await main.evaluate(el=>{const e=document.createElement('div');e.contentEditable='true';e.id='shortcut-editor';el.appendChild(e)});await page.locator('#shortcut-editor').press('c');assert.equal(await dialog.count(),0);await page.locator('#shortcut-editor').evaluate(el=>el.remove());
+   await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu-row').filter({hasText:'Горячие клавиши'}).locator('.g-switch').click();assert.equal(await page.getByLabel('Горячие клавиши',{exact:true}).isChecked(),false);await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor({state:'hidden'});
+   await main.press('c');await main.press('t');assert.equal(await dialog.count(),0);assert.equal(new URL(page.url()).pathname,'/projects');assert.equal(await create.getAttribute('aria-keyshortcuts'),null);
+   await page.reload();await page.locator('.app-shell').waitFor();assert.equal(await create.getAttribute('aria-keyshortcuts'),null);await create.click();await dialog.waitFor();await name.press('Escape');await dialog.waitFor({state:'hidden'});
+   await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu-row').filter({hasText:'Горячие клавиши'}).locator('.g-switch').click();assert.equal(await page.getByLabel('Горячие клавиши',{exact:true}).isChecked(),true);await screenshot('shortcut-settings');await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor({state:'hidden'});
+   await main.press('c');await dialog.waitFor();await name.press('Escape');await dialog.waitFor({state:'hidden'});await screenshot('shortcuts');
+  });
+  await run(theme+': reports first in both material tables',async()=>{
+   for(const path of ['/projects/main','/projects/main/research']){
+    await page.setViewportSize({width:1440,height:950});await goto(path);await page.locator('.study-table tbody tr').first().waitFor();
+    const links=page.locator('.study-table .table-study');assert.match(await links.first().getAttribute('href'),/studies\/report$/);assert.match(await links.nth(1).getAttribute('href'),/studies\/sample$/);
+    assert.equal(await page.locator('.study-table tbody tr').first().locator('td').nth(1).innerText(),'Отчёт');assert.equal(await page.locator('.study-table .table-study .g-label').count(),0);
+    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
+    await screenshot(path.endsWith('/research')?'reports-research':'reports-overview');
+   }
+   await goto('/projects');
   });
   await run(theme+': mobile drawer and focus',async()=>{
    await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Открыть меню',exact:true}).click();await page.locator('.mobile-nav-sheet').waitFor();
