@@ -47,14 +47,26 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
     void notifyOwners(person,text);
     return {id};
   }
+  // Author-only changes within 24 hours of sending; checked here, not trusted from the client.
+  function own(person:Person,id:unknown,verb:string) {
+    const idea=find(person,id);
+    if(idea.user_id!==person.id)reject(403,verb+' идею может только её автор.');
+    if(Date.now()-idea.created>=86400000)reject(403,verb+' идею можно только в течение суток после отправки.');
+    return idea;
+  }
   function edit(person:Person,id:unknown,input:any) {
-    const idea=find(person,id),now=Date.now();
-    if(idea.user_id!==person.id)reject(403,'Редактировать идею может только её автор.');
-    if(now-idea.created>=86400000)reject(403,'Редактировать идею можно только в течение суток после отправки.');
+    const idea=own(person,id,'Редактировать'),now=Date.now();
     const text=clean(input?.text,2001);
     if(text.length<3)reject(400,'Опишите идею.');
     if(text.length>2000)reject(400,'Не больше 2 000 символов.');
     q('UPDATE mnema_ideas SET text=?,updated=? WHERE id=?').run(text,now,idea.id);
+    return {ok:true};
+  }
+  function remove(person:Person,id:unknown) {
+    const idea=own(person,id,'Удалить');
+    db.exec('BEGIN');
+    try{for(const table of ['mnema_idea_comments','mnema_idea_votes'])q('DELETE FROM '+table+' WHERE idea_id=?').run(idea.id);q('DELETE FROM mnema_ideas WHERE id=?').run(idea.id);db.exec('COMMIT')}
+    catch(e){db.exec('ROLLBACK');throw e}
     return {ok:true};
   }
   function vote(person:Person,id:unknown,on:unknown) {
@@ -65,8 +77,11 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
   }
   function comments(person:Person,id:unknown) {
     const idea=find(person,id);
-    return (q(`SELECT c.id,c.text,c.created,u.name AS author FROM mnema_idea_comments c LEFT JOIN user u ON u.id=c.user_id
-      WHERE c.idea_id=? ORDER BY c.created`).all(idea.id) as any[]).map(r=>({id:String(r.id),text:String(r.text),created:Number(r.created),author:r.author?String(r.author):'Пользователь удалён'}));
+    // Role badge: the idea's author wins over admin, so an owner's own idea reads «Автор идеи».
+    return (q(`SELECT c.id,c.text,c.created,u.name AS author,c.user_id=? AS by_author,
+      EXISTS(SELECT 1 FROM mnema_access a WHERE a.user_id=c.user_id AND a.admin=1 AND a.revoked=0) AS by_admin
+      FROM mnema_idea_comments c LEFT JOIN user u ON u.id=c.user_id WHERE c.idea_id=? ORDER BY c.created`).all(idea.user_id,idea.id) as any[])
+      .map(r=>({id:String(r.id),text:String(r.text),created:Number(r.created),author:r.author?String(r.author):'Пользователь удалён',role:r.by_author?'author':r.by_admin?'admin':''}));
   }
   function comment(person:Person,id:unknown,input:any) {
     const idea=find(person,id);const text=clean(input?.text,2000);
@@ -118,5 +133,5 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
     q('INSERT INTO mnema_interface_ratings VALUES(?,?,?,?)').run(randomUUID(),person.id,rating,Date.now());
     return {ok:true};
   }
-  return {list,create,edit,vote,comments,comment,moderate,rate};
+  return {list,create,edit,remove,vote,comments,comment,moderate,rate};
 }

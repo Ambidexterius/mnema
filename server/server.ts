@@ -403,6 +403,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person),admin:person.owner});
      if(path==='/api/ideas'&&req.method==='POST'){limit('ideas:'+person.id,20);return json(res,200,ideas.create(person,await body(req)))}
      if(/^\/api\/ideas\/[\w-]{1,64}$/.test(path)&&req.method==='PATCH'){limit('ideas:'+person.id,60);return json(res,200,ideas.edit(person,path.split('/').pop(),await body(req)))}
+     if(/^\/api\/ideas\/[\w-]{1,64}$/.test(path)&&req.method==='DELETE'){limit('ideas:'+person.id,60);return json(res,200,ideas.remove(person,path.split('/').pop()))}
      if(path==='/api/interface-rating'&&req.method==='POST'){limit('rating:'+person.id,20);return json(res,200,ideas.rate(person,(await body(req)).rating))}
      {const m=path.match(/^\/api\/ideas\/([\w-]{1,64})\/(vote|comments|status)$/);if(m){
       const [,id,action]=m;

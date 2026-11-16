@@ -50,7 +50,7 @@ const DEMO=import.meta.env.VITE_DEMO==='true';
 const qa=DEMO&&new URLSearchParams(location.search).get('qa')==='1';
 let reader=qa&&new URLSearchParams(location.search).get('role')==='view';
 const storage=qa?'ai-hyposut.qa.v1':'ai-hyposut.demo.v1';
-const defaults={studies:initialStudies,findings:initialFindings,models:initialModels,processors:initialProcessors,users:initialUsers,modelId:'deepseek',theme:'dark',sidebarCollapsed:false,soundEnabled:true,shortcutsEnabled:true,messages:[]};
+const defaults={studies:initialStudies,findings:initialFindings,models:initialModels,processors:initialProcessors,users:initialUsers,modelId:'deepseek',theme:'dark',sidebarCollapsed:false,soundEnabled:true,messages:[]};
 const uid=()=>crypto.randomUUID();
 const time=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
 const materialDate=new Intl.DateTimeFormat('ru',{day:'numeric',month:'long',year:'numeric'});
@@ -74,7 +74,7 @@ const WHATS_NEW='ui-0.9.16-findings-2026-11-13';
 const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const navs:[string,string,LucideIcon][]=[['home','Обзор проекта',House],['library','Исследования',Library]];
 const management:[string,string,LucideIcon][]=[['models','Модели',Box],['integrations','Интеграции',Plug],['mcp','MCP',Cable],['users','Пользователи',Users],['feedback','Оценки ответов',ThumbsUp]];
-function load(){try{const v=JSON.parse(localStorage.getItem(storage));const local=v?.version===1?v.data:{};return DEMO?{...structuredClone(defaults),...local}:{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:local.theme||'light',sidebarCollapsed:!!local.sidebarCollapsed,soundEnabled:local.soundEnabled!==false,shortcutsEnabled:local.shortcutsEnabled!==false}}catch{return DEMO?structuredClone(defaults):{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:'light'}}}
+function load(){try{const v=JSON.parse(localStorage.getItem(storage));const local=v?.version===1?v.data:{};return DEMO?{...structuredClone(defaults),...local}:{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:local.theme||'light',sidebarCollapsed:!!local.sidebarCollapsed,soundEnabled:local.soundEnabled!==false}}catch{return DEMO?structuredClone(defaults):{...structuredClone(defaults),studies:[],findings:[],users:[],models:[],processors:[],messages:[],theme:'light'}}}
 function IconButton({icon:Icon,label,size="l",...props}:{icon:LucideIcon;label:string;[prop:string]:any}){return <Tooltip content={label}><Button view="flat" size={size} aria-label={label} {...props}><Icon size={size==="s"?14:18} aria-hidden="true"/></Button></Tooltip>}
 export function NavigationHint({label,enabled,shortcut,children}:{label:string;enabled:boolean;shortcut?:string;children:React.ReactElement}){return <Tooltip content={shortcut?<span className="creation-shortcut-tooltip"><span>{label}</span><Hotkey value={shortcut}/></span>:label} disabled={!enabled} placement="right" openDelay={200} closeDelay={80}>{children}</Tooltip>}
 function Notice({children}:{children:React.ReactNode}){return <div className="notice"><Info size={16}/><div>{children}</div></div>}
@@ -155,7 +155,7 @@ export function App(){
 
  useCompletionFavicon(state.studies,authInfo.user?.workspaceId,authInfo.user?.id,route,(authInfo.user?.workspaces||[]).map(w=>w.id));
  useCompletionSound(state.studies,authInfo.user?.workspaceId,state.soundEnabled!==false,finished=>notify(finished.length===1?'Расшифровка готова: '+finished[0].title:'Расшифровки готовы: '+finished.length));
- useEffect(()=>{try{localStorage.setItem(storage,JSON.stringify({version:1,data:DEMO?state:{theme:state.theme,sidebarCollapsed:state.sidebarCollapsed,soundEnabled:state.soundEnabled!==false,shortcutsEnabled:state.shortcutsEnabled!==false}}))}catch{setToast('Изменения не сохранились. Освободите место в хранилище браузера.')}},[state]);
+ useEffect(()=>{try{localStorage.setItem(storage,JSON.stringify({version:1,data:DEMO?state:{theme:state.theme,sidebarCollapsed:state.sidebarCollapsed,soundEnabled:state.soundEnabled!==false}}))}catch{setToast('Изменения не сохранились. Освободите место в хранилище браузера.')}},[state]);
  useEffect(()=>{
   const h=async()=>{
    if(location.hash==='#main'&&appRoute()===routeRef.current){main.current?.focus();return}
@@ -211,8 +211,9 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  useLayoutEffect(()=>{const el=main.current?.parentElement,previous=sidebarShift.current;if(!el||!previous||mobile)return;const delta=previous.left-el.getBoundingClientRect().left;const css=getComputedStyle(el),timing=css.getPropertyValue('--mn-motion-fast').trim();previous.animation=el.animate([{transform:'translateX('+delta+'px)'},{transform:'translateX(0)'}],{duration:parseFloat(timing)*(timing.endsWith('ms')?1:1000)||160,easing:css.getPropertyValue('--mn-ease-out').trim()||'cubic-bezier(0.23,1,0.32,1)'});return()=>previous.animation?.cancel()},[collapsed,mobile]);
 
 
+
  useEffect(()=>{
-  if(state.shortcutsEnabled===false||(!DEMO&&(!authInfo.user||authInfo.loading))||authInfo.error)return;
+  if((!DEMO&&(!authInfo.user||authInfo.loading))||authInfo.error)return;
   const onKey=(event:KeyboardEvent)=>{
    if(event.defaultPrevented||event.repeat||event.isComposing||event.keyCode===229||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return;
    if(event.code!=='KeyC'&&event.code!=='KeyT')return;
@@ -224,12 +225,12 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
   };
   document.addEventListener('keydown',onKey);
   return()=>document.removeEventListener('keydown',onKey);
- },[state.shortcutsEnabled,authInfo.user?.id,authInfo.loading,authInfo.error,dialog,projectAction,settingsTab,studyOpen,menuOpen,accountOpen,feedbackOpen,ideasOpen,route]);
+ },[authInfo.user?.id,authInfo.loading,authInfo.error,dialog,projectAction,settingsTab,studyOpen,menuOpen,accountOpen,feedbackOpen,ideasOpen,route]);
 
  const brand=<a className="brand" href={appHref('chat')} aria-label="Мнемоника, бета-версия — новый чат"><BrandMark/><span className="brand-text"><strong>Мнемоника</strong><span className="brand-beta" title="Бета-версия"><BetaMark/><span className="sr-only">бета-версия</span></span></span><span className="app-version">{APP_VERSION}</span></a>;
  switchWorkspaceRef.current=switchWorkspace;
  const navContent=<><div className="sidebar-head"><div className="brand-lockup"><NavigationHint label="Мнемоника" enabled={collapsed}>{brand}</NavigationHint></div>{mobile?<IconButton icon={X} label="Закрыть меню" className="mobile-close" onClick={()=>setMenuOpen(false)}/>:<IconButton icon={collapsed?PanelLeftOpen:PanelLeftClose} label={collapsed?'Развернуть меню':'Свернуть меню'} aria-expanded={!collapsed} className="collapse-button" onClick={toggleSidebar}/>}</div><nav className="project-navigation" aria-label="Основная навигация">
- {([['chat','Новый чат',Plus,'T'],['research','Проекты',Folder,'C'],['all-findings','Находки',Lightbulb]] as [string,string,LucideIcon,string?][]).map(([id,label,Icon,shortcut])=><NavigationHint key={id} label={id==='research'?'Создать новый проект':label} shortcut={state.shortcutsEnabled!==false?shortcut:undefined} enabled={Boolean(shortcut)||collapsed}><a className="nav-item" href={appHref(''+id)} aria-label={label} aria-description={id==='research'&&state.shortcutsEnabled!==false?'C — создать новый проект':undefined} aria-keyshortcuts={id==='chat'&&state.shortcutsEnabled!==false?'T':undefined} aria-current={id!=='chat'&&(base===id||(id==='research'&&(base==='projects'||!globalView))||(id==='all-findings'&&globalFindingFlow))?'page':undefined}><Icon size={18}/><span>{label}</span>{shortcut&&state.shortcutsEnabled!==false?<Hotkey className="shortcut-hint" value={shortcut} aria-hidden="true"/>:null}</a></NavigationHint>)}
+ {([['chat','Новый чат',Plus,'T'],['research','Проекты',Folder,'C'],['all-findings','Находки',Lightbulb]] as [string,string,LucideIcon,string?][]).map(([id,label,Icon,shortcut])=><NavigationHint key={id} label={id==='research'?'Создать новый проект':label} shortcut={shortcut} enabled={Boolean(shortcut)||collapsed}><a className="nav-item" href={appHref(''+id)} aria-label={label} aria-description={id==='research'?'C — создать новый проект':undefined} aria-keyshortcuts={id==='chat'?'T':undefined} aria-current={id!=='chat'&&(base===id||(id==='research'&&(base==='projects'||!globalView))||(id==='all-findings'&&globalFindingFlow))?'page':undefined}><Icon size={18}/><span>{label}</span>{shortcut?<Hotkey className="shortcut-hint" value={shortcut} aria-hidden="true"/>:null}</a></NavigationHint>)}
  <div className="project-list-label">Чаты</div><ChatHistoryScroll>{chatHistory.chats.map(chat=><div className={'recent-chat-row'+(chatHistory.activeId===chat.id?' is-selected':'')} key={chat.id}><NavigationHint label={chat.title} enabled={collapsed}><a className="nav-item" href={appHref('conversation/'+chat.id)} aria-label={chat.title} aria-current={chatHistory.activeId===chat.id?'page':undefined}><MessageSquare size={18}/><span>{chat.title}</span></a></NavigationHint><IconButton icon={Trash2} label={'Удалить чат: '+chat.title} size="m" className="recent-chat-delete" disabled={globalTyping} onClick={()=>open({type:'delete-chat',chat})}/></div>)}{!chatHistory.chats.length&&!collapsed?<p className="recent-chats-empty">Здесь появятся ваши беседы</p>:null}</ChatHistoryScroll></nav>
 
  <div className="sidebar-bottom">{DEMO?null:<NavigationHint label="Обратная связь" enabled={collapsed}><button type="button" className="nav-item" aria-label="Обратная связь" aria-haspopup="dialog" onClick={()=>{setMenuOpen(false);setFeedbackOpen(true)}}><Megaphone size={20}/><span>Обратная связь</span></button></NavigationHint>}{canUseSettings?<NavigationHint label="Настройки" enabled={collapsed}><a className="nav-item" href={appHref(canManage?'models':'mcp')} aria-label="Настройки" aria-haspopup="dialog" aria-current={settingsTab?'page':undefined}><Settings size={20}/><span>Настройки</span></a></NavigationHint>:null}
@@ -237,7 +238,6 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  <Popup open={accountOpen} onOpenChange={setAccountOpen} anchorElement={accountEl} placement={mobile?['top-start','top']:['right-end','top-start']} className="account-popup"><div className="account-menu" role="menu" aria-label="Профиль">
   <div className="account-menu-row"><span>Тема</span><SegmentedRadioGroup size="m" value={state.theme==='system'||state.theme==='light'||state.theme==='dark'?state.theme:'light'} onUpdate={v=>update({theme:v})} name="Тема интерфейса" options={[{value:'system',content:<><Monitor size={14}/><span className="sr-only">Как в системе</span></>,title:'Как в системе'},{value:'light',content:<><Sun size={14}/><span className="sr-only">Светлая</span></>,title:'Светлая'},{value:'dark',content:<><Moon size={14}/><span className="sr-only">Тёмная</span></>,title:'Тёмная'}]}/></div>
   <div className="account-menu-row"><span>Звук уведомлений</span><Switch checked={state.soundEnabled!==false} controlProps={{'aria-label':'Звук уведомлений'}} onUpdate={v=>update({soundEnabled:v})}/></div>
-  <div className="account-menu-row"><span>Горячие клавиши</span><Switch checked={state.shortcutsEnabled!==false} controlProps={{'aria-label':'Горячие клавиши'}} onUpdate={v=>update({shortcutsEnabled:v})}/></div>
   <div className="account-menu-sep" role="separator"/>
   {canManage&&!DEMO?<button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);setTimeout(()=>open({type:'invite'}),0)}}><UserPlus size={16}/>Пригласить людей</button>:null}
   <button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);markSeen();setTimeout(()=>open({type:'whatsnew'}),0)}}><Sparkles size={16}/>Что нового в интерфейсе{unseen?<span className="account-dot inline" aria-hidden="true"/>:null}</button>

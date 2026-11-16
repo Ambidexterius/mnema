@@ -1433,3 +1433,15 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .idea-comment-author{font-weight:510;color:var(--g-color-text-primary)}
 .idea-comment-meta time{font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
 .idea-comments .idea-comment-content p{margin:4px 0 0;font-size:14px;line-height:22px}
+
+/* Idea page: the idea and its comments share one entry layout (avatar 28 px, name, badge, time, text). */
+.idea-post{display:flex;align-items:flex-start;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--g-color-line-generic)}
+.idea-post .ideas-text,.idea-post .ideas-reason{margin:4px 0 0;font-size:14px;line-height:22px}
+.idea-comments-title span{font-weight:400;color:var(--g-color-text-secondary)}
+.idea-comments>li.idea-comment-more{display:block;margin-top:-12px;padding-inline-start:40px}
+.idea-comments>li.idea-comment-more p{margin:0;font-size:14px;line-height:22px}
+.idea-page .shared-composer{position:sticky;bottom:0;z-index:1;box-shadow:0 -16px 16px -8px var(--g-color-base-modal)}
+.ideas-row-main.idea-entry{flex-direction:row;gap:12px}
+.idea-comment-content{display:flex;flex-direction:column}
+.idea-entry .ideas-text,.idea-entry .ideas-reason{margin-top:4px;font-size:14px;line-height:22px}
+.idea-entry .ideas-meta{margin-top:4px}

@@ -23,6 +23,8 @@ test('ideas: anyone writes, votes and comments; owner moderates; final statuses 
     assert.equal(item.votes,2);assert(item.voted);assert(!item.mine);assert.equal(item.author,'Анна');assert.equal(item.status,'open');
     ideas.comment(boris,id,{text:'Нужно и мне'});
     assert.equal(ideas.comments(anna,id)[0].author,'Борис');
+    ideas.comment(anna,id,{text:'Спасибо'});ideas.comment(gleb,id,{text:'Берём'});
+    assert.deepEqual(ideas.comments(boris,id).map(c=>c.role),['','author','admin'],'author and admin badges');
     await assert.rejects(ideas.moderate(anna,id,{status:'done'}),/администратор/);
     await assert.rejects(ideas.moderate(gleb,id,{status:'declined'}),/причину/);
     await ideas.moderate(gleb,id,{status:'progress'});
@@ -59,5 +61,23 @@ test('only the author edits an idea before 24 hours; edits preserve creation, vo
   assert.equal(ideas.list(author)[0].votes,2);assert.equal(ideas.comments(author,id)[0].text,'Комментарий');
   t.mock.timers.tick(1);rejected(author,'Опоздавшая правка',403);assert.equal(db.prepare('SELECT text FROM mnema_ideas WHERE id=?').get(id)!.text,'Уточнённая идея');
   assert.throws(()=>ideas.edit(author,'missing',{text:'Текст'}),(e:any)=>e.status===404);
+ }finally{db.close()}
+});
+
+test('only the author deletes an idea before 24 hours; votes and comments go with it',t=>{
+ t.mock.timers.enable({apis:['Date'],now:1800000000000});
+ const db=new DatabaseSync(':memory:');
+ try{
+  db.exec('CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT);CREATE TABLE mnema_access(user_id TEXT,admin INTEGER DEFAULT 0,revoked INTEGER DEFAULT 0)');
+  const ideas=createIdeas(db,{baseURL:'https://mnemo.test'}),author={id:'a',owner:false},other={id:'b',owner:false},owner={id:'o',owner:true};
+  const {id}=ideas.create(author,{text:'Удаляемая идея'}),{id:kept}=ideas.create(author,{text:'Остаётся'});
+  ideas.vote(other,id,true);ideas.comment(other,id,{text:'Комментарий'});ideas.comment(other,kept,{text:'Чужой'});
+  const rejected=(person:any,target:string,status:number)=>assert.throws(()=>ideas.remove(person,target),(e:any)=>e.status===status);
+  rejected(other,id,403);rejected(owner,id,403);rejected(author,'missing',404);
+  t.mock.timers.tick(86400000-1);ideas.remove(author,id);
+  const count=(table:string,column:string)=>Number((db.prepare('SELECT count(*) AS n FROM '+table+' WHERE '+column+'=?').get(id) as any).n);
+  assert.deepEqual([count('mnema_ideas','id'),count('mnema_idea_votes','idea_id'),count('mnema_idea_comments','idea_id')],[0,0,0]);
+  assert.deepEqual(ideas.list(author).map(i=>i.id),[kept]);assert.equal(ideas.comments(author,kept).length,1);
+  t.mock.timers.tick(1);rejected(author,kept,403);assert.equal(ideas.list(author).length,1);
  }finally{db.close()}
 });
