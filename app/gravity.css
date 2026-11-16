@@ -435,7 +435,7 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .auth-minimal .auth-form h1.auth-product-name{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:28px;line-height:36px;font-weight:600;letter-spacing:-.02em}
 .auth-description{max-width:336px;margin:12px auto 0;color:var(--g-color-text-secondary);font-size:14px;line-height:22px;text-align:center;text-wrap:balance}
 .auth-invite-help{display:flex;justify-content:center;margin-top:12px}
-.auth-invite-link{--g-color-text-link:var(--g-color-text-info);--g-color-text-link-hover:var(--g-color-text-info-heavy);display:inline-flex;align-items:center;min-height:44px;text-underline-offset:3px}
+.auth-invite-link{display:inline-flex;align-items:center;min-height:44px;text-underline-offset:3px}
 .auth-help-intro,.auth-help-note{line-height:24px}
 .auth-help-steps{display:grid;gap:12px;margin:20px 0;padding-inline-start:24px;line-height:24px}
 .auth-help-note{color:var(--g-color-text-secondary);font-size:13px;line-height:20px}

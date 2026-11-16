@@ -10,7 +10,7 @@
     "test": "node --test server/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run build",
-    "ui-check": "node scripts/ui-check.mjs"
+    "ui-check": "node scripts/ui-check.mjs && node scripts/registration-ui-check.mjs"
   },
   "dependencies": {
     "@better-auth/cimd": "1.7.19",

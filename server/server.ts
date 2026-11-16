@@ -1,3 +1,4 @@
+import {createRegistration,corporateEmail} from './registration.ts';
 import {createChatHistory} from './chat-history.ts';
 import {fileNameKey,existingFileMessage,uploadingFileMessage} from '../app/file-name.ts';
 import {createAnswerFeedback} from './answer-feedback.ts';
@@ -33,7 +34,7 @@ import {fromNodeHeaders,toNodeHandler} from 'better-auth/node';
 import {getMigrations} from 'better-auth/db/migration';
 import type {Finding} from '../app/types.ts';
 
-export interface MnemaServerOptions{sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
+export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;fileCount?:number;filePreviews?:{name:string;format:string}[]}
 interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[]}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
@@ -96,6 +97,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const publicDir=resolve(options.publicDir||process.env.MNEMA_PUBLIC_DIR||join(dirname(fileURLToPath(import.meta.url)),'../dist'));
  const baseURL=options.baseURL||process.env.APP_URL||'http://127.0.0.1:4180';
  const origin=new URL(baseURL).origin;
+ if(options.registrationCode&&(production||!['127.0.0.1','localhost','[::1]'].includes(new URL(baseURL).hostname)))throw new Error('Fixed registration codes are allowed only in a local non-production stand');
  const authSecret=options.authSecret||process.env.BETTER_AUTH_SECRET;
  if(!authSecret||authSecret.length<32)throw new Error('BETTER_AUTH_SECRET must contain at least 32 characters');
  const setupToken=options.setupToken||process.env.MNEMA_SETUP_TOKEN||'';
@@ -105,7 +107,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  // node:sqlite returns loosely typed rows; the schema below is the source of truth.
  const q=(sql:string)=>db.prepare(sql) as unknown as {get:(...a:unknown[])=>any;all:(...a:unknown[])=>any[];run:(...a:unknown[])=>unknown};
  db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
- const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],disabledPaths:['/token'],plugins:mcpPlugins(baseURL,db),emailAndPassword:{enabled:true,minPasswordLength:12,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production,...(options.authCookiePrefix?{cookiePrefix:options.authCookiePrefix}:{})},rateLimit:{enabled:true,window:60,max:20}});
+ const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],disabledPaths:['/token'],plugins:mcpPlugins(baseURL,db),emailAndPassword:{enabled:true,minPasswordLength:8,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production,...(options.authCookiePrefix?{cookiePrefix:options.authCookiePrefix}:{})},rateLimit:{enabled:true,window:60,max:20}});
  await (await getMigrations(auth.options)).runMigrations();
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_access(user_id TEXT PRIMARY KEY,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS mnema_workspace(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,data TEXT NOT NULL);
@@ -131,6 +133,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  };
  const modelKeys=modelKeyStore(db,authSecret);
  const columns=(table:string)=>q('PRAGMA table_info('+table+')').all().map((c:any)=>c.name);
+ if(!columns('mnema_access').includes('self_registered'))db.exec('ALTER TABLE mnema_access ADD COLUMN self_registered INTEGER NOT NULL DEFAULT 0');
+ const signup=createRegistration(db,authSecret,production,options.sendRegistrationMail||(smtpConfigured()?sendSmtp:undefined),options.registrationCode);
  if(!columns('mnema_access').includes('all_projects'))db.exec('ALTER TABLE mnema_access ADD COLUMN all_projects INTEGER NOT NULL DEFAULT 0');
  if(!columns('mnema_invites').includes('workspace_id'))db.exec("ALTER TABLE mnema_invites ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
  if(!columns('mnema_jobs').includes('workspace_id'))db.exec("ALTER TABLE mnema_jobs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
@@ -187,7 +191,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   // Someone whose every membership was revoked is locked out; a user with no workspace yet may create one.
   if(all.length&&!active.length)return null;
   const explicit=String(req.headers['x-mnema-workspace']||new URL(req.url,'http://localhost').searchParams.get('workspace')||'');if(explicit&&!active.some(m=>m.id===explicit))fail(403,'Доступ к проекту закрыт. Обновите список проектов.');const wanted=explicit||cookieValue(req,'mnema_ws');const current=active.find((m:any)=>m.id===wanted)||active[0]||null;
-  return {...s.user,role:current?.role||'view',admin:Boolean(current?.role==='full'||access.admin),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||access.all_projects&&access.role==='full'),workspaceId:current?.id||null,workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.role==='full'||access.admin),fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+  return {...s.user,role:current?.role||'view',admin:Boolean(current?.role==='full'||access.admin),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.role==='full'||access.admin),fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
  // Every request lists the user's projects. Parsing each project's full transcripts here made
  // project switching and polling slow, so folder cards are cached per stored revision and role.
  const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number}}>();
@@ -216,22 +220,33 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const staticCache=new Map<string,Buffer>();
  const writingUsers=new WeakMap<object,Person>();
  const recheckWrite=async(req)=>{const before=writingUsers.get(req);if(!before)return;const now=await session(req);if(!now)fail(401,'Войдите в Мнемонику.');if(before.workspaceId!==now.workspaceId||before.role==='full'&&now.role!=='full'||before.admin&&!now.admin||before.owner&&!now.owner||before.manageUsers&&!now.manageUsers)fail(403,'Доступ изменился. Обновите страницу и повторите действие.')};
- const body=async req=>{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>2*1024**2)fail(413,'Слишком большой запрос.');chunks.push(chunk)}let value;try{value=JSON.parse(Buffer.concat(chunks).toString()||'{}')}catch{fail(400,'Не удалось прочитать запрос.')}await recheckWrite(req);return value};
- const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();if(cookies.length)headers['set-cookie']=cookies;res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
+ const body=async (req,max=2*1024**2)=>{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>max)fail(413,'Слишком большой запрос.');chunks.push(chunk)}let value;try{value=JSON.parse(Buffer.concat(chunks).toString()||'{}')}catch{fail(400,'Не удалось прочитать запрос.')}await recheckWrite(req);return value};
+ const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();const earlier=res.getHeader('Set-Cookie');if(cookies.length||earlier)headers['set-cookie']=[...(Array.isArray(earlier)?earlier:earlier?[earlier]:[]),...cookies];res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
  const limits=new Map();
  const limit=(key,max=30)=>{const now=Date.now();const l=limits.get(key);if(!l||now-l.time>60000){limits.set(key,{time:now,n:1});return}if(++l.n>max)fail(429,'Слишком много запросов. Подождите минуту.');if(limits.size>10000)for(const [k,v]of limits)if(now-v.time>60000)limits.delete(k)};
  let registration=Promise.resolve();
  const withRegistration=fn=>{const result=registration.then(fn,fn);registration=result.catch(()=>{});return result};
- const register=async(req,res)=>withRegistration(async()=>{
-  limit('registration:'+req.socket.remoteAddress,10);const b=await body(req);const email=text(b.email,150).toLowerCase(),providedName=text(b.name,70);if(!/^\S+@\S+\.\S+$/.test(email))fail(400,'Введите рабочую почту, например name@company.ru.');
-  let invitation=null,admin=false,role='view';
+ const register=async(req,res)=>{
+  limit('registration:'+req.socket.remoteAddress,10);const b=await body(req,8*1024**2);return withRegistration(async()=>{
+  const self=Boolean(options.corporateRegistration&&ownerExists());
+  const email=self?corporateEmail(b.email):text(b.email,150).toLowerCase(),providedName=text(b.name,70);if(!/^\S+@\S+\.\S+$/.test(email))fail(400,'Введите рабочую почту, например name@company.ru.');
+  let invitation=null,admin=false,role='view',profile=null,photo=null;
   if(!ownerExists()){if(!setupToken||!safeEqual(hash(text(b.setupToken,256)),hash(setupToken)))fail(403,'Для первого входа нужен ключ настройки владельца.');admin=true;role='full'}
+  else if(self){signup.verified(req,email);profile=signup.profile(b);photo=await signup.photo(b.photo);signup.verified(req,email);if(q('SELECT 1 FROM user WHERE lower(email)=?').get(email))fail(409,'У вас уже есть аккаунт. Войдите со своим паролем.',{publicCode:'ACCOUNT_EXISTS'});role='full'}
   else{invitation=q('SELECT * FROM mnema_invites WHERE token_hash=? AND used=0 AND revoked=0 AND expires>?').get(hash(text(b.inviteToken,256)),Date.now());if(!invitation||invitation.email!==email)fail(403,'Приглашение недействительно или выдано на другую почту. Проверьте рабочую почту или попросите новое приглашение у управляющего.');role=invitation.role}
-  const name=text(invitation?.name||providedName||email.split('@')[0],70);
+  const name=profile?profile.firstName+' '+profile.lastName:text(invitation?.name||providedName||email.split('@')[0],70);
   const response=await auth.api.signUpEmail({body:{email,name,password:b.password},headers:fromNodeHeaders(req.headers),asResponse:true});
-  if(response.ok){const u=q('SELECT id FROM user WHERE lower(email)=?').get(email);if(!u)fail(500,'Аккаунт не создан. Повторите попытку.');q('INSERT INTO mnema_access(user_id,role,admin) VALUES(?,?,?)').run(u.id,role,admin?1:0);if(admin||invitation?.workspace_id==='*')grantAllProjects(u.id,role);else q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,?)').run(invitation?.workspace_id||'main',u.id,role,admin?1:0);if(invitation)q('UPDATE mnema_invites SET used=1 WHERE id=?').run(invitation.id)}
+  if(response.ok){const u=q('SELECT id FROM user WHERE lower(email)=?').get(email);if(!u)fail(500,'Аккаунт не создан. Повторите попытку.');
+   db.exec('BEGIN');try{
+    q('INSERT INTO mnema_access(user_id,role,admin,self_registered) VALUES(?,?,?,?)').run(u.id,role,admin?1:0,self?1:0);
+    if(self||admin||invitation?.workspace_id==='*')grantAllProjects(u.id,role);else q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,?)').run(invitation?.workspace_id||'main',u.id,role,admin?1:0);
+    if(invitation)q('UPDATE mnema_invites SET used=1 WHERE id=?').run(invitation.id);
+    if(profile){q('INSERT INTO mnema_profiles VALUES(?,?,?,?,?)').run(u.id,profile.firstName,profile.lastName,photo,photo?'image/png':null);q('UPDATE user SET emailVerified=1,image=? WHERE id=?').run(photo?'/api/profile/avatar/'+u.id:null,u.id);signup.consume(req,res)}
+    db.exec('COMMIT');
+   }catch(e){db.exec('ROLLBACK');q('DELETE FROM user WHERE id=?').run(u.id);throw e}
+  }
   return transfer(res,response);
- });
+ })};
  const providerURL=model=>modelBase(model);
  const callModel=async(person,model,payload,workspace=currentWs())=>{
   const key=modelKey(model,workspace);if(!key||!model.model)fail(503,'Модель ещё не подключена.');
@@ -386,12 +401,27 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     return await toNodeHandler(auth)(req,res);
    }
    if(path.startsWith('/api/')&&!['GET','HEAD'].includes(req.method)){if(req.headers.origin&&req.headers.origin!==origin)fail(403,'Запрос с другого сайта запрещён.');if(req.headers['x-mnema-request']!=='1')fail(403,'Некорректный запрос приложения.')}
+   if(path.startsWith('/api/registration/')){
+    if(!options.corporateRegistration||!ownerExists())fail(404,'Регистрация недоступна.');
+    if(path==='/api/registration/status'&&req.method==='GET')return json(res,200,signup.status(req));
+    if(req.method!=='POST')fail(405,'Метод недоступен.');
+    if(path==='/api/registration/request-code'){limit('registration-mail:'+req.socket.remoteAddress,10);const input=await body(req);return await withRegistration(async()=>json(res,200,await signup.request(req,res,input.email)))}
+    if(path==='/api/registration/verify-code'){limit('registration-verify:'+req.socket.remoteAddress,30);const input=await body(req);return await withRegistration(async()=>json(res,200,signup.verify(req,res,input)))}
+    if(path==='/api/registration/cancel'){return await withRegistration(()=>{signup.consume(req,res);return json(res,200,{ok:true})})}
+    fail(404,'Метод недоступен.');
+   }
    if(path==='/api/register'&&req.method==='POST')return await register(req,res);
    if(['/api/auth/sign-in/email','/api/auth/sign-out','/api/auth/get-session'].includes(path)){if(req.method==='POST')limit('auth:'+req.socket.remoteAddress,20);return toNodeHandler(auth)(req,res)}
    if(path.startsWith('/api/auth/'))fail(404,'Метод недоступен.');
-   if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),version:VERSION})}
+   if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),registrationEnabled:Boolean(options.corporateRegistration&&ownerExists()),version:VERSION})}
    if(path.startsWith('/api/')){
     const person=await session(req);if(!person)fail(401,'Войдите в Мнемонику.');writingUsers.set(req,person);
+     if(path.startsWith('/api/profile/avatar/')&&req.method==='GET'){
+      const id=path.slice('/api/profile/avatar/'.length);if(!/^[\w-]{1,80}$/.test(id))fail(404,'Фотография не найдена.');
+      const shared=id===person.id||q('SELECT 1 FROM mnema_members a JOIN mnema_members b ON a.workspace_id=b.workspace_id JOIN mnema_access c ON c.user_id=b.user_id WHERE a.user_id=? AND b.user_id=? AND a.revoked=0 AND b.revoked=0 AND c.revoked=0').get(person.id,id);
+      const profile=shared&&q('SELECT photo,photo_mime FROM mnema_profiles WHERE user_id=?').get(id);if(!profile?.photo)fail(404,'Фотография не найдена.');
+      res.writeHead(200,{'Content-Type':profile.photo_mime,'Content-Length':profile.photo.length,'Cache-Control':'no-store'});return res.end(Buffer.from(profile.photo));
+     }
      if(path==='/api/chat/feedback'&&req.method==='POST'){
       limit('answer-feedback:'+person.id,60);
       const input=await body(req);
@@ -788,7 +818,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    const encoding=name!=='index.html'&&compressible(type)&&data.length>=MIN_COMPRESS_BYTES?pickEncoding(req.headers['accept-encoding']):null;
    if(encoding){const key=encoding+':'+abs;let encoded=staticCache.get(key);if(!encoded){encoded=await encode(data,encoding);staticCache.set(key,encoded)}res.writeHead(200,{...headers,Vary:'Accept-Encoding','Content-Encoding':encoding,'Content-Length':encoded.length});res.end(req.method==='HEAD'?undefined:encoded);return}
    await sendBody(req,res,200,headers,data);
-  }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.',...(e.uploadCode?{code:e.uploadCode}:{})});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
+  }catch(e){if(res.headersSent){res.destroy();return}const status=Number(e.statusCode||e.status);const known=Number.isInteger(status)&&status>=400&&status<600;json(res,known?status:500,{error:known?e.message:'Не удалось выполнить действие. Повторите попытку.',...(e.uploadCode?{code:e.uploadCode}:known&&e.publicCode?{code:e.publicCode}:{})});if(!known)console.error('Request failed:',req.method,new URL(req.url,'http://localhost').pathname,e.name)}
  };
  const server=http.createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)json(res,500,{error:'Не удалось выполнить запрос.'})})});
  server.once('close',()=>{storageMirror.close();clearInterval(worker);mcpService.close().catch(()=>{})});
@@ -796,6 +826,6 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  return {server,db,auth,storage:storageMirror,notifications:completionMail,close:()=>{storageMirror.close();completionMail.close();clearInterval(worker);server.close();db.close()}};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const app=await createMnemaServer();const port=Number(process.env.PORT||4180);app.server.listen(port,'0.0.0.0',()=>console.log('Mnema '+VERSION+' listening on '+port));
+ const app=await createMnemaServer({corporateRegistration:process.env.MNEMA_CORPORATE_REGISTRATION==='1'});const port=Number(process.env.PORT||4180);app.server.listen(port,'0.0.0.0',()=>console.log('Mnema '+VERSION+' listening on '+port));
  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{app.server.close(()=>{app.db.close();process.exit(0)})});
 }

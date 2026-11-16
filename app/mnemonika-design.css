@@ -21,8 +21,8 @@
  --g-color-text-complementary:#d0d6e0;
  --g-color-text-secondary:#a1a5ad;
  --g-color-text-hint:#8a8f98;
- --g-color-text-link:#d0d6e0;
- --g-color-text-link-hover:#fff;
+ --g-color-text-link:#ff809c;
+ --g-color-text-link-hover:#ff9aaf;
  --g-color-line-generic:#232426;
  --g-color-line-generic-accent:#28282b;
 }
@@ -42,3 +42,8 @@
 .digest-title{font-size:15px;font-weight:400;line-height:24px}
 .research-chat h1{font-weight:510;letter-spacing:-.022em}
 @media(max-width:639px){.page-heading h1{font-size:24px;line-height:32px}}
+
+.g-root_theme_light{--g-color-text-link:#b9173a;--g-color-text-link-hover:#a81535}
+.g-root{--g-color-text-link-visited:var(--g-color-text-link);--g-color-text-link-visited-hover:var(--g-color-text-link-hover)}
+.g-root :is(a.g-link:not(.g-link_disabled),a:not([class]):not(:where(nav a,.breadcrumbs a)),a.text-action,a.document-pages-download,a.digest-all,a.chat-project-link,a.finding-project-link,a.finding-study-link,a.table-study,a.breadcrumb-root,a.breadcrumb-project){color:var(--g-color-text-link);text-decoration:underline;text-underline-offset:3px}
+.g-root :is(a.g-link:not(.g-link_disabled),a:not([class]):not(:where(nav a,.breadcrumbs a)),a.text-action,a.document-pages-download,a.digest-all,a.chat-project-link,a.finding-project-link,a.finding-study-link,a.table-study,a.breadcrumb-root,a.breadcrumb-project):hover{color:var(--g-color-text-link-hover)}

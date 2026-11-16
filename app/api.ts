@@ -6,7 +6,8 @@ export const projectFile=(id:string)=>'/api/files/'+encodeURIComponent(id)+(acti
 export const projectFileDownload=(id:string)=>projectFile(id)+(activeWorkspace?'&':'?')+'download=1';
 export class ApiError extends Error{status:number;code?:string;constructor(message:string,status:number,code?:string){super(message);this.status=status;this.code=code}}
 export async function api<T=any>(path:string,body?:unknown,method:string=body===undefined?'GET':'POST',useWorkspace=true):Promise<T>{
- const response=await fetch(path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Mnema-Request':'1',...(useWorkspace&&activeWorkspace?{'X-Mnema-Workspace':activeWorkspace}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+ let response:Response;
+ try{response=await fetch(path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Mnema-Request':'1',...(useWorkspace&&activeWorkspace?{'X-Mnema-Workspace':activeWorkspace}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})})}catch{throw new ApiError('Нет соединения с сервером. Проверьте интернет и повторите действие.',0,'NETWORK')}
  let result:any;try{result=await response.json()}catch{throw new Error('Сервер вернул неожиданный ответ. Обновите страницу.')}
  if(!response.ok)throw new ApiError(result.error||result.message||'Не удалось выполнить действие.',response.status,result.code);return result;
 }
