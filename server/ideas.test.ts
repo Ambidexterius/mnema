@@ -39,3 +39,25 @@ test('ideas: anyone writes, votes and comments; owner moderates; final statuses 
     ideas.rate(anna,'up');assert.throws(()=>ideas.rate(anna,'meh'));
   } finally {db.close()}
 });
+
+
+test('only the author edits an idea before 24 hours; edits preserve creation, votes, comments and status',t=>{
+ t.mock.timers.enable({apis:['Date'],now:1800000000000});
+ const db=new DatabaseSync(':memory:');
+ try{
+  db.exec('CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT);CREATE TABLE mnema_access(user_id TEXT,admin INTEGER DEFAULT 0,revoked INTEGER DEFAULT 0)');
+  for(const id of ['a','b','o'])db.prepare('INSERT INTO user VALUES(?,?,?)').run(id,id,id+'@example.test');
+  const ideas=createIdeas(db,{baseURL:'https://mnemo.test'}),author={id:'a',owner:false},other={id:'b',owner:false},owner={id:'o',owner:true};
+  const {id}=ideas.create(author,{text:'Исходная идея'}),created=Date.now();ideas.vote(other,id,true);ideas.comment(other,id,{text:'Комментарий'});
+  const before=db.prepare('SELECT * FROM mnema_ideas WHERE id=?').get(id)!;
+  const rejected=(person:any,text:string,status:number)=>assert.throws(()=>ideas.edit(person,id,{text}),(e:any)=>e.status===status);
+  rejected(other,'Подмена текста',403);rejected(owner,'Подмена владельцем',403);rejected(author,' ',400);rejected(author,'x'.repeat(2001),400);
+  t.mock.timers.tick(86400000-1);
+  ideas.edit(author,id,{text:'  Уточнённая идея  ',created:Date.now(),user_id:'b',status:'done'});
+  const after=db.prepare('SELECT * FROM mnema_ideas WHERE id=?').get(id)!;
+  assert.equal(after.text,'Уточнённая идея');assert.equal(after.created,created);assert.equal(after.updated,Date.now());assert.equal(after.user_id,before.user_id);assert.equal(after.status,before.status);
+  assert.equal(ideas.list(author)[0].votes,2);assert.equal(ideas.comments(author,id)[0].text,'Комментарий');
+  t.mock.timers.tick(1);rejected(author,'Опоздавшая правка',403);assert.equal(db.prepare('SELECT text FROM mnema_ideas WHERE id=?').get(id)!.text,'Уточнённая идея');
+  assert.throws(()=>ideas.edit(author,'missing',{text:'Текст'}),(e:any)=>e.status===404);
+ }finally{db.close()}
+});

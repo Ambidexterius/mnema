@@ -47,6 +47,16 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
     void notifyOwners(person,text);
     return {id};
   }
+  function edit(person:Person,id:unknown,input:any) {
+    const idea=find(person,id),now=Date.now();
+    if(idea.user_id!==person.id)reject(403,'Редактировать идею может только её автор.');
+    if(now-idea.created>=86400000)reject(403,'Редактировать идею можно только в течение суток после отправки.');
+    const text=clean(input?.text,2001);
+    if(text.length<3)reject(400,'Опишите идею.');
+    if(text.length>2000)reject(400,'Не больше 2 000 символов.');
+    q('UPDATE mnema_ideas SET text=?,updated=? WHERE id=?').run(text,now,idea.id);
+    return {ok:true};
+  }
   function vote(person:Person,id:unknown,on:unknown) {
     const idea=find(person,id);
     if(on)q('INSERT OR IGNORE INTO mnema_idea_votes VALUES(?,?)').run(idea.id,person.id);
@@ -108,5 +118,5 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
     q('INSERT INTO mnema_interface_ratings VALUES(?,?,?,?)').run(randomUUID(),person.id,rating,Date.now());
     return {ok:true};
   }
-  return {list,create,vote,comments,comment,moderate,rate};
+  return {list,create,edit,vote,comments,comment,moderate,rate};
 }
