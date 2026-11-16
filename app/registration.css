@@ -1,18 +1,8 @@
-.registration-page .auth-form-heading{margin-bottom:24px}
-.registration-title{font-size:24px;line-height:32px;font-weight:510;letter-spacing:-.022em;margin:0 0 8px}
-.registration-description{font-size:14px;line-height:22px;color:var(--g-color-text-secondary);margin-bottom:24px;overflow-wrap:anywhere}
-/* Restore UIKit states that the old application-wide control rules override. */
-.registration-page .g-text-input_view_normal:not(.g-text-input_state_error) .g-text-input__content{border-color:var(--g-text-input-border-color,var(--_--border-color))}
-.registration-page .g-text-input_view_normal:not(.g-text-input_state_error) .g-text-input__content:hover{border-color:var(--g-text-input-border-color-hover,var(--_--border-color-hover))}
-.registration-page .g-text-input_view_normal:not(.g-text-input_state_error):focus-within .g-text-input__content{border-color:var(--g-text-input-border-color-active,var(--_--border-color-active))}
-.registration-page .g-text-input_view_normal:focus-within .g-text-input__content{outline:2px solid var(--g-text-input-focus-outline-color,var(--_--focus-outline-color));outline-offset:-1px}
-.registration-page .g-text-input__control::placeholder{color:var(--g-text-input-placeholder-color,var(--g-color-text-hint))}
 .registration-hint{font-size:13px;line-height:20px;color:var(--g-color-text-secondary);margin:8px 0 0}
 .registration-error{font-size:14px;line-height:22px;color:var(--g-color-text-danger);margin:8px 0 0;overflow-wrap:anywhere}
 .registration-error:empty{display:none}
 .registration-notice{font-size:14px;line-height:22px;margin:0 0 20px;color:var(--g-color-text-secondary)}
 .registration-page .auth-form form{display:flex;flex-direction:column;align-items:stretch}
-.registration-page .auth-form form>.g-button{margin-top:24px}
 .registration-bottom{font-size:13px;line-height:20px;color:var(--g-color-text-secondary);margin-top:16px;text-align:center}
 .registration-bottom .g-link{display:inline-flex;align-items:center;min-height:44px;vertical-align:middle}
 .registration-page :is(.registration-secondary-actions .g-button,.registration-back,.registration-remove-photo):not(.g-button_disabled){--g-button-text-color:var(--g-color-text-link);--g-button-text-color-hover:var(--g-color-text-link-hover)}
@@ -20,7 +10,7 @@
 .registration-secondary-actions{display:grid;justify-items:center;gap:4px;margin-top:12px}
 .registration-page :is(.registration-secondary-actions .g-button,.registration-back,.registration-remove-photo,.registration-photo .g-button){min-height:44px}
 .registration-page .registration-back{display:flex;margin:12px auto 0}
-.registration-last-name{margin-top:16px}
+.auth-clean .registration-name-label{margin-block-start:16px}
 .registration-photo{display:flex;align-items:center;gap:16px;margin-top:24px}
 .registration-photo>div:last-of-type{min-width:0;flex:1}
 .registration-photo .g-avatar{flex:none;width:64px;height:64px}

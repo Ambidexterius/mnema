@@ -14,6 +14,10 @@ const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSW
 const browser=await chromium.launch({executablePath:chrome,headless:true});
 const checks=[],errors=[];
 const run=async(name,fn)=>{await fn();checks.push(name)};
+const contrast=(foreground,background)=>{
+ const luminance=color=>color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+ const a=luminance(foreground),b=luminance(background);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+};
 try{
  for(const theme of ['light','dark']){
   const context=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'reduce'});await context.addCookies(fixture.cookies);
@@ -30,6 +34,13 @@ try{
    await goto('/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Создать',exact:true}).count(),1);
    const palette=await page.locator('.g-root').first().evaluate(e=>({theme:e.className,background:getComputedStyle(e).getPropertyValue('--g-color-base-background').trim(),brand:getComputedStyle(e).getPropertyValue('--g-color-base-brand').trim()}));
    assert.ok(palette.theme.includes('theme_'+theme));assert.equal(palette.background,theme==='dark'?'#121213':'#fff');assert.equal(palette.brand,'#ee204d');assert.equal(await page.locator('.projects-heading>p').evaluate(e=>getComputedStyle(e).fontSize),'14px');await screenshot('projects');
+  });
+  await run(theme+': primary action contrast keeps brand red',async()=>{
+   await page.getByRole('button',{name:'Создать',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Новый проект',exact:true});await dialog.waitFor();
+   const button=dialog.getByRole('button',{name:'Создать и перейти',exact:true});
+   const pair=()=>button.evaluate(e=>({text:getComputedStyle(e).color,fill:getComputedStyle(e,'::before').backgroundColor}));
+   let colors=await pair();assert.equal(colors.fill,'rgb(224, 30, 72)');assert.ok(contrast(colors.text,colors.fill)>=4.5);
+   await button.hover();await page.waitForTimeout(180);colors=await pair();assert.ok(contrast(colors.text,colors.fill)>=4.5);await page.mouse.move(0,0);await dialog.press('Escape');await dialog.waitFor({state:'hidden'});
   });
   for(const width of [320,390,768,1024,1440])await run(theme+': projects responsive '+width,async()=>{
    await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
