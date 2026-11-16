@@ -933,7 +933,6 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .auth-minimal .auth-header>.g-button{background:var(--g-color-base-background)}
 .auth-minimal .auth-minimal-main{position:relative}
 @media(max-width:767px){.auth-matrix{opacity:.18;mask-image:radial-gradient(ellipse 240px 340px at 50% 50%,transparent 55%,#000 100%)}}
-@media(prefers-reduced-motion:reduce){.auth-motion-toggle{display:none}}
 
 /* Only the home composer and project folders use the custom 12 px radius. */
 .global-chat,.projects-grid{--mn-home-radius:12px}

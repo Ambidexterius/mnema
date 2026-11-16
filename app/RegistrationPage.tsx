@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Button,TextInput,Avatar,Loader,Link} from '@gravity-ui/uikit';
 import {ArrowLeft,Eye,EyeOff,Moon,Sun} from 'lucide-react';
+import AuthMatrix from './AuthMatrix.tsx';
 import AuthHeading from './AuthHeading.tsx';
 import OtpInput from './OtpInput.tsx';
 import {api} from './api.ts';
@@ -80,7 +81,7 @@ export default function RegistrationPage({theme,onTheme,onComplete}:{theme:strin
  }
  const error=(field:string)=><p className="registration-error" id={'registration-'+field+'-error'} role="alert">{errors[field]||''}</p>;
  const title={email:'Создайте аккаунт',code:'Подтвердите почту',password:'Придумайте пароль',profile:'Ваш профиль'};
- return <div className="auth-page auth-minimal auth-clean auth-density-compact registration-page"><header className="auth-header"><Button view="flat" size="l" aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} onClick={onTheme}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</Button></header><main className="auth-minimal-main"><section className="auth-form">{loading?<div className="registration-loading" role="status"><Loader size="m"/>Проверяем регистрацию…</div>:<>
+ return <div className="auth-page auth-minimal auth-clean auth-density-compact registration-page"><AuthMatrix theme={theme}/><header className="auth-header"><Button view="flat" size="l" aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} onClick={onTheme}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</Button></header><main className="auth-minimal-main"><section className="auth-form">{loading?<div className="registration-loading" role="status"><Loader size="m"/>Проверяем регистрацию…</div>:<>
  <AuthHeading title={title[stage]} description={stage==='email'?undefined:stage==='code'?'Отправили код на '+pending.email:stage==='password'?pending.email+' · почта подтверждена':'Так коллеги будут видеть вас в Мнемонике'}/>
  {notice?<p className="registration-notice" role="status">{notice}</p>:null}
  <form aria-label="Регистрация в Мнемонике" noValidate onSubmit={event=>{event.preventDefault();void action()}} aria-busy={busy}>
