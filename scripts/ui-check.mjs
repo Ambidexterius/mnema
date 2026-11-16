@@ -8,7 +8,9 @@ import {createUIFixture} from './ui-fixture.mjs';
 const chrome=process.env.CHROME_PATH||['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/usr/bin/google-chrome','/usr/bin/chromium'].find(existsSync);
 if(!chrome)throw Error('Set CHROME_PATH to the installed Chrome/Chromium binary');
 const out=resolve(process.env.UI_CHECK_OUTPUT||'artifacts/ui-check');await mkdir(out,{recursive:true});
-const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461));
+// Sectioned answer exercises «Главное», quiet captions, bold item leads and conclusion cards.
+const ANSWER='Хозяева не успевают ответить быстро [1].\n\n## Цифры\n- Отмечают задержку: 7 из 12 хозяев — интервью [1]\n- **Опоздание**: до 3 часов — дневники [1]\n\n## Скорость ответа\n- **Уведомления теряются.** Узнают о вопросе поздно [1].\n\n## Выводы\n- Важнее уведомления, чем шаблоны.\n\n## Что осталось невыясненным\n- Влияние на отмены неизвестно.';
+const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSWER);
 const browser=await chromium.launch({executablePath:chrome,headless:true});
 const checks=[],errors=[];
 const run=async(name,fn)=>{await fn();checks.push(name)};
@@ -50,6 +52,14 @@ try{
    await goto('/projects');await main.evaluate(el=>{const e=document.createElement('div');e.contentEditable='true';e.id='shortcut-editor';el.appendChild(e)});await page.locator('#shortcut-editor').press('c');assert.equal(await dialog.count(),0);await page.locator('#shortcut-editor').evaluate(el=>el.remove());
    await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor();assert.equal(await page.getByText('Горячие клавиши',{exact:true}).count(),0);assert.equal(await page.getByLabel('Звук уведомлений',{exact:true}).count(),1);await screenshot('profile-shortcuts-always-enabled');await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor({state:'hidden'});
    await page.reload();await page.locator('.app-shell').waitFor();assert.equal(await create.getAttribute('aria-keyshortcuts'),'C');await main.press('c');await dialog.waitFor();await name.press('Escape');await dialog.waitFor({state:'hidden'});await screenshot('shortcuts');
+  });
+  await run(theme+': sectioned chat answer: lead, captions, item leads and cards',async()=>{
+   await page.setViewportSize({width:1440,height:950});await goto('/chat');const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('Какие проблемы у хозяев с ответом гостям?');await composer.press('Enter');
+   const answer=page.locator('.answer_sectioned').last();await answer.locator('.answer-card_open').waitFor();
+   assert.match(await answer.locator('.answer-lead').innerText(),/^Главное\s+Хозяева не успевают/);assert.equal(await answer.locator(':scope > ul li strong').first().innerText(),'Уведомления теряются.');assert.equal(await answer.locator('h3').first().evaluate(e=>getComputedStyle(e).fontSize),'13px');
+   assert.equal(await answer.locator('.answer-card_ok h3').innerText(),'Выводы');assert.equal(await answer.locator('.answer-card').count(),2);const metric=answer.locator('.answer-metrics li');assert.equal(await metric.count(),2);assert.equal(await metric.first().locator('.answer-metric-label').innerText(),'Отмечают задержку');assert.equal(await metric.first().locator('.answer-metric-value').innerText(),'7 из 12 хозяев');assert.equal(await metric.nth(1).locator('.answer-metric-label').innerText(),'Опоздание');assert.equal(await answer.innerText().then(t=>t.includes('**')),false);
+   for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));const cols=await answer.locator('.answer-metrics ul').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length);assert.equal(cols,width<640?1:2);if(width===390)await screenshot('chat-answer-mobile')}
+   await page.setViewportSize({width:1440,height:950});await answer.scrollIntoViewIfNeeded();await screenshot('chat-answer');
   });
   await run(theme+': reports first in both material tables',async()=>{
    for(const path of ['/projects/main','/projects/main/research']){

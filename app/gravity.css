@@ -1445,3 +1445,30 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .idea-comment-content{display:flex;flex-direction:column}
 .idea-entry .ideas-text,.idea-entry .ideas-reason{margin-top:4px;font-size:14px;line-height:22px}
 .idea-entry .ideas-meta{margin-top:4px}
+/* Chat answer in sections: «Главное», quiet section captions, bold item leads, tinted conclusion cards. */
+.answer-lead{margin:0 0 20px;padding:12px 16px;border-radius:12px;background:var(--g-color-base-generic)}
+.answer-lead>span{display:block;font-size:12px;line-height:16px;color:var(--g-color-text-secondary);margin-bottom:4px}
+.messages .answer .answer-lead p,.answer-lead p{margin:0;font-size:15px;line-height:24px;font-weight:510}
+.messages .answer_sectioned h3,.answer_sectioned h3{margin:24px 0 8px;font-size:13px;line-height:18px;font-weight:400;color:var(--g-color-text-secondary)}
+.messages .answer_sectioned ul,.answer_sectioned ul{list-style:none;padding-inline-start:0}
+.answer li strong{font-weight:590}
+.answer-card{margin-top:24px;padding:12px 16px;border-radius:12px}
+.answer-card+.answer-card{margin-top:12px}
+.messages .answer_sectioned .answer-card h3,.answer_sectioned .answer-card h3{margin:0 0 8px;font-size:14px;line-height:22px;font-weight:590}
+.messages .answer .answer-card ul,.answer-card ul{margin:0}
+.answer-card_ok{background:var(--g-color-base-positive-light)}
+.answer_sectioned .answer-card_ok h3{color:var(--g-color-text-positive-heavy)}
+.answer-card_open{background:var(--g-color-base-warning-light)}
+.answer_sectioned .answer-card_open h3{color:var(--g-color-text-warning-heavy)}
+/* Dark theme: Gravity's 20% tints read as muddy blocks on #121213; a quieter 10% keeps the hue without outweighing «Главное». */
+.g-root_theme_dark .answer-card_ok{background:rgba(77,176,155,.1)}
+.g-root_theme_dark .answer-card_open{background:rgba(255,190,92,.1)}
+
+/* «Цифры»: metric cards, two per row, one on phones. */
+.answer-metrics{margin-top:4px}
+.messages .answer .answer-metrics ul,.answer-metrics ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.messages .answer .answer-metrics li,.answer-metrics li{margin:0;display:flex;flex-direction:column;gap:2px;padding:12px 16px;border-radius:12px;background:var(--g-color-base-generic)}
+.answer-metric-label{font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
+.answer-metric-value{font-size:17px;line-height:24px;font-weight:590}
+.answer-metric-note{font-size:13px;line-height:18px;color:var(--g-color-text-secondary)}
+@media(max-width:639px){.messages .answer .answer-metrics ul,.answer-metrics ul{grid-template-columns:minmax(0,1fr)}}

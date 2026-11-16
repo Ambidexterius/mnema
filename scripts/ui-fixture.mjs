@@ -6,11 +6,11 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 
 // Disposable test data only. This helper never opens the production data directory.
-export async function createUIFixture(port=4461){
+export async function createUIFixture(port=4461,answer='Синтетический ответ для проверки интерфейса [1].'){
  const dir=await mkdtemp(join(tmpdir(),'mnema-ui-')),base='http://127.0.0.1:'+port,setup=randomBytes(32).toString('hex');
  process.env.LLM_KEY_CUSTOM2=randomBytes(24).toString('hex');
  process.env.MNEMA_S3_ENABLED='0';
- const app=await createMnemaServer({production:false,dataDir:dir,publicDir:fileURLToPath(new URL('../dist',import.meta.url)),baseURL:base,setupToken:setup,authSecret:randomBytes(48).toString('hex'),sendInvitationMail:async()=>{},sendCompletionMail:async()=>{},providerFetch:async()=>new Response(JSON.stringify({choices:[{message:{content:'Синтетический ответ для проверки интерфейса [1].'}}],usage:{total_tokens:12}}),{headers:{'Content-Type':'application/json'}})});
+ const app=await createMnemaServer({production:false,dataDir:dir,publicDir:fileURLToPath(new URL('../dist',import.meta.url)),baseURL:base,setupToken:setup,authSecret:randomBytes(48).toString('hex'),sendInvitationMail:async()=>{},sendCompletionMail:async()=>{},providerFetch:async()=>new Response(JSON.stringify({choices:[{message:{content:answer}}],usage:{total_tokens:12}}),{headers:{'Content-Type':'application/json'}})});
  await new Promise(r=>app.server.listen(port,'127.0.0.1',r));
  const response=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({email:'ui@example.test',name:'Проверка интерфейса',password:randomBytes(24).toString('hex'),setupToken:setup})});
  if(response.status!==200)throw Error('Cannot create UI fixture');
