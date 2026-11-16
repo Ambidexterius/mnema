@@ -94,6 +94,7 @@ export interface Study {
 }
 
 export interface ModelConnection {
+  reserve?: boolean;
   id: string;
   name: string;
   provider: string;

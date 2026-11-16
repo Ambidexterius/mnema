@@ -499,7 +499,7 @@ function Models(){const {state,update,open,notify,user,real}=useApp();const [che
  <h2 className="settings-group-label">Подключения</h2>
  <ul className="settings-list" aria-label="Подключённые модели">{state.models.map(m=>{const ready=Boolean(m.keyConfigured&&m.model);return <li className="setting-row" key={m.id}>
   <div className="setting-icon" data-status={!m.enabled?'off':ready?'on':'warn'} aria-hidden="true"><Box size={16}/></div>
-  <div className="setting-main"><h3>{m.name}{m.id===state.modelId?<span className="setting-meta">По умолчанию</span>:null}</h3><p aria-live="polite">{checks[m.id]||(ready?m.provider+' · '+m.model:'Нужен API-ключ — откройте «Настроить»')}</p></div>
+  <div className="setting-main"><h3>{m.name}{m.id===state.modelId?<span className="setting-meta">По умолчанию</span>:null}{m.reserve?<span className="setting-meta">Резервная</span>:null}</h3><p aria-live="polite">{checks[m.id]||(ready?m.provider+' · '+m.model:'Нужен API-ключ — откройте «Настроить»')}</p></div>
   <div className="setting-actions"><Switch checked={m.enabled} controlProps={{'aria-label':(m.enabled?'Выключить ':'Включить ')+m.name}} onUpdate={v=>toggle(m,v)}/>
    <DropdownMenu popupProps={{placement:['bottom-end','top-end']}} renderSwitcher={props=><Button {...props} view="flat" size="m" aria-label={'Действия: '+m.name}><MoreHorizontal size={16} aria-hidden="true"/></Button>} items={[{text:'Проверить подключение',action:()=>check(m),disabled:!ready||checks[m.id]==='Проверяем подключение…'},{text:'Настроить',action:()=>open({type:'model',id:m.id})},...(m.builtin&&ready?[]:[{text:'Удалить',theme:'danger' as const,action:()=>setRemoving(m)}])]}/></div>
  </li>})}

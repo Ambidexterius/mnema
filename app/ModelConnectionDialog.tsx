@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {Button,Dialog,Select,TextArea,TextInput} from '@gravity-ui/uikit';
+import {Button,Checkbox,Dialog,Select,TextArea,TextInput} from '@gravity-ui/uikit';
 import {api} from './api.ts';
 import type {ModelConnection} from './types.ts';
 
@@ -13,10 +13,10 @@ function Field({label,children,help}:{label:string;children:React.ReactNode;help
 export default function ModelConnectionDialog({open,model,ctx,onClose}:{open:boolean;model?:ModelConnection;ctx:any;onClose:()=>void}){
  const [provider,setProvider]=useState('openai'),[name,setName]=useState(''),[identifier,setIdentifier]=useState(''),[url,setURL]=useState('');
  const [apiKey,setAPIKey]=useState(''),[keySource,setKeySource]=useState('api'),[keyRef,setKeyRef]=useState('LLM_KEY_CUSTOM1');
- const [instructions,setInstructions]=useState(''),[models,setModels]=useState<{id:string;name:string}[]>([]),[manual,setManual]=useState(false);
+ const [reserve,setReserve]=useState(false),[instructions,setInstructions]=useState(''),[models,setModels]=useState<{id:string;name:string}[]>([]),[manual,setManual]=useState(false);
  const [loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState('');const epoch=useRef(0);
  useEffect(()=>{epoch.current++;setAPIKey('');setModels([]);setError('');setLoading(false);setSaving(false);
-  if(open){setProvider(providerOf(model));setName(model?.name||'');setIdentifier(model?.model||'');setURL(model?.url||'');setKeySource(model?.hasStoredKey?'api':model?.keyRef?'server':'api');setKeyRef(model?.keyRef||'LLM_KEY_CUSTOM1');setInstructions(model?.instructions||'');setManual(Boolean(model?.model))}
+  if(open){setProvider(providerOf(model));setName(model?.name||'');setIdentifier(model?.model||'');setURL(model?.url||'');setKeySource(model?.hasStoredKey?'api':model?.keyRef?'server':'api');setKeyRef(model?.keyRef||'LLM_KEY_CUSTOM1');setReserve(Boolean(model?.reserve));setInstructions(model?.instructions||'');setManual(Boolean(model?.model))}
  },[open,model?.id]);
  const apiType=provider==='openai'?'openai':provider==='anthropic'?'anthropic':'compatible';
  const baseURL=provider==='compatible'?url:urls[provider];
@@ -34,7 +34,7 @@ export default function ModelConnectionDialog({open,model,ctx,onClose}:{open:boo
   if(saving)return;setError('');
   if(!identifier.trim()){setError('Выберите модель или укажите её ID.');return}
   if(keySource==='api'&&!apiKey.trim()&&!savedKey){setError('Введите API-ключ.');return}
-  const values={name:name.trim()||labels[provider]+' · '+identifier.trim(),model:identifier.trim(),provider:sameProvider?model.provider:labels[provider],...credentials,keySource,instructions:instructions.trim()};
+  const values={name:name.trim()||labels[provider]+' · '+identifier.trim(),model:identifier.trim(),provider:sameProvider?model.provider:labels[provider],...credentials,keySource,instructions:instructions.trim(),reserve};
   setSaving(true);
   try{
    if(ctx.real)ctx.receive(await api(model?'/api/models/'+model.id:'/api/models',values,model?'PUT':'POST'));
@@ -54,6 +54,7 @@ export default function ModelConnectionDialog({open,model,ctx,onClose}:{open:boo
    <Field label="Модель" help={provider==='openai'?'Используется API OpenAI. Подписка ChatGPT не заменяет API-ключ. Доступ зависит от прав ключа и региона сервера.':provider==='anthropic'?'Доступ зависит от прав ключа и региона сервера.':undefined}>{manual?<TextInput value={identifier} onUpdate={setIdentifier} disabled={saving} placeholder="ID модели из документации провайдера" controlProps={{'aria-label':'Идентификатор модели',maxLength:120}}/>:<Select width="max" filterable aria-label="Модель провайдера" placeholder={models.length?'Выберите модель':'Сначала загрузите доступные модели'} value={identifier?[identifier]:[]} disabled={saving||loading||!models.length} options={models.map(m=>({value:m.id,content:m.name,text:m.name+' '+m.id}))} onUpdate={v=>setIdentifier(v[0]||'')}/>}</Field>
    <Field label="Правила ответов в чате" help="Применяются в общем чате и проекте. Ссылки на источники, права доступа и форматы сводок задаёт сервис."><TextArea value={instructions} onUpdate={setInstructions} disabled={saving} minRows={4} maxRows={8} placeholder="Как модели анализировать материалы и формулировать ответы" controlProps={{'aria-label':'Правила ответов в чате',maxLength:4000}}/></Field>
    <Button view="outlined" onClick={()=>setInstructions(UX_RESEARCHER_RULES)} disabled={saving}>Шаблон «UX-исследователь»</Button>
+   <Field label="Резерв" help="Если основная модель перегружена или недоступна, ответ сделает эта модель. Основная пропускается 10 минут, затем снова пробуется первой. Резервной может быть только одна модель."><Checkbox size="l" checked={reserve} onUpdate={setReserve} disabled={saving}>Резервная модель</Checkbox></Field>
    {error?<p role="alert" className="form-error">{error}</p>:null}
   </div></Dialog.Body>
   <Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={close} textButtonApply="Сохранить подключение" onClickButtonApply={save} propsButtonApply={{loading:saving,disabled:saving||loading}}/>

@@ -23,7 +23,7 @@ export function cleanModel(value:any,previous?:any,allowEmpty=false){
  if(keyRef&&!keySlot.test(keyRef))invalid('Выберите допустимый серверный ключ.');
  const result={id:previous?.id||String(value.id||''),name,model,apiType,keyRef,
   url:modelBase({...value,apiType}),provider:String(value.provider??previous?.provider??'Совместимый API').slice(0,60),
-  enabled:Boolean(value.enabled??previous?.enabled??true),description:String(value.description??previous?.description??'Подключение по API').slice(0,240),instructions,
+  enabled:Boolean(value.enabled??previous?.enabled??true),reserve:Boolean(value.reserve??previous?.reserve??false),description:String(value.description??previous?.description??'Подключение по API').slice(0,240),instructions,
   ...(previous?.builtin?{builtin:true}:{})};
  return result;
 }
