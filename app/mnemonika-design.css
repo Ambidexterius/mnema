@@ -23,6 +23,8 @@
  --g-color-text-hint:#8a8f98;
  --g-color-text-link:#ff809c;
  --g-color-text-link-hover:#ff9aaf;
+ /* Stock dark danger text measured 4.41:1 on #121213; the project's dark red text passes AA. */
+ --g-color-text-danger:#ff809c;
  --g-color-line-generic:#232426;
  --g-color-line-generic-accent:#28282b;
 }
