@@ -289,7 +289,10 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     await section.getByRole('button',{name:'Обновить сводку'}).waitFor();
     await section.locator('.footnote').first().click();
     await page.locator('.source-panel').getByText('Синтетический', {exact:false}).first().waitFor();
-    await page.getByRole('button',{name:'Закрыть источники',exact:true}).click();
+    await page.getByRole('button',{name:'Открыть фрагмент',exact:true}).first().click();
+    await page.getByRole('button',{name:'Открыть в материале',exact:true}).waitFor();
+    assert.equal(await page.locator('.source-panel .panel-error').count(),0);
+    await page.getByRole('button',{name:'Закрыть источник',exact:true}).click();
     if(width===1440){
      const response=page.waitForResponse(r=>r.url().endsWith('/api/project-summary')&&r.request().method()==='POST');
      await section.getByRole('button',{name:'Обновить сводку'}).click();
