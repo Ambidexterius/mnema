@@ -61,7 +61,34 @@ try{
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
+    // Every project section keeps the project name as its only H1; the tab names the section.
+    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса'])}
+    assert.match(await page.title(),/^(Материалы|Документы) · Тест интерфейса — Мнемодак$/);
    }
+  });
+  await run(theme+': overview materials column stays short in a large project',async()=>{
+   const row=fixture.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get(),state=JSON.parse(row.data),base=state.studies.find(s=>s.id==='sample');
+   const extra=Array.from({length:40},(_,i)=>({...base,id:'bulk'+i,title:'Интервью № '+i,date:'2026-11-0'+(1+i%9),...(i===39?{status:'error'}:{})}));
+   fixture.app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(JSON.stringify({...state,studies:[...state.studies,...extra]}));
+   try{
+    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await goto('/projects/main');const rows=page.locator('.material-rail>li');await rows.first().waitFor();
+     assert.equal(await rows.count(),8);assert.match(await rows.first().locator('.material-rail-text a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-rail-text a').getAttribute('href'),/studies\/bulk39$/);
+     const section=page.getByRole('region',{name:/^Материалы/}),more=section.getByRole('link',{name:'Все материалы',exact:true}),add=section.getByRole('button',{name:'Добавить файл',exact:true});
+     assert.match(await more.getAttribute('href'),/\/projects\/main\/research$/);assert.match(await section.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
+     const heading=await section.locator('.section-heading').boundingBox(),link=await more.boundingBox(),button=await add.boundingBox(),first=await rows.first().boundingBox();
+     assert.ok(link.y>=heading.y&&link.y+link.height<=heading.y+heading.height+1);assert.ok(button.y>=heading.y+heading.height);assert.equal(button.x,heading.x);assert.equal(button.height,width<960?36:28);assert.ok(Math.abs(button.width-heading.width)<1);assert.ok(first.y>=button.y+button.height);
+     const title=rows.first().locator('.material-rail-text a'),fullTitle=await title.innerText(),text=await title.evaluate(e=>({height:e.getBoundingClientRect().height,overflow:getComputedStyle(e).textOverflow,nowrap:getComputedStyle(e).whiteSpace,clipped:e.scrollWidth>e.clientWidth}));
+     assert.equal(text.height,20);assert.equal(text.overflow,'ellipsis');assert.equal(text.nowrap,'nowrap');assert.equal(await title.getAttribute('title'),width<960?null:fullTitle);if(width===320||width===1440)assert.ok(text.clipped);
+     const findings=page.getByRole('link',{name:'Все находки',exact:true});assert.equal(await findings.getAttribute('class'),await more.getAttribute('class'));assert.match(await findings.getAttribute('href'),/\/projects\/main\/findings$/);
+     await page.emulateMedia({reducedMotion:'no-preference'});await title.hover();assert.equal(await page.getByRole('tooltip').count(),0);
+     if(width>=960&&text.clipped){await page.waitForFunction(()=>{const e=document.querySelector('.material-rail-text a');return e.scrollLeft>=e.scrollWidth-e.clientWidth-1});await screenshot('overview-material-title-hover-'+width)}else{await page.waitForTimeout(350);assert.equal(await title.evaluate(e=>e.scrollLeft),0)}
+     await page.mouse.move(0,0);await page.waitForFunction(()=>document.querySelector('.material-rail-text a').scrollLeft===0);
+     await page.emulateMedia({reducedMotion:'reduce'});await title.hover();assert.equal(await title.evaluate(e=>e.scrollLeft),0);await page.mouse.move(0,0);
+     await add.click();const upload=page.getByRole('dialog');await upload.waitFor();await page.keyboard.press('Escape');await upload.waitFor({state:'hidden'});
+     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await screenshot('overview-many-materials-'+width);
+    }
+    await page.getByRole('link',{name:'Все материалы',exact:true}).click();await page.locator('.study-table').waitFor();
+   }finally{fixture.app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(row.data)}
   });
   await run(theme+': single-key creation always enabled, visible hints and no settings switch',async()=>{
    await page.evaluate(()=>{const key='ai-hyposut.demo.v1',saved=JSON.parse(localStorage.getItem(key)||'{}');localStorage.setItem(key,JSON.stringify({...saved,version:1,data:{...saved.data,shortcutsEnabled:false}}))});await page.reload();await page.locator('.app-shell').waitFor();
