@@ -19,6 +19,11 @@ export function registrationEmail(to:string,code:string):CompletionMail{
  return {to,subject:'Код доступа в Мнемонику',messageId:'<mnemonika-registration-'+randomUUID()+'@mnemoduck.ru>',text:'Код доступа\n\nВаш код доступа к Мнемонике:\n\n'+spaced+'\n\n'+note,
  html:'<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Код доступа</title></head><body style="margin:0;padding:4px;background:#f3f3f3;color:#000;font-family:Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto"><tr><td style="background:#fff;border-radius:12px;padding:34px 36px"><h1 style="font-size:22px;line-height:28px;margin:0 0 28px">Код доступа</h1><p style="font-size:16px;line-height:24px;margin:0">Ваш код доступа к Мнемонике:</p><p style="font-size:22px;line-height:28px;font-weight:bold;margin:26px 0 30px">'+spaced+'</p><p style="font-size:16px;line-height:24px;margin:0">'+note+'</p></td></tr></table></body></html>'};
 }
+export function passwordChangedEmail(to:string):CompletionMail{
+ const note='Пароль от вашего аккаунта в Мнемонике изменён. Если это были не вы, восстановите пароль на странице входа и сообщите администратору.';
+ return {to,subject:'Пароль в Мнемонике изменён',messageId:'<mnemonika-password-'+randomUUID()+'@mnemoduck.ru>',text:'Пароль изменён\n\n'+note,
+ html:'<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Пароль изменён</title></head><body style="margin:0;padding:4px;background:#f3f3f3;color:#000;font-family:Arial,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto"><tr><td style="background:#fff;border-radius:12px;padding:34px 36px"><h1 style="font-size:22px;line-height:28px;margin:0 0 28px">Пароль изменён</h1><p style="font-size:16px;line-height:24px;margin:0">'+note+'</p></td></tr></table></body></html>'};
+}
 export function createRegistration(db:DatabaseSync,secret:string,production:boolean,send?:((mail:CompletionMail)=>Promise<void>),generateCode=()=>String(randomInt(1000000)).padStart(6,'0')){
  const q=(sql:string)=>db.prepare(sql) as any;
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_registration(token TEXT PRIMARY KEY,email TEXT NOT NULL,code_hash TEXT NOT NULL,created INTEGER NOT NULL,expires INTEGER NOT NULL,resend_at INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,verified INTEGER NOT NULL DEFAULT 0);
@@ -33,23 +38,30 @@ export function createRegistration(db:DatabaseSync,secret:string,production:bool
  const current=(req:any)=>{const row=find(req);return row&&row.expires>Date.now()?row:undefined};
  const status=(req:any)=>publicState(current(req));
  const verified=(req:any,email:string)=>{const row=current(req);if(!row||row.email!==corporateEmail(email)||!row.verified)fail(403,'Подтвердите рабочую почту ещё раз','VERIFICATION_REQUIRED');return row};
+ const account=(email:string)=>q('SELECT u.id,a.revoked FROM user u LEFT JOIN mnema_access a ON a.user_id=u.id WHERE lower(u.email)=?').get(email);
  return {
   status,verified,
-  async request(req:any,res:any,value:unknown){
-   const email=corporateEmail(value),now=Date.now(),previous=current(req);
+  // Password reset: the confirmed row itself names the account, whatever its mail domain.
+  confirmed(req:any){const row=current(req),user=row?.verified?account(row.email):undefined;if(!user)fail(403,'Подтвердите почту ещё раз','VERIFICATION_REQUIRED');if(user.revoked!==0)fail(403,'Доступ к аккаунту закрыт. Обратитесь к администратору','ACCOUNT_BLOCKED');return {email:row.email as string,userId:user.id as string}},
+  notifyPasswordChanged(email:string){void send?.(passwordChangedEmail(email)).catch(()=>{})},
+  // reset=true accepts any mail domain and stays silent about unknown or closed accounts: the screen looks the same, no letter leaves.
+  async request(req:any,res:any,value:unknown,reset=false){
+   const plain=typeof value==='string'&&value.length<=150?value.trim().toLowerCase():'';
+   if(reset&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(plain))fail(400,'Введите почту, например name@sutochno.ru','EMAIL');
+   const email=reset?plain:corporateEmail(value),now=Date.now(),previous=current(req),deliver=!reset||account(email)?.revoked===0;
    const last=q('SELECT resend_at FROM mnema_registration WHERE email=? ORDER BY created DESC LIMIT 1').get(email);
    if(last?.resend_at>now)fail(429,'Новый код можно запросить через '+Math.ceil((last.resend_at-now)/1000)+' с','RESEND_WAIT');
    if(q('SELECT count(*) AS n FROM mnema_registration WHERE email=? AND created>?').get(email,now-CODE_TTL).n>=5)fail(429,'Слишком много писем. Попробуйте через 30 минут','MAIL_LIMIT');
    if(!send)fail(503,'Отправка писем пока не подключена. Попробуйте позже','MAIL_UNAVAILABLE');
    const raw=randomBytes(32).toString('base64url'),code=generateCode();
-   try{await send(registrationEmail(email,code))}catch{fail(502,'Не удалось отправить код. Повторите попытку','MAIL_FAILED')}
+   if(deliver)try{await send(registrationEmail(email,code))}catch{fail(502,'Не удалось отправить код. Повторите попытку','MAIL_FAILED')}
    q('DELETE FROM mnema_registration WHERE expires<?').run(now-24*3600000);
    if(previous)q('UPDATE mnema_registration SET expires=0 WHERE token=?').run(previous.token);
-   q('INSERT INTO mnema_registration(token,email,code_hash,created,expires,resend_at) VALUES(?,?,?,?,?,?)').run(digest(raw),email,codeHash(raw,code),now,now+CODE_TTL,now+RESEND_DELAY);
+   q('INSERT INTO mnema_registration(token,email,code_hash,created,expires,resend_at) VALUES(?,?,?,?,?,?)').run(digest(raw),email,deliver?codeHash(raw,code):'',now,now+CODE_TTL,now+RESEND_DELAY);
    setCookie(res,raw);return publicState(current({headers:{cookie:cookieName+'='+raw}}));
   },
   verify(req:any,res:any,input:any){
-   const row=current(req),email=corporateEmail(input.email);
+   const row=current(req),plain=typeof input.email==='string'?input.email.trim().toLowerCase():'',email=row?.email===plain?plain:corporateEmail(input.email);
    if(!row)fail(410,'Код истёк. Запросите новый','CODE_EXPIRED');
    if(row.email!==email)fail(409,'Почта изменилась в другой вкладке. Получите новый код','EMAIL_CHANGED');
    if(row.verified)fail(409,'Код уже использован. Продолжите создание аккаунта','CODE_USED');
@@ -58,7 +70,7 @@ export function createRegistration(db:DatabaseSync,secret:string,production:bool
    if(!/^\d{6}$/.test(code))fail(400,'Введите 6 цифр из письма','CODE');
    const actual=codeHash(token(req),code);
    if(row.code_hash.length!==actual.length||!timingSafeEqual(Buffer.from(row.code_hash),Buffer.from(actual))){q('UPDATE mnema_registration SET attempts=attempts+1 WHERE token=?').run(row.token);fail(400,row.attempts>=4?'Слишком много попыток. Запросите новый код':'Код не подошёл. Проверьте цифры в письме',row.attempts>=4?'CODE_LOCKED':'CODE')}
-   const existing=q('SELECT u.id,a.revoked FROM user u LEFT JOIN mnema_access a ON a.user_id=u.id WHERE lower(u.email)=?').get(email);
+   const existing=account(email);
    if(existing&&existing.revoked!==0)fail(403,'Доступ к аккаунту закрыт. Обратитесь к администратору','ACCOUNT_BLOCKED');
    q('UPDATE mnema_registration SET verified=1,code_hash=?,expires=? WHERE token=?').run('',Date.now()+CODE_TTL,row.token);
    setCookie(res,token(req));return {...publicState(current(req)),existingAccount:Boolean(existing)};

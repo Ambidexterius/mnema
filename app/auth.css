@@ -19,6 +19,7 @@
 .auth-clean .auth-error{margin:0;font:var(--g-text-body-1-font)}
 .auth-clean .auth-error:empty{display:none}
 .auth-clean .auth-switch{display:block;margin-block-start:8px;text-align:center;font-size:13px;line-height:1.5;color:var(--g-color-text-secondary)}
+.auth-clean .auth-invite-help{display:flex;flex-wrap:wrap;justify-content:center;column-gap:16px}
 .auth-clean .auth-switch .g-link{display:inline-flex;align-items:center;min-height:44px;vertical-align:middle}
 .auth-clean .g-text-input_view_normal:not(.g-text-input_state_error) .g-text-input__content{border-color:var(--g-text-input-border-color,var(--_--border-color))}
 .auth-clean .g-text-input_view_normal:not(.g-text-input_state_error) .g-text-input__content:hover{border-color:var(--g-text-input-border-color-hover,var(--_--border-color-hover))}

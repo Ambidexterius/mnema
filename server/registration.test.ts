@@ -100,3 +100,40 @@ test('explicit invitations retain view access when corporate self-registration i
   assert.equal((await post('/api/register',{email:'viewer@example.test',password:'abcdefgh',inviteToken:token})).status,403);
  }finally{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true})}
 });
+
+test('password reset works for any mail domain without self-registration, stays silent about unknown accounts and ends old sessions',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'mnema-reset-test-')),base='http://127.0.0.1:4495',setup=randomBytes(32).toString('hex'),mails:any[]=[];
+ const app=await createMnemaServer({dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,sendRegistrationMail:async mail=>{mails.push(mail)},sendCompletionMail:async()=>{},sendInvitationMail:async()=>{}});
+ await new Promise<void>(resolve=>app.server.listen(4495,'127.0.0.1',resolve));
+ const jar=()=>new Map<string,string>(),old=jar(),browser=jar();
+ const request=async(path:string,data?:any,cookies=browser)=>{
+  const response=await fetch(base+path,{method:data===undefined?'GET':'POST',headers:{Cookie:[...cookies].map(([k,v])=>k+'='+v).join('; '),Connection:'close','Content-Type':'application/json','X-Mnema-Request':'1',Origin:base},...(data===undefined?{}:{body:JSON.stringify(data)})});
+  for(const cookie of response.headers.getSetCookie()){const pair=cookie.split(';')[0],i=pair.indexOf('='),key=pair.slice(0,i),value=pair.slice(i+1);if(value)cookies.set(key,value);else cookies.delete(key)}
+  return {status:response.status,body:await response.json() as any};
+ };
+ try{
+  assert.equal((await request('/api/register',{email:'owner@example.test',password:'old-password',name:'Owner',setupToken:setup},old)).status,200);
+  assert.ok((await request('/api/session',undefined,old)).body.user);
+  assert.equal((await request('/api/registration/request-code',{email:'a@sutochno.ru'})).status,404);
+  assert.equal((await request('/api/password-reset/request-code',{email:'not mail'})).status,400);
+  const unknown=await request('/api/password-reset/request-code',{email:'nobody@example.test'});
+  assert.equal(unknown.status,200);assert.equal(unknown.body.pending,true);assert.equal(mails.length,0);
+  assert.equal((await request('/api/password-reset/verify-code',{email:'nobody@example.test',code:'000000'})).status,400);
+  assert.equal((await request('/api/password-reset/complete',{password:'new-password'})).status,403);
+  const sent=await request('/api/password-reset/request-code',{email:' Owner@Example.test '});
+  assert.deepEqual({...sent.body,expiresAt:0,resendAt:0,serverNow:0},{...unknown.body,email:'owner@example.test',expiresAt:0,resendAt:0,serverNow:0});
+  assert.equal(mails.length,1);const match=mails[0].text.match(/(\d{3}) (\d{3})/);
+  assert.equal((await request('/api/password-reset/complete',{password:'new-password'})).status,403);
+  assert.equal((await request('/api/password-reset/verify-code',{email:'owner@example.test',code:match[1]+match[2]})).status,200);
+  assert.equal((await request('/api/password-reset/complete',{password:'short'})).status,400);
+  assert.equal((await request('/api/password-reset/complete',{password:'new-password'})).status,200);
+  assert.equal((await request('/api/session')).body.user.email,'owner@example.test');
+  assert.equal((await request('/api/session',undefined,old)).body.user,null);
+  assert.equal((await request('/api/password-reset/complete',{password:'another-password'})).status,403);
+  assert.equal((await request('/api/auth/sign-in/email',{email:'owner@example.test',password:'old-password'},jar())).status,401);
+  assert.equal((await request('/api/auth/sign-in/email',{email:'owner@example.test',password:'new-password'},jar())).status,200);
+  assert.equal(mails.at(-1).subject,'Пароль в Мнемонике изменён');assert.equal(mails.at(-1).to,'owner@example.test');
+  app.db.prepare('UPDATE mnema_access SET revoked=1').run();app.db.prepare('UPDATE mnema_registration SET resend_at=0').run();
+  assert.equal((await request('/api/password-reset/request-code',{email:'owner@example.test'})).status,200);assert.equal(mails.length,2);
+ }finally{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true})}
+});

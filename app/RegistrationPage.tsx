@@ -10,30 +10,32 @@ import './registration.css';
 
 type Stage='email'|'code'|'password'|'profile';
 type Pending={pending:boolean;email?:string;verified?:boolean;expiresAt?:number;resendAt?:number;locked?:boolean;serverNow?:number};
-export default function RegistrationPage({theme,onTheme,onComplete}:{theme:string;onTheme:()=>void;onComplete:()=>Promise<void>}){
+// reset=true is the «Забыли пароль?» flow: same mailed code, then a new password instead of a profile.
+export default function RegistrationPage({theme,onTheme,onComplete,reset=false}:{theme:string;onTheme:()=>void;onComplete:()=>Promise<void>;reset?:boolean}){
+ const base=reset?'/api/password-reset/':'/api/registration/';
  const [stage,setStage]=useState<Stage>('email'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[pending,setPending]=useState<Pending>({pending:false});
- const [login,setLogin]=useState(''),[code,setCode]=useState(''),[generation,setGeneration]=useState(0),[password,setPassword]=useState('');
+ const [login,setLogin]=useState(()=>reset?new URLSearchParams(location.search).get('email')||'':''),[code,setCode]=useState(''),[generation,setGeneration]=useState(0),[password,setPassword]=useState('');
  const [firstName,setFirstName]=useState(''),[lastName,setLastName]=useState(''),[photo,setPhoto]=useState(''),[readingPhoto,setReadingPhoto]=useState(false),[created,setCreated]=useState(false),[photoLost,setPhotoLost]=useState(false);
  const [errors,setErrors]=useState<Record<string,string>>({}),[notice,setNotice]=useState(''),[now,setNow]=useState(Date.now());
  const emailRef=useRef<HTMLInputElement>(null),passwordRef=useRef<HTMLInputElement>(null),firstRef=useRef<HTMLInputElement>(null),lastRef=useRef<HTMLInputElement>(null),photoRef=useRef<HTMLInputElement>(null);
  const busyRef=useRef(false),alive=useRef(true),photoSequence=useRef(0),clock=useRef({server:Date.now(),local:performance.now()});
- const email=normalizeCorporateEmail(login);
+ const email=reset?(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login.trim())?login.trim().toLowerCase():null):normalizeCorporateEmail(login);
  const cooldown=Math.max(0,Math.ceil(((pending.resendAt||0)-now)/1000)),expired=Boolean(pending.pending&&pending.expiresAt!==undefined&&pending.expiresAt<=now);
  function receivePending(state:Pending){clock.current={server:state.serverNow??Date.now(),local:performance.now()};setPending(state);setNow(clock.current.server)}
  function clearDraft(){try{sessionStorage.removeItem('mnema.registration-profile')}catch{}}
- useEffect(()=>{alive.current=true;api('/api/registration/status',undefined,'GET',false).then((state:Pending)=>{if(!alive.current)return;receivePending(state);if(state.email)setLogin(state.email);if(state.pending){setStage(state.verified?'password':'code');if(state.verified){setNotice('Почта подтверждена. Введите пароль, чтобы продолжить регистрацию');try{const draft=JSON.parse(sessionStorage.getItem('mnema.registration-profile')||'null');if(draft?.email===state.email){if(typeof draft.firstName==='string')setFirstName(draft.firstName.slice(0,70));if(typeof draft.lastName==='string')setLastName(draft.lastName.slice(0,70));setPhotoLost(Boolean(draft.hasPhoto))}}catch{}}}}).catch(()=>{if(alive.current)setErrors({general:'Не удалось проверить регистрацию. Попробуйте получить код ещё раз'})}).finally(()=>{if(alive.current)setLoading(false)});return()=>{alive.current=false;photoSequence.current++}},[]);
+ useEffect(()=>{alive.current=true;api(base+'status',undefined,'GET',false).then((state:Pending)=>{if(!alive.current)return;receivePending(state);if(state.email)setLogin(state.email);if(state.pending){setStage(state.verified?'password':'code');if(state.verified&&!reset){setNotice('Почта подтверждена. Введите пароль, чтобы продолжить регистрацию');try{const draft=JSON.parse(sessionStorage.getItem('mnema.registration-profile')||'null');if(draft?.email===state.email){if(typeof draft.firstName==='string')setFirstName(draft.firstName.slice(0,70));if(typeof draft.lastName==='string')setLastName(draft.lastName.slice(0,70));setPhotoLost(Boolean(draft.hasPhoto))}}catch{}}}}).catch(()=>{if(alive.current)setErrors({general:reset?'Не удалось загрузить страницу. Попробуйте получить код ещё раз':'Не удалось проверить регистрацию. Попробуйте получить код ещё раз'})}).finally(()=>{if(alive.current)setLoading(false)});return()=>{alive.current=false;photoSequence.current++}},[]);
  useEffect(()=>{if(stage!=='code')return;const tick=()=>setNow(clock.current.server+performance.now()-clock.current.local);tick();const timer=setInterval(tick,1000);return()=>clearInterval(timer)},[stage]);
- useEffect(()=>{if(created){clearDraft();return}if(!pending.verified||!pending.email)return;try{sessionStorage.setItem('mnema.registration-profile',JSON.stringify({email:pending.email,firstName,lastName,hasPhoto:Boolean(photo)||photoLost}))}catch{}},[firstName,lastName,photo,photoLost,pending.email,pending.verified,created]);
+ useEffect(()=>{if(reset)return;if(created){clearDraft();return}if(!pending.verified||!pending.email)return;try{sessionStorage.setItem('mnema.registration-profile',JSON.stringify({email:pending.email,firstName,lastName,hasPhoto:Boolean(photo)||photoLost}))}catch{}},[firstName,lastName,photo,photoLost,pending.email,pending.verified,created]);
  useEffect(()=>{if(loading)return;const ref={email:emailRef,password:passwordRef,profile:firstRef}[stage];ref?.current?.focus()},[stage,loading]);
  const update=(field:string,value:string,setter:(value:string)=>void)=>{setter(value);setErrors(previous=>({...previous,[field]:''}))};
- const emailError=()=>{if(!email)setErrors(previous=>({...previous,email:'Используйте рабочую почту @sutochno.ru'}))};
+ const emailError=()=>{if(!email)setErrors(previous=>({...previous,email:reset?'Введите почту, например name@sutochno.ru':'Используйте рабочую почту @sutochno.ru'}))};
  async function action(kind:'submit'|'resend'|'change-email'='submit'){
   if(busyRef.current||readingPhoto)return;
   if(created){location.assign('/projects');return}
   if(kind==='submit'&&stage==='email'&&!email){emailError();emailRef.current?.focus();return}
   if(kind==='submit'&&stage==='password'){
    if(password.length<8||password.length>128){setErrors({password:password.length>128?'Пароль слишком длинный. Сократите его.':'Минимум 8 символов'});passwordRef.current?.focus();return}
-   setErrors({});setNotice(photoLost?'Фотографию нужно выбрать ещё раз':'');setStage('profile');return;
+   if(!reset){setErrors({});setNotice(photoLost?'Фотографию нужно выбрать ещё раз':'');setStage('profile');return}
   }
   if(kind==='submit'&&stage==='profile'){
    if(!firstName.trim()||firstName.trim().length>70){setErrors({firstName:'Укажите имя от 1 до 70 символов'});firstRef.current?.focus();return}
@@ -42,24 +44,24 @@ export default function RegistrationPage({theme,onTheme,onComplete}:{theme:strin
   busyRef.current=true;setBusy(true);setErrors(previous=>({photo:previous.photo||''}));setNotice('');
   try{
    if(kind==='change-email'){
-    await api('/api/registration/cancel',{},'POST',false);if(!alive.current)return;
+    await api(base+'cancel',{},'POST',false);if(!alive.current)return;
     setPending({pending:false});clearDraft();setPassword('');setCode('');setFirstName('');setLastName('');setPhoto('');setPhotoLost(false);photoSequence.current++;setGeneration(g=>g+1);setStage('email');return;
    }
    if(stage==='email'||kind==='resend'){
-    const state=await api('/api/registration/request-code',{email:kind==='resend'?pending.email:email},'POST',false);if(!alive.current)return;
+    const state=await api(base+'request-code',{email:kind==='resend'?pending.email:email},'POST',false);if(!alive.current)return;
     receivePending(state);setCode('');setGeneration(g=>g+1);setStage('code');return;
    }
    if(stage==='code'){
-    const state=await api('/api/registration/verify-code',{email:pending.email,code},'POST',false);if(!alive.current)return;
-    receivePending(state);if(state.existingAccount){clearDraft();location.assign('/login?email='+encodeURIComponent(state.email));return}setStage('password');return;
+    const state=await api(base+'verify-code',{email:pending.email,code},'POST',false);if(!alive.current)return;
+    receivePending(state);if(reset){setStage('password');return}if(state.existingAccount){clearDraft();location.assign('/login?email='+encodeURIComponent(state.email));return}setStage('password');return;
    }
-   await api('/api/register',{email:pending.email,password,firstName:firstName.trim(),lastName:lastName.trim(),photo},'POST',false);if(!alive.current)return;
+   if(reset)await api(base+'complete',{password},'POST',false);else await api('/api/register',{email:pending.email,password,firstName:firstName.trim(),lastName:lastName.trim(),photo},'POST',false);if(!alive.current)return;
    setCreated(true);setPassword('');setPhoto('');
-   try{await onComplete()}catch{if(alive.current)setErrors({general:'Аккаунт создан. Не удалось открыть проекты. Попробуйте ещё раз'})}
+   try{await onComplete()}catch{if(alive.current)setErrors({general:(reset?'Пароль изменён':'Аккаунт создан')+'. Не удалось открыть проекты. Попробуйте ещё раз'})}
   }catch(error){
    if(!alive.current)return;
    const message=error.message||'Не удалось выполнить действие. Попробуйте ещё раз',field=stage==='email'?'email':stage==='code'?'code':'general';
-   if(error.code==='VERIFICATION_REQUIRED'||error.code==='EMAIL_CHANGED'){setPassword('');setPending({pending:false});setStage('email');setNotice('Подтвердите почту ещё раз. Имя и фамилия сохранены');setErrors({email:message})}
+   if(error.code==='VERIFICATION_REQUIRED'||error.code==='EMAIL_CHANGED'){setPassword('');setPending({pending:false});setStage('email');setNotice(reset?'':'Подтвердите почту ещё раз. Имя и фамилия сохранены');setErrors({email:message})}
    else if(error.code==='ACCOUNT_EXISTS')location.assign('/login?email='+encodeURIComponent(pending.email||''));
    else if(error.code==='FIRST_NAME'){setErrors({firstName:message});firstRef.current?.focus()}
    else if(error.code==='LAST_NAME'){setErrors({lastName:message});lastRef.current?.focus()}
@@ -82,19 +84,19 @@ export default function RegistrationPage({theme,onTheme,onComplete}:{theme:strin
  const error=(field:string)=><p className="registration-error" id={'registration-'+field+'-error'} role="alert">{errors[field]||''}</p>;
  // Field errors use Gravity's own slot under the control; the alert role keeps them announced.
  const fieldError=(field:string)=>errors[field]?<span id={'registration-'+field+'-error'} role="alert">{errors[field]}</span>:undefined;
- const title={email:'Создайте аккаунт',code:'Подтвердите почту',password:'Придумайте пароль',profile:'Ваш профиль'};
- return <div className="auth-page auth-minimal auth-clean auth-density-compact registration-page"><AuthMatrix theme={theme}/><header className="auth-header"><Button view="flat" size="l" aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} onClick={onTheme}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</Button></header><main className="auth-minimal-main"><section className="auth-form">{loading?<div className="registration-loading" role="status"><Loader size="m"/>Проверяем регистрацию…</div>:<>
+ const title=reset?{email:'Восстановление пароля',code:'Введите код',password:'Придумайте новый пароль',profile:''}:{email:'Создайте аккаунт',code:'Подтвердите почту',password:'Придумайте пароль',profile:'Ваш профиль'};
+ return <div className="auth-page auth-minimal auth-clean auth-density-compact registration-page"><AuthMatrix theme={theme}/><header className="auth-header"><Button view="flat" size="l" aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} onClick={onTheme}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</Button></header><main className="auth-minimal-main"><section className="auth-form">{loading?<div className="registration-loading" role="status"><Loader size="m"/>{reset?'Открываем…':'Проверяем регистрацию…'}</div>:<>
  <AuthHeading title={title[stage]} description={stage==='email'?undefined:stage==='code'?'Отправили код на '+pending.email:stage==='password'?pending.email+' · почта подтверждена':'Так коллеги будут видеть вас в Мнемонике'}/>
  {notice?<p className="registration-notice" role="status">{notice}</p>:null}
- <form aria-label="Регистрация в Мнемонике" noValidate onSubmit={event=>{event.preventDefault();void action()}} aria-busy={busy}>
+ <form aria-label={reset?'Восстановление пароля':'Регистрация в Мнемонике'} noValidate onSubmit={event=>{event.preventDefault();void action()}} aria-busy={busy}>
  {/* Keep the confirmed username in the same form for Safari Password AutoFill. */}
  <div hidden={stage!=='email'}><label className="registration-label" htmlFor="registration-email">Рабочая почта</label><TextInput id="registration-email" name="email" className="registration-email" placeholder="name@sutochno.ru" view="normal" type="email" hasClear value={stage==='email'?login:pending.email||login} readOnly={stage!=='email'} onUpdate={value=>update('email',normalizeCorporateEmail(value)||value,setLogin)} onBlur={()=>{if(login.trim())emailError()}} size="xl" autoComplete="username" controlRef={emailRef} disabled={busy} validationState={errors.email?'invalid':undefined} errorMessage={fieldError('email')} controlProps={{autoCapitalize:'none',spellCheck:false,inputMode:'email'}}/></div>
  {stage==='code'?<><OtpInput key={generation} onChange={value=>{setCode(value);setErrors(previous=>({...previous,code:''}))}} disabled={busy||expired||Boolean(pending.locked)} error={errors.code||(expired?'Код истёк. Запросите новый':'')}/>{pending.locked&&!errors.code?<p className="registration-error" role="alert">Слишком много попыток. Запросите новый код</p>:null}</>:null}
  {stage==='password'?<><label className="registration-label" htmlFor="registration-password">Пароль</label><PasswordInput id="registration-password" name="new-password" value={password} onUpdate={value=>update('password',value,setPassword)} size="xl" hideCopyButton autoComplete="new-password" controlRef={passwordRef} validationState={errors.password?'invalid':undefined} errorMessage={fieldError('password')} controlProps={{minLength:8,maxLength:128,'aria-describedby':'registration-password-hint'}}/>{errors.password?null:<p className="registration-hint" id="registration-password-hint">Минимум 8 символов</p>}</>:null}
  {stage==='profile'?<><label className="registration-label" htmlFor="registration-first-name">Имя</label><TextInput id="registration-first-name" value={firstName} onUpdate={value=>update('firstName',value,setFirstName)} controlRef={firstRef} autoComplete="given-name" size="xl" disabled={busy} validationState={errors.firstName?'invalid':undefined} errorMessage={fieldError('firstName')} controlProps={{maxLength:70}}/><label className="registration-label registration-name-label" htmlFor="registration-last-name">Фамилия</label><TextInput className="registration-last-name" id="registration-last-name" value={lastName} onUpdate={value=>update('lastName',value,setLastName)} controlRef={lastRef} autoComplete="family-name" size="xl" disabled={busy} validationState={errors.lastName?'invalid':undefined} errorMessage={fieldError('lastName')} controlProps={{maxLength:70}}/>
  <div className="registration-photo"><Avatar imgUrl={photo||undefined} text={((firstName.trim()[0]||'')+(lastName.trim()[0]||'')).toUpperCase()||undefined} size="xl"/><div><Button type="button" view="outlined" size="l" onClick={()=>photoRef.current?.click()} disabled={busy||readingPhoto} loading={readingPhoto}>Загрузить фото</Button>{photo?<Button className="registration-remove-photo" type="button" view="flat" onClick={()=>{photoSequence.current++;setPhoto('');setPhotoLost(false);setReadingPhoto(false);setErrors(previous=>({...previous,photo:''}))}} disabled={busy}>Удалить фото</Button>:null}<p className="registration-hint">Необязательно · JPG, PNG, WebP до 5 МБ</p></div><input ref={photoRef} type="file" accept="image/jpeg,image/png,image/webp" aria-label="Выбрать фотографию" hidden onChange={choosePhoto}/></div>{error('photo')}</>:null}
- {error('general')}<Button type="submit" view="action" size="xl" width="max" loading={busy} disabled={busy||readingPhoto||stage==='code'&&(code.length!==6||expired||Boolean(pending.locked))}>{created?'Открыть проекты':stage==='email'?'Получить код':stage==='code'?'Подтвердить':stage==='password'?'Продолжить':'Начать работу'}</Button>
+ {error('general')}<Button type="submit" view="action" size="xl" width="max" loading={busy} disabled={busy||readingPhoto||stage==='code'&&(code.length!==6||expired||Boolean(pending.locked))}>{created?'Открыть проекты':stage==='email'?'Получить код':stage==='code'?'Подтвердить':stage==='password'?reset?'Сохранить и войти':'Продолжить':'Начать работу'}</Button>
  </form>
- {stage==='email'?<p className="registration-bottom auth-switch">Уже есть аккаунт? <Link href="/login" underline>Войти</Link></p>:stage==='code'?<div className="registration-secondary-actions"><Button view="flat" onClick={()=>void action('resend')} disabled={busy||cooldown>0}>{cooldown?'Отправить ещё раз через '+cooldown+' с':'Отправить новый код'}</Button><Button view="flat" onClick={()=>void action('change-email')} disabled={busy}>Изменить почту</Button></div>:<Button className="registration-back" type="button" view="flat" onClick={()=>{if(stage==='password')void action('change-email');else{setErrors({});setStage('password')}}} disabled={busy}><ArrowLeft size={16}/>{stage==='password'?'Изменить почту':'Назад'}</Button>}
+ {stage==='email'?<p className="registration-bottom auth-switch">{reset?'Вспомнили пароль?':'Уже есть аккаунт?'} <Link href="/login" underline>Войти</Link></p>:stage==='code'?<div className="registration-secondary-actions"><Button view="flat" onClick={()=>void action('resend')} disabled={busy||cooldown>0}>{cooldown?'Отправить ещё раз через '+cooldown+' с':'Отправить новый код'}</Button><Button view="flat" onClick={()=>void action('change-email')} disabled={busy}>Изменить почту</Button></div>:<Button className="registration-back" type="button" view="flat" onClick={()=>{if(stage==='password')void action('change-email');else{setErrors({});setStage('password')}}} disabled={busy}><ArrowLeft size={16}/>{stage==='password'?'Изменить почту':'Назад'}</Button>}
  </>}</section></main></div>;
 }

@@ -413,13 +413,23 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     return await toNodeHandler(auth)(req,res);
    }
    if(path.startsWith('/api/')&&!['GET','HEAD'].includes(req.method)){if(req.headers.origin&&req.headers.origin!==origin)fail(403,'Запрос с другого сайта запрещён.');if(req.headers['x-mnema-request']!=='1')fail(403,'Некорректный запрос приложения.')}
-   if(path.startsWith('/api/registration/')){
-    if(!options.corporateRegistration||!ownerExists())fail(404,'Регистрация недоступна.');
-    if(path==='/api/registration/status'&&req.method==='GET')return json(res,200,signup.status(req));
+   // Password reset reuses the mailed-code steps of registration and works without self-registration.
+   const reset=path.startsWith('/api/password-reset/');
+   if(reset||path.startsWith('/api/registration/')){
+    const step=path.split('/')[3];
+    if(!ownerExists()||!reset&&!options.corporateRegistration)fail(404,'Регистрация недоступна.');
+    if(step==='status'&&req.method==='GET')return json(res,200,signup.status(req));
     if(req.method!=='POST')fail(405,'Метод недоступен.');
-    if(path==='/api/registration/request-code'){limit('registration-mail:'+req.socket.remoteAddress,10);const input=await body(req);return await withRegistration(async()=>json(res,200,await signup.request(req,res,input.email)))}
-    if(path==='/api/registration/verify-code'){limit('registration-verify:'+req.socket.remoteAddress,30);const input=await body(req);return await withRegistration(async()=>json(res,200,signup.verify(req,res,input)))}
-    if(path==='/api/registration/cancel'){return await withRegistration(()=>{signup.consume(req,res);return json(res,200,{ok:true})})}
+    if(step==='request-code'){limit('registration-mail:'+req.socket.remoteAddress,10);const input=await body(req);return await withRegistration(async()=>json(res,200,await signup.request(req,res,input.email,reset)))}
+    if(step==='verify-code'){limit('registration-verify:'+req.socket.remoteAddress,30);const input=await body(req);return await withRegistration(async()=>json(res,200,signup.verify(req,res,input)))}
+    if(step==='cancel'){return await withRegistration(()=>{signup.consume(req,res);return json(res,200,{ok:true})})}
+    if(reset&&step==='complete'){limit('password-reset:'+req.socket.remoteAddress,10);const input=await body(req);return await withRegistration(async()=>{
+     const {email,userId}=signup.confirmed(req),password=input.password;
+     if(typeof password!=='string'||password.length<8||password.length>128)fail(400,'Пароль должен быть от 8 до 128 символов',{publicCode:'PASSWORD'});
+     const ctx=await auth.$context;await ctx.internalAdapter.updatePassword(userId,await ctx.password.hash(password));await ctx.internalAdapter.deleteUserSessions(userId);
+     signup.consume(req,res);signup.notifyPasswordChanged(email);
+     return transfer(res,await auth.api.signInEmail({body:{email,password,rememberMe:true},headers:fromNodeHeaders(req.headers),asResponse:true}));
+    })}
     fail(404,'Метод недоступен.');
    }
    if(path==='/api/register'&&req.method==='POST')return await register(req,res);
