@@ -2,7 +2,7 @@
 <title>MnemoDuck — Вопрос</title>
 
 <defs>
-  <linearGradient id="sun" x1="0" y1="0" x2="0.84" y2="1"><stop offset="0" stop-color="#FFD137"/><stop offset=".48" stop-color="#FFBD10"/><stop offset="1" stop-color="#FF9100"/></linearGradient>
+  <linearGradient id="sun" x1="0" y1="0" x2="0.84" y2="1"><stop offset="0" stop-color="#F53C65"/><stop offset=".48" stop-color="#EE204D"/><stop offset="1" stop-color="#D91C45"/></linearGradient>
   <linearGradient id="white" x1="0" y1="0" x2=".55" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFF7EE"/></linearGradient>
   <linearGradient id="bill" x1="0" y1="0" x2=".65" y2="1"><stop offset="0" stop-color="#FFC000"/><stop offset=".65" stop-color="#FFAB00"/><stop offset="1" stop-color="#FF9100"/></linearGradient>
   <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34302E"/><stop offset="1" stop-color="#120B16"/></linearGradient>

@@ -119,7 +119,7 @@ try{
   await run(theme+': MnemoDuck brand, chat poses and reduced motion',async()=>{
    await page.setViewportSize({width:1440,height:950});await goto('/chat');
    const brand=page.locator('.sidebar .brand-symbol');assert.ok(await brand.evaluate(e=>e.complete&&e.naturalWidth>0));assert.equal(await brand.evaluate(e=>getComputedStyle(e).filter),'none');
-   assert.match(await page.locator('link[rel~="icon"]').getAttribute('href'),/brand=mnemoduck-1/);
+   assert.match(await page.locator('link[rel~="icon"]').getAttribute('href'),/brand=mnemoduck-red-1/);
    const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('');
    const duck=page.locator('.chat-welcome .mascot svg');await duck.waitFor();
    assert.equal(await duck.getAttribute('data-state'),'idle');assert.equal(await duck.getAttribute('data-theme'),theme);
@@ -129,6 +129,8 @@ try{
    await composer.fill('');await page.emulateMedia({reducedMotion:'reduce'});
    assert.equal(await duck.locator('.float-root').evaluate(e=>getComputedStyle(e).animationName),'none');
    assert.ok(await duck.evaluate(e=>e.getRootNode() instanceof ShadowRoot));
+   const colors=await duck.evaluate(svg=>({body:[...svg.querySelectorAll('#sun stop')].map(s=>s.getAttribute('stop-color')),rays:[...svg.querySelectorAll('.rays path')].map(p=>getComputedStyle(p).stroke)}));assert.deepEqual(colors.body,['#F53C65','#EE204D','#D91C45']);assert.deepEqual(colors.rays,['rgb(238, 32, 77)','rgb(238, 32, 77)','rgb(238, 32, 77)']);
+   const logo=await(await page.request.get(fixture.base+'/brand-mark.svg')).text();assert.match(logo,/<linearGradient id="sun"[^]*?stop-color="#F53C65"[^]*?stop-color="#EE204D"[^]*?stop-color="#D91C45"/);assert.match(logo,/<g class="[^"]*rays[^"]*"[^>]*stroke="#EE204D"/);
    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
    await screenshot('mnemoduck-chat');
   });
