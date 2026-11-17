@@ -37,6 +37,20 @@ test('chunked upload bypasses request-size limits and retries do not duplicate b
  assert.equal((await chunk(512*1024,1024*1024)).status,200);assert.equal((await chunk(1024*1024,bytes.length)).status,200);
  const done=await req('/api/upload-sessions/'+id+'/complete',{cookie:ownerCookie,body:{}});assert.equal(done.response.status,201);assert(done.data.state.studies.some(s=>s.fileId===id));const again=await req('/api/upload-sessions/'+id+'/complete',{cookie:ownerCookie,body:{}});assert.equal(again.data.createdStudyId,done.data.createdStudyId);assert.equal(again.data.state.studies.filter(s=>s.fileId===id).length,1);let processed;for(let i=0;i<50;i++){processed=(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.fileId===id);if(processed.status==='ready')break;await new Promise(r=>setTimeout(r,100))}assert.equal(processed.status,'ready');assert.equal(processed.segments[0].id,'fixture-asr');const file=await fetch(baseURL+'/api/files/'+id,{headers:{Cookie:ownerCookie}});assert.deepEqual(Buffer.from(await file.arrayBuffer()),bytes);
 });
+test('manual participant count changes only recording metadata',async()=>{
+ const study=async()=>(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.title==='Chunk test');
+ const original=await study(),url='/api/studies/'+original.id+'/speaker-count';
+ const patch=(body,cookie=ownerCookie)=>req(url,{cookie,method:'PATCH',body});
+ const jobs=()=>app.db.prepare('SELECT count(*) AS n FROM mnema_jobs WHERE study_id=?').get(original.id).n;
+ const initialJobs=jobs();
+ assert.equal((await patch({count:2},viewerCookie)).response.status,403);
+ for(const count of [0,-1,2.5,'2'])assert.equal((await patch({count})).response.status,400);
+ assert.equal((await patch({count:2,before:original.participants})).response.status,200);
+ assert.deepEqual(await study(),{...original,participants:2});
+ assert.equal((await patch({count:3,before:0})).response.status,409);
+ assert.equal((await patch({count:null,before:2})).response.status,200);
+ assert.equal(jobs(),initialJobs);
+});
 test('speakers are detected as a background job, renamed and reassigned only with full access',async()=>{
  const find=async()=>(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.title==='Chunk test');let study=await find();const id=study.id,seg=study.segments[0].id;
  assert.equal((await req('/api/studies/'+id+'/speakers',{cookie:viewerCookie,body:{}})).response.status,403);

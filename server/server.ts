@@ -806,6 +806,17 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(person.role!=='full')fail(403,'Исправлять текст может участник с полным доступом.');const b=await body(req),study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(['queued','running'].includes(study.summaryInfo?.state))fail(409,'Дождитесь сводки перед исправлением текста.');const seg=study.segments?.find(s=>s.id===path.split('/')[5]);if(!seg)fail(404,'Фрагмент не найден.');if(typeof b.text!=='string'||!b.text.trim()||b.text.length>4000)fail(400,'Введите исправленный текст до 4000 символов.');if(b.before!==undefined&&b.before!==(seg.correctedText??seg.text))fail(409,'Фрагмент изменился. Откройте его заново и повторите правку.');
      mutate(s=>{const target=s.studies.find(x=>x.id===study.id),part=target.segments.find(x=>x.id===seg.id);target.transcriptEdits=[...(target.transcriptEdits||[]),{segmentId:part.id,before:part.correctedText??part.text,after:b.text.trim(),by:person.name,at:Date.now()}].slice(-1000);part.correctedText=b.text.trim();target.summary=[];target.summaryInfo=undefined});return json(res,200,view(person));
     }
+    if(/^\/api\/studies\/[^/]+\/speaker-count$/.test(path)&&req.method==='PATCH'){
+     if(person.role!=='full')fail(403,'Изменять число участников можно с полным доступом.');
+     const b=await body(req),id=path.split('/')[3];
+     const study=getState().state.studies.find(s=>s.id===id);
+     if(!study)fail(404,'Материал не найден.');
+     if(study.format!=='Видео')fail(400,'Число участников можно указать для записи.');
+     if(b.count!==null&&(!Number.isSafeInteger(b.count)||b.count<1))fail(400,'Введите целое число больше нуля.');
+     if(b.before!==undefined&&b.before!==(study.participants||0))fail(409,'Число участников изменилось. Откройте поле ещё раз.');
+     mutate(s=>{s.studies.find(x=>x.id===id).participants=b.count??0});
+     return json(res,200,view(person));
+    }
     if(/^\/api\/studies\/[^/]+\/speakers$/.test(path)&&['POST','PATCH'].includes(req.method)){
      if(person.role!=='full')fail(403,'Менять спикеров может участник с полным доступом.');const b=await body(req),study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(study.format!=='Видео')fail(400,'Спикеры есть только у записей.');
      if(req.method==='POST'){if(study.status!=='ready'||!study.segments?.length)fail(409,'Сначала дождитесь расшифровки.');if(!options.speakerProcessor&&!processingReadiness().diarization)fail(503,'Определение спикеров не установлено на этом сервере.');if(['queued','running'].includes(study.speakerInfo?.state))return json(res,202,view(person));enqueue(study,'speakers');return json(res,202,view(person))}
