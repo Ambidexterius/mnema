@@ -29,6 +29,7 @@
  .topbar>.g-button{--_--height:48px;width:44px;min-width:44px;margin:0;padding:0 0 0 4px;justify-content:flex-start}.topbar>.g-button>*{margin:0;padding:0}.topbar>.g-button::before{inset:8px auto 8px 0;width:32px}.topbar>.g-button svg{width:24px;height:24px}.topbar .project-tabs{margin:0;gap:8px;padding:0}.project-tabs a{flex:none;min-height:36px;padding:8px 12px;font:var(--g-text-body-2-font)}
  .page{padding:16px var(--mobile-gutter) calc(24px + env(safe-area-inset-bottom))}.page-heading{gap:16px;margin-bottom:24px}.page-heading h1{font-size:20px;line-height:1.4;text-wrap:balance}
  .page-heading p{font-size:14px;line-height:1.5}.page-title-row{gap:4px;align-items:flex-start}.page-back{width:48px;height:48px;min-width:48px;min-height:48px;margin:0;place-items:center start;padding:0 0 0 6px;box-sizing:border-box;position:relative;background:none}.page-back:hover{background:none}.page-back::before{content:'';position:absolute;inset:8px auto 8px 0;width:32px;border-radius:var(--g-border-radius-m)}.page-back>svg{position:relative}
+ .page-heading:has(.project-tabs) .page-title-row{padding-top:4px}
  .page-title-row:has(>.page-back)>h1{padding-block-start:10px}
  .findings-type-tabs>.g-segmented-radio-group,.toolbar>.g-segmented-radio-group{max-width:100%;height:auto;flex-wrap:wrap}
  .content-shell>.topbar,.content-shell>.page{
