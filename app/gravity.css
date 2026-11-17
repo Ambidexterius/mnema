@@ -579,7 +579,7 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .summary-text{font-size:15px;line-height:24px}.summary-text :is(p,ul,ol){margin:0}.summary-text :is(ul,ol){display:grid;gap:8px;padding-left:20px}.summary-text>*+*{margin-top:8px}
 .summary-pending{display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;border-radius:var(--g-border-radius-m);background:var(--g-color-base-info-light);font-size:13px;line-height:18px}
 .summary-empty{margin:0;color:var(--g-color-text-secondary);font-size:14px;line-height:20px}
-.summary-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding-top:12px;border-top:1px solid var(--g-color-line-generic)}
+.summary-actions{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:8px;padding-top:12px;border-top:1px solid var(--g-color-line-generic)}
 .summary-actions:first-child{padding-top:0;border-top:0}
 .summary-questions{display:flex;flex-wrap:wrap;gap:8px}
 .digest-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:6px;font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
@@ -1469,7 +1469,8 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .users-table .g-table__body .g-table__cell{vertical-align:top}
 .users-table .user-cell{align-items:flex-start}.users-table .user-cell>.g-avatar{align-self:flex-start;flex:none}
 
-.participant-count{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.speaker-settings,.participant-count{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.speaker-settings{margin-bottom:12px}
 
 .g-dialog.updates-dialog{--g-dialog-width:520px;max-width:calc(100vw - 24px)}
 .updates-dialog .g-dialog-body{padding-bottom:var(--_--side-padding)}

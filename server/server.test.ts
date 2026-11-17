@@ -10,9 +10,10 @@ const dir=await mkdtemp(join(tmpdir(),'mnema-test-'));
 await mkdir(join(dir,'public'));await writeFile(join(dir,'public','brand-mark.svg'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>');
 const setup=randomBytes(32).toString('hex');
 const testPort=Number(process.env.MNEMA_SERVER_TEST_PORT||4191),baseURL='http://127.0.0.1:'+testPort;
-let reply='OK';
+let reply='OK',providerContext:any;
+let speakerFixture:((args:any)=>Promise<any>)|undefined;
 const completionMails:any[]=[];
-const app=await createMnemaServer({sendCompletionMail:async m=>{completionMails.push(m)},dataDir:dir,publicDir:join(dir,'public'),baseURL,authSecret:randomBytes(32).toString('hex'),setupToken:setup,recordingProcessor:async()=>({segments:[{id:'fixture-asr',time:0,end:11,speaker:'Запись',text:'Тестовый текст, не настоящее распознавание.'}],duration:11,model:'Fixture — не ASR',processingSeconds:0}),speakerProcessor:async({segments})=>({speakers:Object.fromEntries(segments.map(s=>[s.id,'Спикер 1'])),count:1,engine:'Fixture — не диаризация',processingSeconds:0}),providerFetch:async()=>new Response(JSON.stringify({choices:[{message:{content:reply}}],usage:{total_tokens:42}}),{status:200,headers:{'Content-Type':'application/json'}})});
+const app=await createMnemaServer({sendCompletionMail:async m=>{completionMails.push(m)},dataDir:dir,publicDir:join(dir,'public'),baseURL,authSecret:randomBytes(32).toString('hex'),setupToken:setup,recordingProcessor:async()=>({segments:[{id:'fixture-asr',time:0,end:11,speaker:'Запись',text:'Тестовый текст, не настоящее распознавание.'}],duration:11,model:'Fixture — не ASR',processingSeconds:0}),speakerProcessor:async(args)=>speakerFixture?speakerFixture(args):({speakers:Object.fromEntries(args.segments.map(s=>[s.id,'Спикер 1'])),count:1,engine:'Fixture — не диаризация',processingSeconds:0}),providerFetch:async(_url,options)=>{providerContext=JSON.parse(String(options.body));return Response.json({choices:[{message:{content:reply}}],usage:{total_tokens:42}})}});
 await new Promise<void>(r=>app.server.listen(testPort,'127.0.0.1',()=>r()));
 let ownerCookie='',viewerCookie='',invite;
 async function req(path:string,{body,method,cookie,headers={}}:{body?:any;method?:string;cookie?:string;headers?:Record<string,string>}={}):Promise<{response:Response;data:any}>{const response=await fetch(baseURL+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:baseURL,...(cookie?{Cookie:cookie}:{}),...headers},...(body!==undefined?{body:typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body)}:{})} as RequestInit);const data=await response.json();return{response,data}}
@@ -61,6 +62,44 @@ test('speakers are detected as a background job, renamed and reassigned only wit
  assert.equal((await req('/api/studies/'+id+'/speakers',{cookie:ownerCookie,method:'PATCH',body:{from:'Спикер 1',speaker:'Запись'}})).response.status,400);
  let r=await req('/api/studies/'+id+'/speakers',{cookie:ownerCookie,method:'PATCH',body:{from:'Спикер 1',speaker:'Ведущая'}});assert.equal(r.response.status,200);study=r.data.state.studies.find(s=>s.id===id);assert.equal(study.segments[0].speaker,'Ведущая');
  r=await req('/api/studies/'+id+'/speakers',{cookie:ownerCookie,method:'PATCH',body:{segmentIds:[seg],speaker:'Респондент'}});study=r.data.state.studies.find(s=>s.id===id);assert.equal(study.segments[0].speaker,'Респондент');assert.equal(study.speakerEdits.at(-1).action,'reassigned');assert.equal(study.speakerEdits.at(-1).by.length>0,true);
+});
+test('speaker rerun uses the saved limit and replaces labels only on success',async()=>{
+ const workspace=app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data;
+ const save=app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'");
+ const state=JSON.parse(String(workspace)),study=state.studies.find(s=>s.title==='Chunk test');
+ const url='/api/studies/'+study.id+'/speakers';
+ const original=await (await fetch(baseURL+'/api/files/'+study.fileId,{headers:{Cookie:ownerCookie}})).arrayBuffer();
+ const segments=Array.from({length:10},(_,i)=>({id:'rerun-'+i,time:i,end:i+1,speaker:'Спикер '+(i+1),text:'Нейтральный текст '+i,...(i===0?{correctedText:'Ручное исправление'}:{})}));
+ Object.assign(study,{participants:4,segments});save.run(JSON.stringify(state));
+ const get=async()=>(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.id===study.id);
+ const jobs=()=>Number(app.db.prepare("SELECT count(*) AS n FROM mnema_jobs WHERE study_id=? AND kind='speakers'").get(study.id).n);
+ const wait=async(state:string)=>{
+  for(let i=0;i<100;i++){const item=await get();if(item.speakerInfo?.state===state)return item;await new Promise(r=>setTimeout(r,40))}
+  assert.fail('Speaker state did not reach '+state);
+ };
+ let release:()=>void;
+ const gate=new Promise<void>(resolve=>release=resolve);
+ try{
+  const initial=jobs();
+  speakerFixture=async()=>{await gate;throw new Error('Fixture failure')};
+  const starts=await Promise.all([1,2].map(()=>req(url,{cookie:ownerCookie,body:{}})));
+  assert(starts.every(r=>r.response.status===202));assert.equal(jobs(),initial+1);
+  await wait('running');assert.deepEqual((await get()).segments,segments);
+  assert.equal((await req(url,{cookie:ownerCookie,method:'PATCH',body:{segmentIds:[segments[0].id],speaker:'Новое имя'}})).response.status,409);
+  release();
+  const failed=await wait('error');assert.equal(failed.status,'ready');assert.deepEqual(failed.segments,segments);
+  let savedLimit;
+  speakerFixture=async({participants,segments})=>{
+   savedLimit=participants;
+   return {count:4,engine:'Fixture',processingSeconds:0,speakers:Object.fromEntries(segments.slice(1).map((segment,i)=>[segment.id,'Спикер '+(i%4+1)]))};
+  };
+  assert.equal((await req(url,{cookie:ownerCookie,body:{}})).response.status,202);
+  const result=await wait('ready');assert.equal(savedLimit,4);assert.equal(result.participants,4);assert.equal(result.status,'ready');
+  assert.equal(result.segments[0].speaker,'Запись');assert.equal(new Set(result.segments.slice(1).map(s=>s.speaker)).size,4);
+  assert.deepEqual(result.segments.map(({speaker,...segment})=>segment),segments.map(({speaker,...segment})=>segment));
+  assert.equal(result.fileId,study.fileId);
+  assert.deepEqual(await (await fetch(baseURL+'/api/files/'+result.fileId,{headers:{Cookie:viewerCookie}})).arrayBuffer(),original);
+ }finally{release();speakerFixture=undefined;save.run(workspace)}
 });
 test('model connection test is admin-only and accounts actual tokens before enforcing quota',async()=>{
  const oldKey=process.env.LLM_KEY_CUSTOM1,oldLimit=process.env.LLM_MONTHLY_TOKEN_LIMIT;process.env.LLM_KEY_CUSTOM1='test-only-provider-key';
@@ -118,6 +157,37 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
  reply=JSON.stringify({summary:[{title:'Несуществующий источник',text:'Нельзя публиковать.',segments:['foreign-id']}]});assert.equal((await req('/api/studies/'+id+'/summary',{cookie:ownerCookie,body:{modelId:'quota-test'}})).response.status,202);
  for(let i=0;i<50;i++){ready=(await req('/api/state',{cookie:ownerCookie})).data.state.studies.find(s=>s.id===id);if(ready.summaryInfo.state==='error')break;await new Promise(r=>setTimeout(r,100))}assert.equal(ready.summaryInfo.state,'error');assert.equal(ready.summaryInfo.errorCode,'sources');assert.doesNotMatch(ready.summaryInfo.error,/JSON|ID|формат/i);assert.equal((await req('/api/studies/'+id+'/summary/verify',{cookie:ownerCookie,body:{}})).response.status,409);
  }finally{reply='OK';if(prior===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=prior}
+});
+test('project summary uses overview evidence, survives model errors and respects reader visibility',async()=>{
+ const stored=app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data;
+ const save=app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'");
+ const state=JSON.parse(String(stored)),oldKey=process.env.LLM_KEY_CUSTOM1;
+ const source={id:'summary-segment',speaker:'Документ',time:5,page:2,text:'Пользователь сверяет даты заезда перед оплатой.'};
+ const visible={...state.studies[0],id:'visible-catalog',status:'ready',title:'Интервью',segments:[source],importSource:{catalog:true}};
+ state.studies=[visible,{...visible,id:'hidden-catalog',title:'Скрытый материал',segments:[{...source,id:'hidden',text:'PRIVATE_CATALOG'}]}];
+ const finding={kind:'Инсайт',importance:'Средняя',segmentId:source.id,studyId:visible.id,origin:'ai'};
+ state.findings=[{...finding,id:'verified',status:'verified',title:'Настройки проекта'},{...finding,id:'draft',status:'draft',title:'Черновик проекта PRIVATE_DRAFT'}];
+ save.run(JSON.stringify(state));
+ process.env.LLM_KEY_CUSTOM1='test-only-provider-key';
+ const build=(cookie=ownerCookie)=>req('/api/project-summary',{cookie,body:{}});
+ try{
+  assert.equal((await build(viewerCookie)).response.status,403);
+  reply='- Участник сверяет даты [1].';
+  const response=await build();assert.equal(response.response.status,200,JSON.stringify(response.data));
+  const summary=response.data.state.projectSummary,context=JSON.parse(providerContext.messages[1].content);
+  assert.equal(context.coverage.included,1);assert.equal(context.coverage.fragments,1);
+  assert.deepEqual(context.reviewed_findings.map(f=>f.title),['Настройки проекта']);
+  assert.doesNotMatch(JSON.stringify(providerContext),/PRIVATE_CATALOG|PRIVATE_DRAFT/);
+  assert.equal(summary.sources[0].segmentId,source.id);assert.equal(summary.sources[0].page,2);assert.equal(summary.sources[0].time,5);
+  const read=async()=>(await req('/api/state',{cookie:viewerCookie})).data.state.projectSummary;
+  assert.deepEqual(await read(),summary);
+  reply='';assert.equal((await build()).response.status,502);assert.deepEqual(await read(),summary);
+  reply='- Даты проверяют до оплаты [1].';const retry=await build();
+  assert.equal(retry.response.status,200);assert.equal((await read()).answer,reply);
+  const current=JSON.parse(String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data));
+  current.findings=[];save.run(JSON.stringify(current));
+  assert.equal(await read(),null);
+ }finally{save.run(stored);reply='OK';if(oldKey===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=oldKey}
 });
 test('workspaces isolate studies; built-in models stay; studies can be deleted with their findings and file',async()=>{
  const before=await req('/api/state',{cookie:ownerCookie});assert.equal(before.data.state.workspace.name,'Команда');

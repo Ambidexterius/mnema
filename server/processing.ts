@@ -130,7 +130,7 @@ export async function detectSpeakers({filePath,segments,participants,signal,onPr
  try{
   onProgress('Подготовка аудио');await prepareAudio(run,filePath,join(working,'audio-%05d.flac'),maximum);
   const input=join(working,'segments.json'),output=join(working,'speakers.json');
-  await writeFile(input,JSON.stringify(segments.map(s=>({id:s.id,time:s.time,end:s.end,speaker:s.speaker}))),{mode:0o600});
+  await writeFile(input,JSON.stringify(segments.map(({id,time,end})=>({id,time,end}))),{mode:0o600});
   onProgress('Определяем спикеров');const script=join(dirname(fileURLToPath(import.meta.url)),'diarize.py');
   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants)],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};

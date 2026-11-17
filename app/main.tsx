@@ -38,7 +38,7 @@ import RegistrationPage from './RegistrationPage.tsx';
 import {api,setApiWorkspace,projectFile,projectFileDownload,projectArchive} from './api.ts';
 import React, {createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {configure, Accordion, Modal, Avatar, Button, Card, Checkbox, Dialog, DropdownMenu, Popup, Label, Hotkey, Loader, Progress, SegmentedRadioGroup, Select, Switch, Table, TextArea, TextInput, ThemeProvider, Tooltip} from '@gravity-ui/uikit';
-import {Megaphone, Link as LinkIcon, ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, Box, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, Files, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, Newspaper, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RefreshCw, RotateCcw, Search, ShieldCheck, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
+import {Megaphone, Link as LinkIcon, ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, Box, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, Files, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, Newspaper, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RotateCcw, Search, ShieldCheck, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
 import type {LucideIcon} from 'lucide-react';
 import type {Finding, Study, Segment, ChatSource, WorkspaceUser} from './types.ts';
 import '@gravity-ui/uikit/styles/styles.css';
@@ -148,7 +148,7 @@ export function App(){
  stateRef.current=state;
  reader=DEMO?(qa&&new URLSearchParams(location.search).get('role')==='view'):authInfo.user?.role!=='full';
 
- const receive=data=>{authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
+ const receive=(data,onlyCurrentProject=false)=>{if(onlyCurrentProject&&(switching.current||data.user?.workspaceId!==authInfoRef.current?.workspaceId))return;authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
  const linkWorkspaceApplied=useRef(false);
  const refresh=async()=>{const info=await api('/api/session');if(info.user){if(!linkWorkspaceApplied.current){const requested=requestedWorkspace();if(requested){const token=new URLSearchParams(location.search).get('share');if(token)await api('/api/workspaces/'+encodeURIComponent(requested)+'/share',{token},'POST',false);setApiWorkspace(requested);document.cookie='mnema_ws='+encodeURIComponent(requested)+'; path=/; SameSite=Lax'}linkWorkspaceApplied.current=true}receive(await api('/api/state'));setAuthInfo(a=>({...a,registrationEnabled:info.registrationEnabled,loading:false,error:undefined}))}else setAuthInfo({...info,loading:false});};
  const completeAuth=async()=>{const back=projectReturnPath(new URL(location.href));if(back&&back!==location.pathname+location.search){location.assign(back);return}try{await refresh()}catch(error){if(error.status===403||error.status===404){closeProject();return}throw error}if(!back)go('research')};
@@ -342,24 +342,39 @@ export function GlobalChat(){const {real,state,user,workspaces,chatHistory,globa
  </div></section>
 }
 
-function Home(){const {state,projectName,reader,real,receive}=useApp();const ready=state.studies.some(s=>s.status==='ready'&&s.segments?.length);return <div className="project-overview"><PageHeading title={projectName} tabs/>{state.workspace&&<ProjectProfile key={state.workspace.id} project={state.workspace} editable={real&&!reader} onSave={receive}/>}<div className="overview-grid"><div className="overview-main"><ProjectSummary/><FindingsDigest/></div><ProjectMaterials/></div>{ready?<ProjectChatDock key={state.workspace?.id||'project'}/>:null}</div>}
+function Home(){const {state,projectName,reader,real,receive}=useApp();const ready=state.studies.some(s=>s.status==='ready'&&s.segments?.length);return <div className="project-overview"><PageHeading title={projectName} tabs/>{state.workspace&&<ProjectProfile key={state.workspace.id} project={state.workspace} editable={real&&!reader} onSave={receive}/>}<div className="overview-grid"><div className="overview-main"><ProjectSummary key={state.workspace?.id}/><FindingsDigest/></div><ProjectMaterials/></div>{ready?<ProjectChatDock key={state.workspace?.id||'project'}/>:null}</div>}
 const summaryQuestions=['Что исправить в первую очередь?','Какие проблемы повторяются?','Подготовь текст для презентации'];
 const summaryDate=new Intl.DateTimeFormat('ru',{day:'numeric',month:'short'});
 const isActive=(s:Study)=>['queued','running'].includes((s.activity||materialActivity(s)).state);
 /** «Кратко»: the saved project summary from the model, with citations; questions under it go to the project chat. */
 function ProjectSummary(){
- const {state,real,receive,notify,panel,setPanel}=useApp();const [busy,setBusy]=useState(false);
- const summary=state.projectSummary,ready=state.studies.filter(s=>s.status==='ready').length,pending=state.studies.filter(isActive);
- const canBuild=real&&!reader&&ready>0&&state.models.some(m=>m.enabled);
- if(!state.studies.length||!summary&&reader)return null;
- const build=async()=>{setBusy(true);try{receive(await api('/api/project-summary',{}))}catch(e){notify(e.message)}finally{setBusy(false)}};
+ const {state,reader,real,receive,panel,setPanel}=useApp();
+ const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ const compact=useCompactLayout();
+ const summary=state.projectSummary,ready=state.studies.some(s=>s.status==='ready'&&s.segments?.length),pending=state.studies.filter(isActive);
+ const model=state.models.find(m=>m.id===state.modelId);
+ const canBuild=real&&!reader&&ready&&model?.enabled&&model.keyConfigured&&model.model;
+ if(!state.studies.length&&!summary||!summary&&reader)return null;
+ const build=async()=>{
+  if(busy)return;
+  setBusy(true);setError('');
+  try{receive(await api('/api/project-summary',{}),true)}
+  catch(e){setError(e.status>=500?'Модель не смогла собрать сводку. Попробуйте позже.':e.message)}
+  finally{setBusy(false)}
+ };
  const ask=(question:string)=>window.dispatchEvent(new CustomEvent('mnema:project-ask',{detail:question}));
- return <section className="overview-summary" aria-labelledby="project-summary-title" aria-busy={busy}>
-  <div className="section-heading"><h2 id="project-summary-title"><Sparkles size={20} aria-hidden="true"/>Кратко</h2>{summary?<span className="section-note">{'Сформировано '+summaryDate.format(summary.at).replace('.','')+' · по '+plural(summary.materials,'материалу','материалам','материалам')}</span>:null}</div>
+ return <section className="overview-summary" aria-labelledby="project-summary-title">
+  <div className="section-heading"><h2 id="project-summary-title"><Sparkles size={20} aria-hidden="true"/>Сводка проекта</h2>{summary?<span className="section-note">{'Сформировано '+summaryDate.format(summary.at).replace('.','')+' · по '+plural(summary.materials,'материалу','материалам','материалам')}</span>:null}</div>
   <div className="summary-card">
-   {pending.length?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>{pending.length===1?'«'+pending[0].title+'» обрабатывается.':plural(pending.length,'материал обрабатывается','материала обрабатываются','материалов обрабатывается')+'.'} Обновите кратко, когда обработка закончится.</p>:null}
-   {summary?<div className="summary-text"><AnswerText id="project-summary" text={summary.answer} sources={summary.sources} onCite={(list,key)=>setPanel({sources:list,heading:sourcesHeading(list),key})} active={panel?.key}/></div>:<p className="summary-empty">{canBuild?'Модель соберёт главные выводы по материалам проекта со ссылками на источники.':ready?'Подключите модель в настройках проекта, чтобы собрать главные выводы.':'Главные выводы появятся, когда материалы будут обработаны.'}</p>}
-   {summary||canBuild?<div className="summary-actions">{summary?<div className="summary-questions">{summaryQuestions.map(q=><Button key={q} view="outlined" size="m" pin="circle-circle" disabled={!state.models.some(m=>m.enabled)} onClick={()=>ask(q)}>{q}</Button>)}</div>:<Button view="outlined" size="m" loading={busy} onClick={build}><Sparkles size={16}/>Собрать кратко</Button>}{summary&&canBuild?<IconButton icon={RefreshCw} label="Обновить кратко" size="m" disabled={busy} onClick={build}/>:null}</div>:null}
+   {pending.length?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>{pending.length===1?'«'+pending[0].title+'» обрабатывается.':plural(pending.length,'материал обрабатывается','материала обрабатываются','материалов обрабатывается')+'.'} {canBuild?'Обновите сводку после обработки.':null}</p>:null}
+   {summary?<div className="summary-text"><AnswerText id="project-summary" text={summary.answer} sources={summary.sources} onCite={(list,key)=>setPanel({sources:list,heading:sourcesHeading(list),key})} active={panel?.key}/></div>:!busy&&!error?<p className="summary-empty">{canBuild?'ИИ соберёт основные выводы по материалам проекта и добавит ссылки на источники.':ready?'Подключите модель в настройках проекта, чтобы создать сводку.':pending.length?'Сводку можно создать после обработки материалов.':'В материалах пока нет текста для сводки.'}</p>:null}
+   {summary?.fragments<summary?.totalFragments?<p className="summary-empty">Выборка: {summary.fragments} из {summary.totalFragments} фрагментов</p>:null}
+   {busy?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>Создаём сводку…</p>:null}
+   {error?<div className="task-error" role="alert"><strong>{summary?'Не удалось обновить сводку':'Не удалось создать сводку'}</strong><p>{error}</p></div>:null}
+   {summary||canBuild?<div className="summary-actions">
+    {canBuild?<Button view="outlined" size={compact?'l':'m'} loading={busy} disabled={busy} onClick={build}>{error?'Повторить':summary?'Обновить сводку':'Создать сводку'}</Button>:null}
+    {summary?<div className="summary-questions">{summaryQuestions.map(q=><Button key={q} view="outlined" size="m" pin="circle-circle" disabled={!state.models.some(m=>m.enabled)} onClick={()=>ask(q)}>{q}</Button>)}</div>:null}
+   </div>:null}
   </div>
  </section>;
 }

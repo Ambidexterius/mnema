@@ -216,7 +216,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const uploadSizes=new Map(q("SELECT id,size FROM mnema_uploads WHERE status='ready'").all().map(file=>[file.id,file.size]));
   const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
   // projectSummary is always present, so switching projects never keeps the previous project's summary on the client.
-  const state={...raw,projectSummary:raw.projectSummary||null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
+  const summary=raw.projectSummary;
+  const canReadSummary=full||summary?.sources.every(source=>studies.some(study=>study.id===source.studyId&&study.segments.some(segment=>segment.id===source.segmentId)));
+  const state={...raw,projectSummary:canReadSummary?summary||null:null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
   return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{},canManageSharing:sharing.canManage(currentWs(),person.id),sharingMode:q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(currentWs())?.mode},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory(person):sharing.canManage(currentWs(),person.id)?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const scopedPerson=(person:Person):Person=>person.sharedProject&&!person.workspaces.some(w=>w.id===person.sharedProject.id)?{...person,workspaces:[...person.workspaces,person.sharedProject]}:person;
@@ -289,18 +291,20 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   try{return await callProvider(person,model,payload,workspace)}
   catch(e){if(!reserve||!e.retryable)throw e;modelDownUntil.set(down,Date.now()+600000);console.error('LLM fallback',model.model,'->',reserve.model,e.status);return viaReserve()}
  };
- const processSpeakers=async(study,filePath,signal:AbortSignal)=>{
+ const processSpeakers=async(study,fileId:string|undefined,signal:AbortSignal)=>{
   const setInfo=info=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item)item.speakerInfo={...item.speakerInfo,...info}})};
   setInfo({state:'running',progress:'Подготовка аудио'});
   try{
-   const result=await(options.speakerProcessor||detectSpeakers)({filePath,segments:study.segments||[],participants:study.participants,signal,onProgress:progress=>setInfo({progress})});signal.throwIfAborted();
-   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;const before=new Map((item.segments||[]).map(x=>[x.id,x.speaker]));for(const seg of item.segments||[])if(result.speakers[seg.id])seg.speaker=result.speakers[seg.id];item.speakerInfo={state:'ready',count:result.count,engine:result.engine,finishedAt:Date.now()};item.speakerEdits=[...(item.speakerEdits||[]),{action:'detected',count:result.count,changed:(item.segments||[]).filter(x=>before.get(x.id)!==x.speaker).length,by:'Мнемодак',at:Date.now()}].slice(-500)});
+   if(!fileId)throw new Error('Исходник не найден.');
+   const result=await(options.speakerProcessor||detectSpeakers)({filePath:join(dir,'uploads',fileId),segments:study.segments||[],participants:study.participants,signal,onProgress:progress=>setInfo({progress})});signal.throwIfAborted();
+   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;const before=new Map((item.segments||[]).map(x=>[x.id,x.speaker]));for(const seg of item.segments||[])seg.speaker=result.speakers[seg.id]||'Запись';item.speakerInfo={state:'ready',count:result.count,engine:result.engine,finishedAt:Date.now()};item.speakerEdits=[...(item.speakerEdits||[]),{action:'detected',count:result.count,changed:(item.segments||[]).filter(x=>before.get(x.id)!==x.speaker).length,by:'Мнемодак',at:Date.now()}].slice(-500)});
   }catch(e){signal.throwIfAborted();console.error('Speakers failed',e.name);setInfo({state:'error',progress:null,error:'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.'})}
  };
  const processStudy=async(study,kind,checkpointDir,signal:AbortSignal)=>{
   signal.throwIfAborted();
-  const record=q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);if(!record)throw new Error('Исходник не найден. Добавьте файл заново.');
-  if(kind==='speakers')return processSpeakers(study,join(dir,'uploads',record.id),signal);
+  const record=q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);
+  if(kind==='speakers')return processSpeakers(study,record?.id,signal);
+  if(!record)throw new Error('Исходник не найден. Добавьте файл заново.');
   const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,participants:study.participants,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
   const result=await(kind==='document'?extractDocument(args):(options.recordingProcessor||transcribeRecording)(args));
   signal.throwIfAborted();
@@ -821,6 +825,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(/^\/api\/studies\/[^/]+\/speakers$/.test(path)&&['POST','PATCH'].includes(req.method)){
      if(person.role!=='full')fail(403,'Менять спикеров может участник с полным доступом.');const b=await body(req),study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(study.format!=='Видео')fail(400,'Спикеры есть только у записей.');
      if(req.method==='POST'){if(study.status!=='ready'||!study.segments?.length)fail(409,'Сначала дождитесь расшифровки.');if(!options.speakerProcessor&&!processingReadiness().diarization)fail(503,'Определение спикеров не установлено на этом сервере.');if(['queued','running'].includes(study.speakerInfo?.state))return json(res,202,view(person));enqueue(study,'speakers');return json(res,202,view(person))}
+     if(['queued','running'].includes(study.speakerInfo?.state))fail(409,'Дождитесь завершения определения спикеров.');
      const name=text(b.speaker,60);if(!name)fail(400,'Введите имя спикера до 60 символов.');if(['Запись','Документ'].includes(name)||name.startsWith('Страница '))fail(400,'Это имя зарезервировано. Выберите другое.');
      const ids=Array.isArray(b.segmentIds)?new Set(b.segmentIds.filter(x=>typeof x==='string')):null;const from=typeof b.from==='string'?b.from:null;if(!ids?.size&&!from)fail(400,'Укажите фрагменты или спикера.');
      const targets=(study.segments||[]).filter(seg=>ids?.size?ids.has(seg.id):seg.speaker===from);if(!targets.length)fail(404,'Фрагменты не найдены. Обновите страницу.');
@@ -890,17 +895,16 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(!person.admin)fail(403,'Проверка подключения доступна владельцу.');limit('model-test:'+person.id,3);await body(req);const model=getState().state.models.find(m=>m.id===path.split('/')[3]);if(!model)fail(404,'Модель не найдена.');const started=Date.now();if(new URL(model.url).hostname==='inference.waw0.amvera.ru'){try{const ping=await fetch(model.url.replace(/\/$/,'')+'/models',{headers:{Authorization:'Bearer '+modelKey(model)},signal:AbortSignal.timeout(15000)});console.log('Amvera models preflight',ping.status);await ping.arrayBuffer();if(!ping.ok)fail(502,'API Amvera вернул HTTP '+ping.status)}catch(e){if(e.status)throw e;fail(504,'API Amvera недоступен из контейнера. '+e.name)}}const result=await callModel(person,model,{model:model.model,max_tokens:1024,messages:[{role:'user',content:'Reply with one word: OK'}]},currentWs(),false);const content=result.choices?.[0]?.message?.content;if(!content?.trim())fail(502,'API доступен, но модель не вернула текст.');return json(res,200,{ok:true,model:model.model,answer:content.slice(0,500),usage:result.usage,seconds:(Date.now()-started)/1000});
     }
     if(path==='/api/project-summary'&&req.method==='POST'){
-     // «Кратко» on the project overview: the project chat pipeline with a fixed question, saved for everyone.
-     // Built from what a reader may see (verified findings, visible materials), so the saved text never leaks drafts.
+     // Build the shared summary from the same evidence a project reader can see.
      if(person.role!=='full')fail(403,'Собирать сводку может участник с полным доступом.');limit('project-summary:'+person.id,5);await body(req);
      const {state}=getState();const model=state.models.find(m=>m.id===state.modelId&&m.enabled);if(!model||!modelKey(model)||!model.model)fail(400,'Подключите модель в настройках проекта.');
-     const corpus=view({...person,role:'view'}).state;const ready=corpus.studies.filter(s=>s.status==='ready').length;if(!ready)fail(409,'Дождитесь обработки материалов.');
-     const question='Кратко: главные выводы этого исследования';
+     const corpus=view({...person,role:'view'}).state;if(!corpus.studies.some(s=>s.status==='ready'))fail(409,'Дождитесь обработки материалов.');
+     const question='Обзор проекта';
      const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,'all',corpus.findings);if(!sources.length)fail(409,'В материалах пока нет текста для сводки.');
      const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.'+(coverage.sampled?' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.':''),sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');return callModel(person,model,payload)});
      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string'||!answer.trim())fail(502,'Модель вернула неожиданный ответ. Повторите попытку.');
      const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');
-     const summary={answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,at:Date.now(),materials:ready};
+     const summary={answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,at:Date.now(),materials:coverage.included,fragments:coverage.fragments,totalFragments:coverage.totalFragments};
      mutate(s=>{s.projectSummary=summary});return json(res,200,view(latest));
     }
     if(path==='/api/chat'&&req.method==='POST'){

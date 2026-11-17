@@ -10,7 +10,12 @@ if(!chrome)throw Error('Set CHROME_PATH to the installed Chrome/Chromium binary'
 const out=resolve(process.env.UI_CHECK_OUTPUT||'artifacts/ui-check');await mkdir(out,{recursive:true});
 // Sectioned answer exercises «Главное», quiet captions, bold item leads and conclusion cards.
 const ANSWER='Хозяева не успевают ответить быстро [1].\n\n## Цифры\n- Отмечают задержку: 7 из 12 хозяев — интервью [1]\n- **Опоздание**: до 3 часов — дневники [1]\n\n## Скорость ответа\n- **Уведомления теряются.** Узнают о вопросе поздно [1].\n\n## Выводы\n- Важнее уведомления, чем шаблоны.\n\n## Что осталось невыясненным\n- Влияние на отмены неизвестно.';
-const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSWER);
+let failSpeakers=true;
+const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSWER,async({segments,participants})=>{
+ assert.equal(participants,4);
+ if(failSpeakers){failSpeakers=false;throw new Error('Fixture failure')}
+ return {speakers:Object.fromEntries(segments.slice(1).map((segment,i)=>[segment.id,'Спикер '+(i%4+1)])),count:4,engine:'Fixture',processingSeconds:0};
+});
 const browser=await chromium.launch({executablePath:chrome,headless:true});
 const checks=[],errors=[];
 const run=async(name,fn)=>{await fn();checks.push(name)};
@@ -256,6 +261,75 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await goto('/projects');await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Открыть меню',exact:true}).click();await page.locator('.mobile-nav-sheet').waitFor();await page.locator('.mobile-nav-sheet').getByRole('link',{name:'Настройки',exact:true}).click();await page.locator('.settings-sheet').waitFor();await page.locator('.mobile-nav-sheet').waitFor({state:'hidden'});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('.settings-sheet').press('Escape');await page.locator('.settings-sheet').waitFor({state:'hidden'});
   });
   await context.close();
+ }
+ const db=fixture.app.db;
+ const readProject=()=>JSON.parse(db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);
+ const saveProject=state=>db.prepare("UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'").run(JSON.stringify(state));
+ for(const [theme,width] of [['light',1440],['dark',390]]){
+  await run(theme+': project summary status, retry, source and refresh',async()=>{
+   const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
+   await context.addCookies(fixture.cookies);
+   const page=await context.newPage();page.setDefaultTimeout(9000);page.on('pageerror',e=>errors.push(e.message));
+   try{
+    const state=readProject();delete state.projectSummary;saveProject(state);
+    await page.goto(fixture.base+'/projects/main');
+    const section=page.getByRole('region',{name:'Сводка проекта'});
+    const create=section.getByRole('button',{name:'Создать сводку'});
+    await create.waitFor();
+    let rejectRequest;
+    const rejected=new Promise(resolve=>rejectRequest=resolve);
+    await page.route('**/api/project-summary',async route=>{await rejected;await route.abort()},{times:1});
+    try{
+     await create.click();
+     await section.getByText('Создаём сводку…',{exact:true}).waitFor();
+     assert(await create.isDisabled());
+    }finally{rejectRequest()}
+    await section.getByRole('alert').getByText('Не удалось создать сводку').waitFor();
+    await section.getByRole('button',{name:'Повторить',exact:true}).click();
+    await section.getByRole('button',{name:'Обновить сводку'}).waitFor();
+    await section.locator('.footnote').first().click();
+    await page.locator('.source-panel').getByText('Синтетический', {exact:false}).first().waitFor();
+    await page.getByRole('button',{name:'Закрыть источники',exact:true}).click();
+    if(width===1440){
+     const response=page.waitForResponse(r=>r.url().endsWith('/api/project-summary')&&r.request().method()==='POST');
+     await section.getByRole('button',{name:'Обновить сводку'}).click();
+     assert.equal((await response).status(),200);
+     assert.equal(await section.getByRole('alert').count(),0);
+    }
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   }finally{await context.close()}
+  });
+  await run(theme+': speaker confirmation, retry and saved participant limit',async()=>{
+   const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
+   await context.addCookies(fixture.cookies);
+   const page=await context.newPage();page.setDefaultTimeout(18000);page.on('pageerror',e=>errors.push(e.message));
+   try{
+    const state=readProject(),study=state.studies.find(item=>item.id==='sample');
+    Object.assign(study,{format:'Видео',participants:4,speakerInfo:{state:'ready',count:10},speakerEdits:[{action:'renamed'}],
+     segments:Array.from({length:10},(_,i)=>({...study.segments[0],id:i?'segment-'+i:'segment',time:i*4,end:i*4+3,speaker:i?'Спикер '+(i+1):'Интервьюер'}))});
+    saveProject(state);
+    await page.goto(fixture.base+'/projects/main/studies/sample');
+    const tab=page.getByRole('tab',{name:/Спикеры/});await tab.click();
+    const panel=page.getByRole('tabpanel',{name:/Спикеры/});
+    const detect=panel.getByRole('button',{name:'Определить спикеров заново',exact:true});
+    await detect.waitFor();
+    await detect.click();
+    const confirmation=page.getByRole('dialog',{name:'Определить спикеров заново?'});
+    await confirmation.getByRole('button',{name:'Отмена'}).click();
+    assert.equal(readProject().studies.find(item=>item.id==='sample').speakerInfo.state,'ready');
+    const confirm=async()=>{await confirmation.getByRole('button',{name:'Определить заново'}).click()};
+    await detect.click();await confirm();
+    if(width===1440){
+     await panel.getByRole('alert').getByText(/Не удалось различить голоса/).waitFor();
+     await panel.getByRole('button',{name:'Переименовать: Интервьюер',exact:true}).waitFor();
+     await panel.getByRole('button',{name:'Повторить',exact:true}).click();await confirm();
+    }
+    await page.getByRole('tab',{name:'Спикеры, 4',exact:true}).waitFor();
+    assert.equal(await panel.locator('.participant-count strong').innerText(),'4');
+    assert.equal(readProject().studies.find(item=>item.id==='sample').segments[0].speaker,'Запись');
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   }finally{await context.close()}
+  });
  }
  await run('Living avatar follows the mouse, loves on hover, sleeps and respects reduced motion',async()=>{
   const context=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'no-preference'});await context.addCookies(fixture.cookies);
