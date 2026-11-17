@@ -104,7 +104,7 @@ function FindingsBreadcrumbs({project,finding,studyTitle}:{project?:string;findi
   {studyTitle?<><span className="breadcrumb-separator" aria-hidden="true">/</span><span aria-current="page">{studyTitle}</span></>:null}
  </nav>;
 }
-function AddMaterial(){const compact=useCompactLayout();const {open}=useApp();return reader?null:<Button view="action" size="l" onClick={()=>open({type:'upload'})}><Plus size={16}/>{compact?'Добавить':'Добавить материал'}</Button>}
+function AddMaterial(){const compact=useCompactLayout();const {open}=useApp();return reader?null:<Button view="action" size="l" onClick={()=>open({type:'upload'})}><Plus size={16}/>Добавить</Button>}
 export function App(){
  const [authInfo,setAuthInfo]=useState<{loading:boolean;user:any;setupRequired?:boolean;setupEnabled?:boolean;registrationEnabled?:boolean;error?:string}>({loading:!DEMO,user:null,setupRequired:false,setupEnabled:false});
  const authInfoRef=useRef(authInfo.user);authInfoRef.current=authInfo.user;
@@ -117,7 +117,7 @@ export function App(){
  const [projectAction,setProjectAction]=useState<any>(null);
  const [toast,setToast]=useState('');
  const [mobile,setMobile]=useState(()=>innerWidth<960);const mobileWeb=useCompactLayout(MOBILE_WEB_QUERY);
- const navs:[string,string,LucideIcon][]=[['home','Обзор проекта',House],['library',mobile?'Документы':'Исследования',mobile?Files:Library]];
+ const navs:[string,string,LucideIcon][]=[['home','Обзор проекта',House],['library',mobile?'Документы':'Материалы',mobile?Files:Library]];
  const [menuOpen,setMenuOpen]=useState(false);
  const menuTrigger=useRef<HTMLButtonElement>(null);
  const sidebarShift=useRef<{left:number;animation?:Animation}|null>(null);
@@ -337,7 +337,7 @@ function MaterialLink({study}:{study:Study}){
  const Icon=ext&&Object.hasOwn(sourceIcons,ext)?sourceIcons[ext]:File;
  const topic = study.project?.trim();
  const title=ext&&!study.title.trimEnd().toLowerCase().endsWith('.'+ext)?study.title+'.'+ext:study.title;
- return <a className="table-study" href={appHref('study/'+study.id)}><Icon size={20} aria-hidden="true" style={{flexShrink:0}}/><span><strong>{title}</strong>{topic && topic !== 'Без темы' && <small>{topic}</small>}</span></a>;
+ return <a className="table-study" href={appHref('study/'+study.id)} title={title}><Icon size={20} aria-hidden="true" style={{flexShrink:0}}/><span><strong>{title}</strong>{topic && topic !== 'Без темы' && <small>{topic}</small>}</span></a>;
 }
 function StudyTable({studies}:{studies:Study[]}){const compact=useCompactLayout();if(compact)return <ul className="mobile-material-list" aria-label="Материалы проекта">{studies.toSorted((a,b)=>Number(b.type==='Отчёт')-Number(a.type==='Отчёт')).map(study=><li key={study.id}><div className="mobile-material-heading"><MaterialLink study={study}/>{study.fileId?<a className="mobile-download" href={projectFileDownload(study.fileId)} download={study.fileName||study.title} aria-label={'Скачать «'+(study.fileName||study.title)+'»'}><Download size={20} aria-hidden="true"/></a>:null}</div><div className="mobile-material-meta"><span>{study.type}</span><span>{formatFileSize(study.fileSize)}</span><time dateTime={study.date}>{materialDate.format(new Date(study.date+'T12:00:00')).replace(/\s*г\.$/u,'')}</time></div><Status study={study}/></li>)}</ul>;return <div className="table-scroll study-table" tabIndex={0} aria-label="Материалы. Таблицу можно прокрутить"><Table data={studies.toSorted((a,b)=>Number(b.type==='Отчёт')-Number(a.type==='Отчёт'))} columns={[
  {id:'title',name:'Материал',template:s=><MaterialLink study={s}/>},
@@ -348,7 +348,7 @@ function StudyTable({studies}:{studies:Study[]}){const compact=useCompactLayout(
  {id:'download',name:()=><span className="sr-only">Скачать</span>,width:56,align:'end',template:s=>s.fileId?<a className="table-download" href={projectFileDownload(s.fileId)} download={s.fileName||s.title} aria-label={'Скачать «'+(s.fileName||s.title)+'»'} title="Скачать файл"><Download size={16} aria-hidden="true"/></a>:<span/>}
  ]} getRowId={s=>s.id}/></div>}
 function LibraryPage(){return <ResearchList/>}
-function ResearchList({embedded=false}:{embedded?:boolean}){const compact=useCompactLayout();const {state}=useApp();const [filter,setFilter]=useState('Все');const list=state.studies.filter(s=>filter==='Все'||(filter==='Видео'?s.format==='Видео':filter==='Отчёты'?s.format!=='Видео':s.type==='Встреча'));return <>{embedded?<div className="section-heading research-heading"><h2>{compact?'Материалы':'Исследования'}</h2><AddMaterial/></div>:<PageHeading back={{href:appHref('home'),label:'Назад',history:true}} title={compact?'Документы':'Исследования'} action={<AddMaterial/>}>Исходные материалы, контекст и выводы этого проекта.</PageHeading>}<div className="toolbar material-filters"><SegmentedRadioGroup value={filter} onUpdate={setFilter} name="Тип материала" options={['Все','Видео','Отчёты','Встречи'].map(value=>({value,content:value}))}/></div>{!state.studies.length?<div className="project-empty"><span className="project-folder"><Folder size={32} strokeWidth={1.5}/></span><h2>Здесь будут ваши материалы</h2><p>PDF, DOCX, DOC, аудио и видео. Откройте запись, чтобы посмотреть текст, сводку и находки.</p>{reader?<p>Попросите участника с полным доступом добавить материалы.</p>:null}</div>:!list.length?<Empty title="Материалы не найдены" action={<Button onClick={()=>setFilter('Все')}>Сбросить фильтры</Button>}>Выберите другой тип материала.</Empty>:<StudyTable studies={list}/>}</>}
+function ResearchList({embedded=false}:{embedded?:boolean}){const compact=useCompactLayout();const {state}=useApp();const [filter,setFilter]=useState('Все');const list=state.studies.filter(s=>filter==='Все'||(filter==='Видео'?s.format==='Видео':filter==='Отчёты'?s.format!=='Видео':s.type==='Встреча'));return <>{embedded?<div className="section-heading research-heading"><h2>Материалы</h2><AddMaterial/></div>:<PageHeading back={{href:appHref('home'),label:'Назад',history:true}} title={compact?'Документы':'Материалы'} action={<AddMaterial/>}/>}<div className="toolbar material-filters"><SegmentedRadioGroup value={filter} onUpdate={setFilter} name="Тип материала" options={['Все','Видео','Отчёты','Встречи'].map(value=>({value,content:value}))}/></div>{!state.studies.length?<div className="project-empty"><span className="project-folder"><Folder size={32} strokeWidth={1.5}/></span><h2>Здесь будут ваши материалы</h2><p>PDF, DOCX, DOC, аудио и видео. Откройте запись, чтобы посмотреть текст, сводку и находки.</p>{reader?<p>Попросите участника с полным доступом добавить материалы.</p>:null}</div>:!list.length?<Empty title="Материалы не найдены" action={<Button onClick={()=>setFilter('Все')}>Сбросить фильтры</Button>}>Выберите другой тип материала.</Empty>:<StudyTable studies={list}/>}</>}
 
 const backdropRoute={current:'library'};
 const settingsBackdrop={current:'research'};
@@ -520,7 +520,7 @@ function UsersPage(){
  return <><div className="settings-toolbar"><Button view="action" size="l" onClick={()=>open({type:'invite'})}><Plus size={16}/>Добавить</Button></div>
  <p className="result-count">{plural(state.users.length,'пользователь','пользователя','пользователей')}{DEMO?' · демо-адреса':''}</p>
  <div className="table-scroll users-table" tabIndex={0} aria-label="Пользователи. Таблицу можно прокрутить"><Table<WorkspaceUser> data={state.users} getRowId={u=>u.id} columns={[
-  {id:'name',name:'Пользователь',template:u=><div className="user-cell"><Avatar text={u.name[0]} size="m"/><div><strong>{u.name}{u.id===user?.id||DEMO&&u.owner?' · вы':''}</strong><small>{u.email}</small><div className="user-mobile-status"><UserStatus user={u}/></div></div></div>},
+  {id:'name',name:'Пользователь',template:u=><div className="user-cell"><Avatar text={u.name[0]} size="m"/><div><strong title={u.name}>{u.name}{u.id===user?.id||DEMO&&u.owner?' · вы':''}</strong><small>{u.email}</small><div className="user-mobile-status"><UserStatus user={u}/></div></div></div>},
   {id:'status',name:'Статус',template:u=><UserStatus user={u}/>},
   {id:'scope',name:'Проекты',template:u=>u.scope==='all'?'Все проекты':u.projectNames?.join(', ')||projectName},
   {id:'role',name:'Уровень доступа',template:u=>canEdit(u)?<Select value={[u.role]} options={[{value:'view',content:'Просмотр'},{value:'full',content:'Полный доступ'}]} aria-label={'Доступ: '+u.name} onUpdate={v=>{update(s=>({users:s.users.map(x=>x.id===u.id?{...x,role:v[0]}:x)}));if(DEMO)notify('Уровень доступа изменён в прототипе.')}}/>:<span className="muted">{u.role==='full'?'Полный доступ':'Просмотр'}</span>},

@@ -1217,7 +1217,7 @@ html[data-theme=dark] .shared-composer .g-text-area__control::placeholder{color:
 
 /* Settings modal: sizes and motion follow the BoardUI settings dialog; colors come from Gravity tokens for both themes. */
 .settings-modal{--g-modal-margin:16px;--g-modal-border-radius:24px}
-.settings-modal .settings-sheet{position:relative;display:flex;width:min(871px,calc(100vw - 32px));height:min(614px,calc(100dvh - 32px));overflow:hidden;background:var(--g-color-base-modal);box-shadow:0 1px 2px var(--g-color-sfx-shadow),0 24px 64px -24px var(--g-color-sfx-shadow)}
+.settings-modal .settings-sheet{position:relative;display:flex;width:min(900px,calc(100vw - 32px));height:min(614px,calc(100dvh - 32px));overflow:hidden;background:var(--g-color-base-modal);box-shadow:0 1px 2px var(--g-color-sfx-shadow),0 24px 64px -24px var(--g-color-sfx-shadow)}
 .settings-modal[data-floating-ui-status=open]{transition:opacity 300ms cubic-bezier(.32,.72,0,1)}
 .settings-modal[data-floating-ui-status=initial] .settings-sheet,.settings-modal[data-floating-ui-status=close] .settings-sheet{opacity:0;transform:scale(.85);filter:blur(4px)}
 .settings-modal[data-floating-ui-status=open] .settings-sheet{transition:opacity 300ms cubic-bezier(.32,.72,0,1),transform 300ms cubic-bezier(.32,.72,0,1),filter 300ms cubic-bezier(.32,.72,0,1)}
@@ -1383,6 +1383,10 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .finding-project-link:hover{color:var(--g-color-text-primary);text-decoration:underline}
 .study-table .g-table__table{table-layout:fixed;min-width:808px}
 .study-table .table-study{min-width:0;max-width:none}
+/* Long names end with an ellipsis inside their column; the full name is in the link title and accessible name. */
+.study-table .table-study>span{min-width:0}.study-table .table-study strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Settings tables sit on the window surface without a frame; rows keep Gravity's dividers. */
+.settings-body .table-scroll{border:0;border-radius:0}.settings-body .table-scroll::before{border-bottom:0;padding-inline:0}.settings-body .table-scroll .g-table__cell:first-child{padding-inline-start:0}
 .study-table .g-table__cell{overflow-wrap:anywhere}
 
 .table-scroll .status-column{box-sizing:border-box;width:160px;min-width:160px;max-width:160px;padding-inline:12px;text-align:start}
@@ -1475,3 +1479,17 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .answer-metric-value{font-size:17px;line-height:24px;font-weight:590}
 .answer-metric-note{font-size:13px;line-height:18px;color:var(--g-color-text-secondary)}
 @media(max-width:639px){.messages .answer .answer-metrics ul,.answer-metrics ul{grid-template-columns:minmax(0,1fr)}}
+/* Settings window is 900 px wide: the status moves under the name (as on the phone) so the frameless users table fits without clipping. */
+.settings-body .users-table .user-mobile-status{display:block;margin-top:8px}
+.settings-body .users-table .g-table__cell:nth-child(2){display:none}
+.settings-body .users-table .user-cell{min-width:0}.settings-body .users-table .user-cell>div{min-width:0}
+.settings-body .users-table .user-cell strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Quiet tables, 17.11.2026: the header labels columns without competing with the data; the row title carries emphasis by colour, not weight. */
+.g-table__head .g-table__cell{padding-block:8px;font-size:12px;line-height:16px;font-weight:400;color:var(--g-color-text-secondary)}
+.table-study strong,.user-cell strong,.catalog-link{font-weight:400}
+.table-study>svg,.catalog-link svg{color:var(--g-color-text-secondary)}
+.study-table .g-table__body .g-table__cell:is(:nth-child(2),:nth-child(3),:nth-child(4)){color:var(--g-color-text-secondary)}
+@media(hover:hover){:is(.study-table,.findings-table) .g-table__body .g-table__row:hover .g-table__cell{background:var(--g-color-base-simple-hover)}}
+/* Multi-line user rows: every column starts on the name line. */
+.users-table .g-table__body .g-table__cell{vertical-align:top}
+.users-table .user-cell{align-items:flex-start}.users-table .user-cell>.g-avatar{align-self:flex-start;flex:none}

@@ -51,7 +51,7 @@ try{
     await page.setViewportSize({width,height:844});
     await goto('/projects/main');
     const compact=width<960;
-    const tab=page.locator('.project-tabs').getByRole('link',{name:compact?'Документы':'Исследования',exact:true});
+    const tab=page.locator('.project-tabs').getByRole('link',{name:compact?'Документы':'Материалы',exact:true});
     await tab.waitFor();
     if(compact){
      const back=await page.getByRole('link',{name:'К проектам'}).boundingBox();
@@ -62,7 +62,7 @@ try{
     }
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
-    assert.equal(await page.getByRole('button',{name:compact?'Добавить':'Добавить материал',exact:true}).count(),1);
+    assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
    }
   });
   await run(theme+': single-key creation always enabled, visible hints and no settings switch',async()=>{
