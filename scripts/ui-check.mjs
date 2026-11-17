@@ -121,11 +121,14 @@ try{
    const brand=page.locator('.sidebar .brand-symbol');assert.ok(await brand.evaluate(e=>e.complete&&e.naturalWidth>0));assert.equal(await brand.evaluate(e=>getComputedStyle(e).filter),'none');
    assert.match(await page.locator('link[rel~="icon"]').getAttribute('href'),/brand=mnemoduck-1/);
    const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('');
-   const duck=page.locator('.chat-welcome .mascot img');await duck.waitFor();
-   await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/static/56/idle.svg'));
-   await composer.fill('Проверка состояния');await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/static/56/listening.svg'));
-   await page.emulateMedia({reducedMotion:'no-preference'});await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/animated/56/listening.svg'));
-   assert.ok(await duck.evaluate(e=>e.complete&&e.naturalWidth>0));await composer.fill('');await page.emulateMedia({reducedMotion:'reduce'});
+   const duck=page.locator('.chat-welcome .mascot svg');await duck.waitFor();
+   assert.equal(await duck.getAttribute('data-state'),'idle');assert.equal(await duck.getAttribute('data-theme'),theme);
+   await composer.fill('Проверка состояния');assert.equal(await duck.getAttribute('data-state'),'listening');
+   await page.emulateMedia({reducedMotion:'no-preference'});assert.equal(await duck.getAttribute('data-phase'),'living');
+   assert.equal(await duck.locator('.float-root').evaluate(e=>getComputedStyle(e).animationName),'duckListen');
+   await composer.fill('');await page.emulateMedia({reducedMotion:'reduce'});
+   assert.equal(await duck.locator('.float-root').evaluate(e=>getComputedStyle(e).animationName),'none');
+   assert.ok(await duck.evaluate(e=>e.getRootNode() instanceof ShadowRoot));
    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
    await screenshot('mnemoduck-chat');
   });
@@ -215,6 +218,29 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
   });
   await context.close();
  }
+ await run('Living avatar follows the mouse, loves on hover, sleeps and respects reduced motion',async()=>{
+  const context=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'no-preference'});await context.addCookies(fixture.cookies);
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(fixture.base+'/chat');const host=page.locator('.chat-welcome .mascot'),duck=host.locator('svg');await duck.waitFor();
+  await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot')?.shadowRoot?.querySelector('svg')?.dataset.phase==='living');
+  const intro=await duck.evaluate(node=>{const phase=node.dataset.phase;node.dataset.phase='intro';const head=getComputedStyle(node.querySelector('.facial')),rays=getComputedStyle(node.querySelector('.rays'));const result={headDuration:parseFloat(head.animationDuration),headDelay:head.animationDelay,raysDuration:parseFloat(rays.animationDuration),raysDelay:rays.animationDelay,paths:[...node.querySelectorAll('.rays path')].map(e=>getComputedStyle(e).animationName)};node.dataset.phase=phase;return result});
+  assert.equal(intro.headDuration,.66);assert.equal(intro.headDelay,'0.78s');assert.equal(intro.raysDuration,.24);assert.equal(intro.raysDelay,'2.1s');assert.deepEqual(intro.paths,['none','none','none']);
+  const stateIs=state=>page.waitForFunction(state=>document.querySelector('.chat-welcome .mascot')?.shadowRoot?.querySelector('svg')?.dataset.state===state,state);
+  const box=await host.boundingBox(),look=duck.locator('.mascot-gaze');
+  await page.mouse.move(box.x-220,box.y-100);await page.waitForTimeout(250);const left=await look.evaluate(e=>getComputedStyle(e).transform);
+  await page.mouse.move(box.x+box.width+220,box.y+100);await page.waitForTimeout(250);const right=await look.evaluate(e=>getComputedStyle(e).transform);assert.notEqual(left,right);
+  assert.ok(Number(left.split(',')[4])<0);assert.ok(Number(right.split(',')[4])>0);
+  await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.waitForTimeout(250);await stateIs('love');assert.equal(await duck.locator('.heart-extra').evaluate(e=>getComputedStyle(e).opacity),'1');
+  await page.screenshot({path:resolve(out,'living-avatar-hover.png')});
+  await page.mouse.move(400,100);await stateIs('idle');
+  const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('Проверка');await stateIs('listening');
+  await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await stateIs('love');await page.mouse.move(400,100);await stateIs('listening');
+  await page.clock.install();await composer.fill('');await page.clock.fastForward(61000);await page.waitForTimeout(250);assert.equal(await duck.getAttribute('data-phase'),'sleep');assert.ok(await duck.locator('.zzz').evaluate(e=>Number(getComputedStyle(e).opacity)>0));
+  await page.mouse.move(410,110);await page.waitForTimeout(250);await stateIs('idle');
+  await page.emulateMedia({reducedMotion:'reduce'});await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.waitForTimeout(250);await stateIs('love');assert.equal(await look.evaluate(e=>getComputedStyle(e).transform),'none');assert.equal(await duck.locator('.eyes-love').evaluate(e=>getComputedStyle(e).animationName),'none');
+  await page.goto(fixture.base+'/projects');await page.locator('.app-shell').waitFor();await page.clock.fastForward(65000);await context.close();
+  const touch=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});await touch.addCookies(fixture.cookies);const phone=await touch.newPage();await phone.goto(fixture.base+'/chat');const avatar=phone.locator('.chat-welcome .mascot');await avatar.waitFor();const rect=await avatar.boundingBox();await phone.touchscreen.tap(rect.x+rect.width/2,rect.y+rect.height/2);assert.notEqual(await avatar.locator('svg').getAttribute('data-state'),'love');assert.ok(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await phone.screenshot({path:resolve(out,'living-avatar-mobile.png')});await touch.close();
+ });
  const motion=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'no-preference'});await motion.addCookies(fixture.cookies);await motion.addInitScript(()=>{window.__uiAnimations=[];const animate=Element.prototype.animate;Element.prototype.animate=function(frames,options){if(this.classList.contains('content-shell'))window.__uiAnimations.push(options.duration);return animate.call(this,frames,options)}});const page=await motion.newPage();await page.goto(fixture.base+'/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Свернуть меню',exact:true}).click();await page.waitForFunction(()=>window.__uiAnimations.includes(160));await page.getByRole('button',{name:'Развернуть меню',exact:true}).click();await page.waitForTimeout(200);assert.equal(await page.getByRole('button',{name:'Свернуть меню',exact:true}).getAttribute('aria-expanded'),'true');checks.push('Pointer sidebar collapse is animated and interruptible');await motion.close();
  assert.deepEqual(errors,[]);
 }finally{await writeFile(resolve(out,'checks.json'),JSON.stringify({checks,errors},null,2));await browser.close();await fixture.close()}

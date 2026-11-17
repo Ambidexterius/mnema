@@ -1065,9 +1065,8 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .thinking-elapsed{font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
 @keyframes thinking-step-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
 @keyframes thinking-shimmer{to{background-position:-150% 0}}
-/* MnemoDuck motion is contained in the supplied SVGs; picture selects a static pose for reduced motion. */
+/* Living SVGs are isolated in each mascot shadow root, including reduced-motion styles. */
 .mascot{flex:none;display:block}
-.mascot img{display:block;width:100%;height:100%}
 .answer-sign{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:13px;line-height:20px;color:var(--g-color-text-secondary)}
 .chat-error{display:flex;align-items:flex-start;gap:8px}
 .chat-welcome .mascot{margin:0 auto 16px}

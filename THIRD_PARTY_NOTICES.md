@@ -31,3 +31,7 @@ Visual reference: Glassmorphism Folder Cards by Kedhareswer Naidu, https://21st.
 ## MnemoDuck
 
 Логотип и анимации предоставлены владельцем проекта в архиве MnemoDuck_assets.zip 17.11.2026. SVG используются в исходном виде; иконка уведомления дополнена красной отметкой. Описание происхождения — app/licenses/mnemoduck.md.
+
+## MnemoDuck Living
+
+Живая аватарка чата: SVG из архива MnemoDuck_Living_Solid_D_v2.zip, предоставленного владельцем проекта 17.11.2026. Графика и тайминги адаптированы для общего Mascot; описание — app/licenses/mnemoduck.md.

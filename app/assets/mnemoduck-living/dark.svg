@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 128 128" role="img" aria-label="MnemoDuck: живой персонаж" data-theme="dark" data-phase="intro" data-state="idle">
+<title>MnemoDuck — появление, подмигивание, эмоции и сон</title><defs><linearGradient id="sun" x1="0" y1="0" x2=".83" y2="1"><stop offset="0" stop-color="#FFE16D"/><stop offset="0.5" stop-color="#FFC42C"/><stop offset="1" stop-color="#FC9000"/></linearGradient><linearGradient id="feather" x1="0" y1="0" x2=".83" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F9F6FF"/></linearGradient><linearGradient id="bill" x1="0" y1="0" x2=".83" y2="1"><stop offset="0" stop-color="#FFD040"/><stop offset="0.5" stop-color="#FFB319"/><stop offset="1" stop-color="#FC9000"/></linearGradient><linearGradient id="eyes" x1="0" y1="0" x2=".83" y2="1"><stop offset="0" stop-color="#37242D"/><stop offset="1" stop-color="#21111B"/></linearGradient></defs><style><![CDATA[/* Original MnemoDuck geometry, responsive SVG with CSS keyframes. */
+.d-outline { opacity:0; }
+.base-shell,.facial,.rays {opacity:1;}
+.eyes,.beak-shape,.extras {opacity:0;transition: opacity .22s ease;}
+[data-state="idle"] .eyes-neutral,
+[data-state="listening"] .eyes-listening,
+[data-state="thinking"] .eyes-thinking,
+[data-state="working"] .eyes-smile,
+[data-state="joy"] .eyes-smile,
+[data-state="success"] .eyes-smile,
+[data-state="wink"] .eyes-wink,
+[data-state="sleep"] .eyes-sleep,
+[data-state="calm"] .eyes-calm,
+[data-state="surprise"] .eyes-surprise,
+[data-state="error"] .eyes-error,
+[data-state="love"] .eyes-love,
+[data-state="question"] .eyes-thinking {opacity:1;}
+[data-state="idle"] .beak-normal,
+[data-state="listening"] .beak-normal,
+[data-state="wink"] .beak-normal,
+[data-state="thinking"] .beak-normal,
+[data-state="question"] .beak-normal,
+[data-state="sleep"] .beak-normal {opacity:1;}
+[data-state="working"] .beak-smile,
+[data-state="joy"] .beak-smile,
+[data-state="success"] .beak-smile,
+[data-state="calm"] .beak-smile,
+[data-state="love"] .beak-smile,
+[data-state="error"] .beak-smile {opacity:1;}
+[data-state="surprise"] .beak-wow {opacity:1;}
+[data-state="working"] .dots,
+[data-state="thinking"] .dots,
+[data-state="success"] .check,
+[data-state="error"] .error-lines,
+[data-state="question"] .question,
+[data-state="sleep"] .zzz,
+[data-state="love"] .heart-extra {opacity:1;}
+[data-state="sleep"] .rays {opacity:0;}
+/* At time 0 the glyph is a completely filled golden D, no counter/hole. */
+[data-phase="intro"] .facial{animation: faceComeIn .66s var(--mn-ease-out,cubic-bezier(.23,1,.32,1)) .78s both;transform-origin:72px 86px;}
+[data-phase="intro"] .rays{animation: rayIn .24s var(--mn-ease-out,cubic-bezier(.23,1,.32,1)) 2.1s both;transform-origin:100px 23px;}
+[data-phase="intro"] .eyes-neutral .eye-right{animation:firstWink .48s ease-in-out 1.48s both;transform-origin:98px 67px;}
+[data-phase="living"] .float-root{animation: duckBreathe 5s ease-in-out infinite;transform-origin:62px 85px;}
+[data-phase="living"] .eyes-neutral .eye{animation: regularBlink 8.5s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+[data-phase="living"][data-state="listening"] .float-root{animation: duckListen 2.8s ease-in-out infinite;}
+[data-phase="living"][data-state="thinking"] .float-root{animation: duckThink 3.2s ease-in-out infinite;}
+[data-phase="living"][data-state="joy"] .float-root{animation: duckJoy .8s ease-in-out 2;}
+[data-phase="living"][data-state="wink"] .eyes-wink{animation: winkPop .8s ease-in-out 1;transform-origin:98px 67px;}
+[data-phase="living"][data-state="working"] .dots circle{animation: typing 1.4s ease-in-out infinite;}
+[data-phase="living"][data-state="thinking"] .dots circle{animation: typing 2.4s ease-in-out infinite;}
+[data-phase="living"] .dots circle:nth-child(2){animation-delay:.18s;}
+[data-phase="living"] .dots circle:nth-child(3){animation-delay:.36s;}
+[data-phase="living"][data-state="success"] .check{animation: popCheck .52s cubic-bezier(.2,1.5,.4,1) both;transform-origin:108px 105px;}
+[data-phase="living"][data-state="error"] .float-root{animation: duckError .38s ease 2;}
+[data-phase="living"][data-state="question"] .question{animation: questionBob 2s ease-in-out infinite;}
+[data-phase="living"][data-state="love"] .eyes-love{animation: loving 2.1s ease-in-out infinite;transform-origin:86px 67px;}
+[data-phase="sleep"] .float-root{animation: sleepBreathe 6s ease-in-out infinite;transform-origin:62px 85px;}
+[data-phase="sleep"] .zzz{animation: zzFloat 2.6s ease-in-out infinite;}
+[data-phase="sleep"] .rays{opacity:0;}
+[data-phase="sleep"] .eyes-sleep{opacity:1;}
+[data-phase="sleep"] .eyes:not(.eyes-sleep){opacity:0;}
+[data-phase="sleep"] .beak-normal{opacity:1;}
+[data-phase="sleep"] .beak-shape:not(.beak-normal){opacity:0;}
+[data-phase="waking"] .float-root{animation:wakeStretch .7s ease-out 1;transform-origin:62px 85px;}
+[data-phase="waking"] .rays{animation: quickGlow .8s ease-in 1;}
+@keyframes faceComeIn{from{opacity:0;transform:translateY(6px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes rayIn{from{opacity:0;transform:translateY(2px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes firstWink{0%,22%,76%,100%{transform:scaleY(1)}40%,57%{transform:scaleY(.08)}}
+@keyframes duckBreathe{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-1.8px) scale(1.009)}}
+@keyframes regularBlink{0%,45%,49%,100%{transform:scaleY(1)}46.1%,47.2%{transform:scaleY(.10)}}
+@keyframes duckListen{0%,100%{transform:rotate(-1deg)}50%{transform:rotate(2deg) translateY(-1px)}}
+@keyframes duckThink{0%,100%{transform:translateX(0)}45%{transform:translateX(-1.6px) rotate(-1deg)}}
+@keyframes duckJoy{0%,100%{transform:translateY(0)}35%{transform:translateY(-4px)}70%{transform:translateY(-1px)}}
+@keyframes winkPop{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+@keyframes typing{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-5px)}}
+@keyframes popCheck{0%{transform:scale(.1)}80%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes duckError{0%,100%{transform:translateX(0)}25%,75%{transform:translateX(-2px)}50%{transform:translateX(2px)}}
+@keyframes questionBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes loving{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+@keyframes sleepBreathe{0%,100%{transform:scale(1) translateY(0)}50%{transform:scale(.986) translateY(1.1px)}}
+@keyframes zzFloat{0%,100%{transform:translateY(1px);opacity:.35}50%{transform:translateY(-5px);opacity:1}}
+@keyframes wakeStretch{0%{transform:scale(.96) rotate(-2deg)}50%{transform:scale(1.05) rotate(3deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes quickGlow{0%,50%,100%{opacity:1}25%,75%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}[data-phase="intro"] .d-outline{opacity:0!important}[data-phase="intro"] .base-shell,[data-phase="intro"] .facial,[data-phase="intro"] .rays{opacity:1!important}}
+
+]]></style>
+<path class="d-outline" fill="url(#sun)" d="M 35 18 C 18 18 7 29 7 46 L 7 92 C 7 111 21 123 42 123 L 74 123 C 100 123 118 106 119 79 C 121 47 101 18 69 18 Z"/>
+<g class="float-root">
+<path class="base-shell" d="M 35 18 C 18 18 7 29 7 46 L 7 92 C 7 111 21 123 42 123 L 74 123 C 100 123 118 106 119 79 C 121 47 101 18 69 18 Z" fill="url(#sun)"/>
+<g class="facial"><path d="M 7 91 C 19 82 29 60 44 48 C 56 39 73 37 82 39 C 90 26 97 28 99 32 C 102 35 100 39 97 43 C 104 38 109 40 110 44 C 111 48 108 51 104 54 C 112 61 114 70 113 80 C 112 91 104 99 89 106 C 73 113 46 119 17 121 C 10 116 7 105 7 91 Z" fill="url(#feather)"/><g class="eyes eyes-neutral"><ellipse class="eye eye-left" cx="76" cy="71" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 76 71)"/><ellipse class="eye eye-right" cx="98" cy="67" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 98 67)"/></g><g class="eyes eyes-listening"><ellipse class="eye eye-left" cx="77" cy="70" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 77 70)"/><ellipse class="eye eye-right" cx="99" cy="67" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 99 67)"/></g><g class="eyes eyes-thinking"><ellipse class="eye eye-left" cx="74" cy="69" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 74 69)"/><ellipse class="eye eye-right" cx="97" cy="65" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 97 65)"/><path d="M92 55 L102 52" fill="none" stroke="#231821" stroke-width="3.2" stroke-linecap="round"/></g><g class="eyes eyes-smile"><path d="M70 72 Q76 61 82 70 M91 68 Q97 57 104 66" stroke="#20161D" fill="none" stroke-width="4.5" stroke-linecap="round"/></g><g class="eyes eyes-wink"><ellipse class="eye " cx="76" cy="71" rx="4.3" ry="8" fill="url(#eyes)" transform="rotate(-8 76 71)"/><path d="M91 67 Q98 76 105 65" stroke="#20161D" fill="none" stroke-width="4.6" stroke-linecap="round"/></g><g class="eyes eyes-sleep"><path d="M69 71 Q76 77 82 70 M91 67 Q98 73 105 66" stroke="#2A2027" fill="none" stroke-width="4.2" stroke-linecap="round"/></g><g class="eyes eyes-calm"><path d="M69 70 Q76 77 82 70 M91 66 Q98 73 105 66" stroke="#2A2027" fill="none" stroke-width="4.2" stroke-linecap="round"/></g><g class="eyes eyes-surprise"><ellipse cx="76" cy="71" rx="5.3" ry="10" fill="url(#eyes)"/><ellipse cx="98" cy="67" rx="5.3" ry="10" fill="url(#eyes)"/></g><g class="eyes eyes-error"><path d="M69 67 L82 74 M82 67 L69 74 M91 64 L104 71 M104 64 L91 71" stroke="#27151C" stroke-width="4.6" stroke-linecap="round"/></g><g class="eyes eyes-love"><path d="M0 3 C-3 -3 -11 -1 -11 5 C-11 11 -5 14 0 19 C5 14 11 11 11 5 C11 -1 3 -3 0 3 Z" transform="translate(77 59) scale(0.73)" fill="#E91D3F"/><path d="M0 3 C-3 -3 -11 -1 -11 5 C-11 11 -5 14 0 19 C5 14 11 11 11 5 C11 -1 3 -3 0 3 Z" transform="translate(100 55) scale(0.76)" fill="#E91D3F"/></g><g transform="translate(-8 0)"><g class="beak-shape beak-normal"><path d="M85 84 C88 94 98 99 109 96 C116 94 122 86 125 81 Q113 89 98 90 Q90 90 85 84 Z" fill="#F08300"/><path d="M84 82 C84 77 92 79 104 77 C116 74 123 76 125 80 C120 86 107 90 96 89 C89 89 84 87 84 82Z" fill="url(#bill)"/></g><g class="beak-shape beak-smile"><path d="M85 84 Q102 97 123 80 Q115 106 99 102 Q88 98 85 84 Z" fill="#83301D"/><path d="M86 84 C88 79 98 79 106 77 C117 74 123 77 125 80 C119 88 101 92 88 88 Z" fill="url(#bill)"/></g><g class="beak-shape beak-wow"><ellipse cx="99" cy="92" rx="10" ry="12" fill="url(#bill)"/><ellipse cx="98.5" cy="93" rx="5.7" ry="6.7" fill="#6A2B17"/><path d="M91 82 Q100 79 106 85" fill="none" stroke="#FFBA11" stroke-width="5" stroke-linecap="round"/></g></g></g>
+</g>
+<g class="rays" fill="none" stroke="#FFBC22" stroke-width="6.1" stroke-linecap="round"><path d="M 98 5 L 96 18"/><path d="M 118 11 L 108 24"/><path d="M 125 31 L 111 37"/></g>
+<g class="extras dots" fill="#B88AFF"><circle cx="88" cy="121" r="4.1"/><circle cx="102" cy="121" r="4.1"/><circle cx="116" cy="119" r="4.1"/></g>
+<g class="extras check"><circle cx="108" cy="105" r="16" fill="#38C75B"/><path d="M100 105 l6 6 10 -12" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g class="extras error-lines" fill="none" stroke="#ED2836" stroke-width="6" stroke-linecap="round"><path d="M98 5 L96 18"/><path d="M118 11 L108 24"/><path d="M125 31 L111 37"/></g>
+<g class="extras question" fill="none" stroke="#B88AFF" stroke-width="5.7" stroke-linecap="round"><path d="M112 8 C115 -2 130 1 126 12 C124 17 115 17 116 24"/><circle cx="116" cy="30" r="2.4" fill="#B88AFF" stroke="none"/></g>
+<g class="extras zzz" fill="#B88AFF" font-family="Arial, sans-serif" font-weight="800"><text x="90" y="16" font-size="11">z</text><text x="104" y="10" font-size="15">Z</text><text x="119" y="10" font-size="18">Z</text></g>
+<g class="extras heart-extra"><path d="M0 3 C-3 -3 -11 -1 -11 5 C-11 11 -5 14 0 19 C5 14 11 11 11 5 C11 -1 3 -3 0 3 Z" transform="translate(116 38) scale(0.35)" fill="#E91D3F"/></g>
+</svg>
