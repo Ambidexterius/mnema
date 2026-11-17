@@ -38,7 +38,7 @@ import type {Finding} from '../app/types.ts';
 
 export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
-interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
+interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels=new Set(['deepseek','amvera-deepseek-v4','local-stub']);
 const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
@@ -201,13 +201,16 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    const share=String(req.headers['x-mnema-share']||requestURL.searchParams.get('share')||cookieValue(req,'mnema_share_'+wanted));
    if(sharing.validLink(wanted,share)){current=sharing.linkProject(wanted);sharedProject={id:current.id,name:current.name,role:'view' as const,admin:false,sharingMode:'link',shareVersion:current.nonce}}else if(explicit)fail(403,'Доступ к проекту закрыт. Обновите список проектов.');
   }
-  return {...s.user,role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+  const recordingProcessing=active.some(project=>projectCard(project).processingOwners.has(s.user.id));
+  return {...s.user,recordingProcessing,role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
  // Every request lists the user's projects. Parsing each project's full transcripts here made
  // project switching and polling slow, so folder cards are cached per stored revision and role.
- const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number}}>();
+ const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number,processingOwners:Set<string>}}>();
  const projectCard=(m:any)=>{const key=m.version+':'+m.data_length+':'+m.role;const cached=projectCards.get(m.id);if(cached?.key===key)return cached.card;
   const state=JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);const visibleCatalog=new Set(state.findings.filter(f=>f.status==='verified').map(f=>f.segmentId));const files=state.studies.filter(study=>study.fileId&&(m.role==='full'||!study.importSource?.catalog||study.segments?.some(segment=>visibleCatalog.has(segment.id))));
-  const card={fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),studyCount:state.studies.length};
+  const processingOwners=new Set<string>();
+  for(const study of files)if(study.format==='Видео'&&study.uploadedById&&(study.status==='processing'||['queued','running'].includes(study.speakerInfo?.state)))processingOwners.add(study.uploadedById);
+  const card={fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),studyCount:state.studies.length,processingOwners};
   projectCards.set(m.id,{key,card});return card};
  const view=person=>{const {state:raw,version}=getState();const full=person.role==='full';
   // Readers never receive drafts or rejected findings: not in the list, counters or any other field.

@@ -5,7 +5,7 @@ import type {Study} from './types.ts';
 type Unread={workspace:string;id:string};
 
 /** A completion marker belongs to this tab; initial ready records are not notifications. */
-export function useCompletionFavicon(studies:Study[],workspace:string|undefined,user:string|undefined,route:string,allowed:string[]){
+export function useCompletionFavicon(studies:Study[],workspace:string|undefined,user:string|undefined,route:string,allowed:string[],processing:boolean){
  const [unread,setUnread]=useState<Unread[]>([]);
  const previous=useRef<{workspace?:string;user?:string;statuses:Map<string,string>}>({statuses:new Map()});
  const original=useRef('');const allowedKey=allowed.join('|');
@@ -17,5 +17,5 @@ export function useCompletionFavicon(studies:Study[],workspace:string|undefined,
  },[studies,workspace,user]);
  useEffect(()=>{const permitted=new Set(allowedKey.split('|'));setUnread(items=>{const next=items.filter(x=>permitted.has(x.workspace));return next.length===items.length?items:next})},[allowedKey]);
  useEffect(()=>{const acknowledge=()=>{if(document.visibilityState!=='visible'||!route.startsWith('study/'))return;const id=route.slice(6);setUnread(items=>{const next=items.filter(x=>x.workspace!==workspace||x.id!==id);return next.length===items.length?items:next})};acknowledge();window.addEventListener('focus',acknowledge);document.addEventListener('visibilitychange',acknowledge);document.addEventListener('pointerdown',acknowledge);return()=>{window.removeEventListener('focus',acknowledge);document.removeEventListener('visibilitychange',acknowledge);document.removeEventListener('pointerdown',acknowledge)}},[route,workspace]);
- useEffect(()=>{const icon=document.querySelector<HTMLLinkElement>('link[rel~="icon"]');if(!icon)return;icon.href=unread.length?'/brand-mark-unread.svg?v='+APP_VERSION+'&brand=mnemoduck-red-1':original.current||'/brand-mark.svg?brand=mnemoduck-red-1';icon.dataset.completionDot=unread.length?'true':'false'},[unread.length]);
+ useEffect(()=>{const icon=document.querySelector<HTMLLinkElement>('link[rel~="icon"]');if(!icon)return;const mark=processing?'processing':unread.length?'unread':null;icon.href=mark?'/brand-mark-'+mark+'.svg?v='+APP_VERSION+'&brand=mnemoduck-red-1':original.current||'/brand-mark.svg?brand=mnemoduck-red-1';icon.dataset.completionDot=mark==='unread'?'true':'false'},[processing,unread.length]);
 }

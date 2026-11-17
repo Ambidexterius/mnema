@@ -83,9 +83,9 @@ export function NavigationHint({label,enabled,shortcut,children}:{label:string;e
 function Notice({children}:{children:React.ReactNode}){return <div className="notice"><Info size={16}/><div>{children}</div></div>}
 function Empty({title,children,action,icon:Icon=Library}:{title:string;children?:React.ReactNode;action?:React.ReactNode;icon?:LucideIcon}){return <div className="empty"><Icon size={28}/><h2>{title}</h2><p>{children}</p>{action}</div>}
 function Status({study}:{study:Study}){const activity=study.activity||materialActivity(study);const active=['queued','running'].includes(activity.state);return <div className="material-status"><Label theme={active?'info':activity.state==='ready'?'success':activity.state==='error'?'danger':'normal'} size="s">{active?<LoaderCircle size={12} className="activity-spinner" aria-hidden="true"/>:null}{activity.label}</Label>{active&&activity.detail?<small>{activity.detail}</small>:null}</div>}
-function PageHeading({overline,title,children,action,back,tabs}:{overline?:string;title:string;children?:React.ReactNode;action?:React.ReactNode;back?:{href:string;label:string;history?:boolean};tabs?:boolean}){
- const navigation=back||(tabs?{href:history.state?.previous||'/projects',label:'Назад',history:true}:undefined);
- return <div className="page-heading"><div>{overline?<div className="overline">{overline}</div>:null}<div className="page-title-row">{navigation?<Tooltip content={navigation.label}><a className="page-back" href={navigation.href} aria-label={navigation.label} onClick={e=>{if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;if(navigation.history&&history.state?.app&&history.state?.previous){e.preventDefault();history.back()}}}><ArrowLeft size={20} aria-hidden="true"/></a></Tooltip>:null}<h1>{title}</h1></div>{tabs?<ProjectTabs/>:null}{children?<p>{children}</p>:null}</div>{action}</div>;
+function PageHeading({overline,title,children,action,back,tabs}:{overline?:string;title:string;children?:React.ReactNode;action?:React.ReactNode;back?:{href:string;label:string};tabs?:boolean}){
+ const navigation=back||(tabs?{href:appHref('research'),label:'Назад к проектам'}:undefined);
+ return <div className="page-heading"><div>{overline?<div className="overline">{overline}</div>:null}<div className="page-title-row">{navigation?<Tooltip content={navigation.label}><a className="page-back" href={navigation.href} aria-label={navigation.label}><ArrowLeft size={20} aria-hidden="true"/></a></Tooltip>:null}<h1>{title}</h1></div>{tabs?<ProjectTabs/>:null}{children?<p>{children}</p>:null}</div>{action}</div>;
 }
 /** Sections of a project, under the page title: overview, findings, materials with counts. */
 function ProjectTabs(){const {state,route}=useApp();const mobile=useCompactLayout();const path=route.split('?')[0],current=path.startsWith('study/')?'library':path.startsWith('finding/')?'findings':path;const findings=state.findings.filter(f=>f.status!=='rejected').length;
@@ -154,7 +154,23 @@ export function App(){
  const completeAuth=async()=>{const back=projectReturnPath(new URL(location.href));if(back&&back!==location.pathname+location.search){location.assign(back);return}try{await refresh()}catch(error){if(error.status===403||error.status===404){closeProject();return}throw error}if(!back)go('research')};
  useEffect(()=>{const screen=route.split('?')[0];if(authInfo.user&&(screen==='reset'||screen==='signup'&&authInfo.registrationEnabled))navigate('research')},[route,authInfo.user?.id,authInfo.registrationEnabled]);
  useEffect(()=>{if(DEMO)return;refresh().catch(e=>setAuthInfo({loading:false,user:null,error:e.message}));},[]);
- useEffect(()=>{if(DEMO||!authInfo.user)return;const t=setInterval(()=>{if((!document.hidden||stateRef.current.studies.some(s=>s.status==='processing'))&&!switching.current&&!importOpen.current)pending.current=pending.current.then(async()=>{try{receive(await api('/api/state'))}catch(e){if(e.status===401)setAuthInfo(info=>({...info,user:null,loading:false,setupRequired:false,error:undefined}));else if(e.status===403||e.status===404)closeProject();else setToast(e.message)}})},5000);return()=>clearInterval(t)},[authInfo.user?.id]);
+ useEffect(()=>{
+  if(DEMO||!authInfo.user)return;
+  let queued=false;
+  const poll=()=>{
+   if(queued||switching.current||importOpen.current)return;
+   queued=true;
+   pending.current=pending.current.then(async()=>{
+    try{if(!switching.current&&!importOpen.current&&authInfoRef.current)receive(await api('/api/state'))}
+    catch(e){if(e.status===401)setAuthInfo(info=>({...info,user:null,loading:false,setupRequired:false,error:undefined}));else if(e.status===403||e.status===404)closeProject();else setToast(e.message)}
+    finally{queued=false}
+   });
+  };
+  const onVisible=()=>{if(!document.hidden)poll()};
+  const timer=setInterval(()=>{if(!document.hidden||authInfoRef.current?.recordingProcessing||stateRef.current.studies.some(s=>s.status==='processing'))poll()},5000);
+  document.addEventListener('visibilitychange',onVisible);
+  return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',onVisible)};
+ },[authInfo.user?.id]);
  const update=patch=>{const changes=typeof patch==='function'?patch(stateRef.current):patch;const before=stateRef.current;const next={...before,...changes};stateRef.current=next;setState(next);if(DEMO)return Promise.resolve(true);
   const remote=Object.fromEntries(Object.entries(changes).filter(([k])=>['findings','models','processors','modelId'].includes(k)));
   const changedUser=changes.users?.find(u=>{const old=before.users.find(x=>x.id===u.id);return old&&(u.role!==old.role||u.status!==old.status||Boolean(u.admin)!==Boolean(old.admin))});
@@ -168,7 +184,8 @@ export function App(){
  const {messages:globalMessages,setMessages:setGlobalMessages,typing:globalTyping,error:globalError,ask:askGlobal}=chatHistory;
  const closeProject=()=>{setPanel(null);setSelected(null);setGlobalMessages([]);setSharedProject(null);setState(previous=>({...previous,workspace:undefined,studies:[],findings:[],highlights:[],users:[],models:[]}));setAuthInfo(previous=>({...previous,loading:false,error:'Доступ к проекту закрыт. Попросите владельца добавить вас в проект или прислать действующую ссылку.'}))};
 
- useCompletionFavicon(state.studies,authInfo.user?.workspaceId,authInfo.user?.id,route,(authInfo.user?.workspaces||[]).map(w=>w.id));
+ const recordingProcessing=Boolean(authInfo.user?.recordingProcessing&&!authInfo.error);
+ useCompletionFavicon(state.studies,authInfo.user?.workspaceId,authInfo.user?.id,route,(authInfo.user?.workspaces||[]).map(w=>w.id),recordingProcessing);
  useCompletionSound(state.studies,authInfo.user?.workspaceId,state.soundEnabled!==false,finished=>notify(finished.length===1?'Расшифровка готова: '+finished[0].title:'Расшифровки готовы: '+finished.length));
  useEffect(()=>{try{localStorage.setItem(storage,JSON.stringify({version:1,data:DEMO?state:{theme:state.theme,sidebarCollapsed:state.sidebarCollapsed,soundEnabled:state.soundEnabled!==false}}))}catch{setToast('Изменения не сохранились. Освободите место в хранилище браузера.')}},[state]);
  useEffect(()=>{
@@ -193,7 +210,7 @@ export function App(){
  useEffect(()=>{const m=matchMedia('(min-width:960px)');const resize=()=>{setMobile(!m.matches);setMenuOpen(false)};m.addEventListener('change',resize);resize();return()=>m.removeEventListener('change',resize)},[]);
  useEffect(()=>{const onKey=e=>{if(e.key!=='Escape'||e.defaultPrevented)return;if(menuOpen){setMenuOpen(false);return}if(document.querySelector('.g-modal_open,.g-popup_open'))return;setPanel(null)};document.addEventListener('keydown',onKey);return()=>document.removeEventListener('keydown',onKey)},[menuOpen]);
  useEffect(()=>{if(document.documentElement.dataset.theme===effectiveTheme)return;const freeze=document.createElement('style');freeze.textContent='*,*::before,*::after{transition:none!important}';document.head.appendChild(freeze);document.documentElement.dataset.theme=effectiveTheme;getComputedStyle(document.documentElement).colorScheme;requestAnimationFrame(()=>requestAnimationFrame(()=>freeze.remove()))},[effectiveTheme]);
- useEffect(()=>{document.documentElement.dataset.theme=effectiveTheme;document.documentElement.style.colorScheme=effectiveTheme;const label=route==='chat'?'Новый чат':route.startsWith('conversation/')?'Чат':route==='research'||route==='projects'?'Проекты':route.split('?')[0]==='all-findings'?'Находки':route.split('?')[0]==='findings'?'Находки':[...navs,...management].find(x=>x[0]===route.split('?')[0])?.[1]||state.studies.find(s=>route==='study/'+s.id)?.title||(route.startsWith('finding/')?state.findings.find(f=>route==='finding/'+f.id)?.title||'Находка':null)||(route.startsWith('file/')?state.studies.find(s=>route==='file/'+s.id)?.fileName||'Исходный файл':route==='signup'?'Регистрация':route==='login'?'Вход':route==='reset'?'Восстановление пароля':'Материал');document.title=label+(['home','library','findings','users','models','integrations','mcp'].includes(route.split('?')[0])&&state.workspace?.name?' · '+state.workspace.name:'')+' — Мнемодак'},[effectiveTheme,route,state.studies,state.workspace?.name]);
+ useEffect(()=>{document.documentElement.dataset.theme=effectiveTheme;document.documentElement.style.colorScheme=effectiveTheme;const label=route==='chat'?'Новый чат':route.startsWith('conversation/')?'Чат':route==='research'||route==='projects'?'Проекты':route.split('?')[0]==='all-findings'?'Находки':route.split('?')[0]==='findings'?'Находки':[...navs,...management].find(x=>x[0]===route.split('?')[0])?.[1]||state.studies.find(s=>route==='study/'+s.id)?.title||(route.startsWith('finding/')?state.findings.find(f=>route==='finding/'+f.id)?.title||'Находка':null)||(route.startsWith('file/')?state.studies.find(s=>route==='file/'+s.id)?.fileName||'Исходный файл':route==='signup'?'Регистрация':route==='login'?'Вход':route==='reset'?'Восстановление пароля':'Материал');document.title=(recordingProcessing?'Обработка · ':'')+label+(['home','library','findings','users','models','integrations','mcp'].includes(route.split('?')[0])&&state.workspace?.name?' · '+state.workspace.name:'')+' — Мнемодак'},[effectiveTheme,route,state.studies,state.workspace?.name,recordingProcessing]);
  useEffect(()=>()=>{clearTimeout(timer.current);for(const f of files.current.values())URL.revokeObjectURL(f.url)},[]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),6000);return()=>clearTimeout(t)},[toast]);
  // Only a local processing simulation. This interval never contacts an ASR service.

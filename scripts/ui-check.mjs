@@ -67,20 +67,26 @@ try{
     const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
     // Back is an icon beside H1; no separate navigation row above the heading.
-    assert.equal(await page.getByRole('link',{name:'К проектам'}).count(),0);
+    assert.equal(await page.getByRole('link',{name:'К проектам',exact:true}).count(),0);
     assert.equal(await page.locator('.topbar .project-tabs').count(),0);
     const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
-    const back=page.getByRole('link',{name:'Назад',exact:true});assert.equal(await back.getAttribute('href'),'/projects');assert.equal(await page.locator('.page-heading .page-title-row>.page-back').count(),1);assert.equal(await page.locator('.project-back').count(),0);await checkBackPosition(back,page.locator('.project-overview h1'));
+    const back=page.getByRole('link',{name:'Назад к проектам',exact:true});assert.equal(await back.getAttribute('href'),'/projects');assert.equal(await page.locator('.page-heading .page-title-row>.page-back').count(),1);assert.equal(await page.locator('.project-back').count(),0);await checkBackPosition(back,page.locator('.project-overview h1'));
     assert.ok(tabs.y>=title.y+title.height);
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
     // Every project section keeps the project name as its only H1; the tab names the section.
-    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await page.getByRole('link',{name:'Назад',exact:true}).count(),1)}
+    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await back.getAttribute('href'),'/projects')}
     assert.match(await page.title(),/^(Материалы|Документы) · Тест интерфейса — Мнемодак$/);
     await goto('/projects/main');await back.click();await page.waitForURL(fixture.base+'/projects');
     await page.getByRole('button',{name:'Открыть проект «Тест интерфейса»',exact:true}).click();await page.locator('.project-overview').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');await back.focus();await back.press('Enter');await page.waitForURL(fixture.base+'/projects');
-    await goto('/projects/main');await page.locator('.project-tabs').getByRole('link',{name:/^Находки/}).click();await page.waitForURL(fixture.base+'/projects/main/findings');await back.click();await page.waitForURL(fixture.base+'/projects/main');await page.locator('.project-overview').waitFor();await screenshot('project-back-'+width);
+    await goto('/projects/main');await tab.click();await page.waitForURL(fixture.base+'/projects/main/research');
+    const findingsTab=page.locator('.project-tabs').getByRole('link',{name:/^Находки/});
+    await findingsTab.click();await page.waitForURL(fixture.base+'/projects/main/findings');
+    await page.goBack();await page.waitForURL(fixture.base+'/projects/main/research');await tab.waitFor();
+    await findingsTab.click();await page.waitForURL(fixture.base+'/projects/main/findings');
+    assert.equal(await back.getAttribute('href'),'/projects');await screenshot('project-back-'+width);
+    await back.click();await page.waitForURL(fixture.base+'/projects');await page.locator('.projects-heading').waitFor();
    }
   });
   await run(theme+': private project shows its access mode at every width',async()=>{
@@ -256,6 +262,11 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});await page.waitForTimeout(80);await checkBackPosition(page.getByRole('link',{name:'Назад к находкам',exact:true}),page.locator('.finding-page h1'));assert.equal(await page.locator('.finding-page .page-back').count(),1);await screenshot('finding-back-inline-'+width)}await page.setViewportSize({width:1440,height:950});
    assert.equal(await page.locator('.finding-side>.finding-project-link').count(),0);assert.equal(await page.locator('.finding-block:has(#finding-study-title) .finding-project-link').count(),1);
    await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.locator('.catalog-table').waitFor();assert.equal(new URL(page.url()).pathname,'/all-findings');await screenshot('findings');
+   const projectFindings='/projects/main/findings?kind='+encodeURIComponent('Проблема');
+   await goto(projectFindings);await page.getByRole('link',{name:'Нет ответа до оплаты',exact:true}).click();await page.locator('.finding-page').waitFor();
+   await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});
+   await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.waitForURL(fixture.base+projectFindings);
+   await page.getByRole('link',{name:'Назад к проектам',exact:true}).click();await page.waitForURL(fixture.base+'/projects');
   });
   await run(theme+': mobile settings navigation',async()=>{
    await goto('/projects');await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Открыть меню',exact:true}).click();await page.locator('.mobile-nav-sheet').waitFor();await page.locator('.mobile-nav-sheet').getByRole('link',{name:'Настройки',exact:true}).click();await page.locator('.settings-sheet').waitFor();await page.locator('.mobile-nav-sheet').waitFor({state:'hidden'});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('.settings-sheet').press('Escape');await page.locator('.settings-sheet').waitFor({state:'hidden'});
@@ -265,6 +276,37 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
  const db=fixture.app.db;
  const readProject=()=>JSON.parse(db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);
  const saveProject=state=>db.prepare("UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'").run(JSON.stringify(state));
+ await run('recording tab status is personal, survives switching projects and follows transcription and speaker detection',async()=>{
+  const context=await browser.newContext();await context.addCookies(fixture.cookies);
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  const state=readProject(),owner=db.prepare('SELECT id FROM user').get().id;
+  const recording={...state.studies[0],id:'tab-recording',format:'Видео',status:'processing',uploadedById:'another-user'};
+  const save=()=>saveProject({...state,studies:[...state.studies,recording]});
+  const ready=async()=>{await page.locator('.app-shell').waitFor();await page.waitForFunction(()=>document.title.endsWith(' — Мнемодак'))};
+  try{
+   const project=await context.request.post(fixture.base+'/api/workspaces',{headers:{'X-Mnema-Request':'1'},data:{name:'Проект проверки обработки'}});
+   assert.equal(project.status(),201);
+   save();await page.goto(fixture.base+'/projects');await ready();
+   assert.equal(await page.title(),'Проекты — Мнемодак');
+   recording.uploadedById=owner;save();
+   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+   await page.waitForFunction(()=>document.title==='Обработка · Проекты — Мнемодак');
+   const icon=page.locator('link[rel="icon"]');assert.match(await icon.getAttribute('href'),/\/brand-mark-processing\.svg\?/);
+   assert.equal((await page.request.get(new URL(await icon.getAttribute('href'),fixture.base).href)).status(),200);
+   await page.getByRole('button',{name:'Открыть проект «Проект проверки обработки»',exact:true}).click();
+   await page.waitForFunction(()=>document.title==='Обработка · Обзор проекта · Проект проверки обработки — Мнемодак');
+   await page.goto(fixture.base+'/projects/main');await ready();
+   await page.waitForFunction(()=>document.title.startsWith('Обработка · '));
+   recording.status='ready';save();
+   await page.waitForFunction(()=>document.querySelector('link[rel="icon"]').href.includes('brand-mark-unread.svg'));
+   assert.equal(await page.title(),'Обзор проекта · Тест интерфейса — Мнемодак');
+   recording.speakerInfo={state:'running'};save();
+   await page.waitForFunction(()=>document.title.startsWith('Обработка · '));
+   recording.speakerInfo={state:'error'};save();
+   await page.waitForFunction(()=>document.title==='Обзор проекта · Тест интерфейса — Мнемодак');
+   assert.match(await icon.getAttribute('href'),/\/brand-mark-unread\.svg\?/);
+  }finally{saveProject(state);await context.close()}
+ });
  for(const [theme,width] of [['light',1440],['dark',390]]){
   await run(theme+': project summary status, retry, source and refresh',async()=>{
    const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
