@@ -11,8 +11,11 @@ const out=resolve(process.env.UI_CHECK_OUTPUT||'artifacts/ui-check');await mkdir
 // Sectioned answer exercises «Главное», quiet captions, bold item leads and conclusion cards.
 const ANSWER='Хозяева не успевают ответить быстро [1].\n\n## Цифры\n- Отмечают задержку: 7 из 12 хозяев — интервью [1]\n- **Опоздание**: до 3 часов — дневники [1]\n\n## Скорость ответа\n- **Уведомления теряются.** Узнают о вопросе поздно [1].\n\n## Выводы\n- Важнее уведомления, чем шаблоны.\n\n## Что осталось невыясненным\n- Влияние на отмены неизвестно.';
 let failSpeakers=true;
-const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSWER,async({segments,participants})=>{
+let holdSpeakers;
+const fixture=await createUIFixture(Number(process.env.UI_CHECK_PORT||4461),ANSWER,async({segments,participants,onProgress})=>{
  assert.equal(participants,4);
+ onProgress?.('Определяем спикеров: 45:00 из 1:09:09 · часть 4 из 5');
+ await holdSpeakers;
  if(failSpeakers){failSpeakers=false;throw new Error('Fixture failure')}
  return {speakers:Object.fromEntries(segments.slice(1).map((segment,i)=>[segment.id,'Спикер '+(i%4+1)])),count:4,engine:'Fixture',processingSeconds:0};
 });
@@ -347,7 +350,10 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
   await run(theme+': speaker confirmation, retry and saved participant limit',async()=>{
    const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
    await context.addCookies(fixture.cookies);
+   await context.addInitScript(theme=>localStorage.setItem('ai-hyposut.demo.v1',JSON.stringify({version:1,data:{theme}})),theme);
    const page=await context.newPage();page.setDefaultTimeout(18000);page.on('pageerror',e=>errors.push(e.message));
+   let resumeSpeakers;
+   holdSpeakers=new Promise(resolve=>{resumeSpeakers=resolve});
    try{
     const state=readProject(),study=state.studies.find(item=>item.id==='sample');
     Object.assign(study,{format:'Видео',participants:4,speakerInfo:{state:'ready',count:10},speakerEdits:[{action:'renamed'}],
@@ -364,6 +370,22 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     assert.equal(readProject().studies.find(item=>item.id==='sample').speakerInfo.state,'ready');
     const confirm=async()=>{await confirmation.getByRole('button',{name:'Определить заново'}).click()};
     await detect.click();await confirm();
+    const progress=panel.locator('.speaker-detection-progress');
+    await progress.getByText('45:00 из 1:09:09 записи',{exact:true}).waitFor();
+    assert.equal(await detect.count(),0);
+    assert.equal(await page.locator('.material-analysis').count(),0);
+    assert.equal(await page.locator('.transcript-toolbar').count(),0);
+    await panel.getByRole('heading',{name:'Текущая разметка · 10 спикеров'}).waitFor();
+    await page.locator('.study-sheet').screenshot({path:resolve(out,theme+'-speaker-variant-a.png')});
+    await tab.click();
+    if(width===1440){await page.getByRole('tab',{name:'Спикеры, в работе'}).waitFor()}
+    else{await page.getByRole('button',{name:'Определяем спикеров',exact:true}).waitFor()}
+    assert.equal(await page.getByRole('checkbox',{name:'Прокручивать текст за записью'}).count(),0);
+    const paragraph=page.locator('.transcript-paragraph').first();await paragraph.waitFor();
+    assert.ok(await paragraph.evaluate(el=>Math.abs(el.getBoundingClientRect().width-el.parentElement.getBoundingClientRect().width)<1));
+    if(width===1440)await tab.click();else await page.getByRole('button',{name:'Определяем спикеров',exact:true}).click();
+    await progress.waitFor();
+    resumeSpeakers();holdSpeakers=undefined;
     if(width===1440){
      await panel.getByRole('alert').getByText(/Не удалось различить голоса/).waitFor();
      await panel.getByRole('button',{name:'Переименовать: Интервьюер',exact:true}).waitFor();
@@ -373,7 +395,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     assert.equal(await panel.locator('.participant-count strong').innerText(),'4');
     assert.equal(readProject().studies.find(item=>item.id==='sample').segments[0].speaker,'Запись');
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-   }finally{await context.close()}
+   }finally{resumeSpeakers();holdSpeakers=undefined;await context.close()}
   });
  }
  await run('Living avatar follows the mouse, loves on hover, sleeps and respects reduced motion',async()=>{
@@ -400,6 +422,42 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
   const touch=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});await touch.addCookies(fixture.cookies);const phone=await touch.newPage();await phone.goto(fixture.base+'/chat');const avatar=phone.locator('.chat-welcome .mascot');await avatar.waitFor();const rect=await avatar.boundingBox();await phone.touchscreen.tap(rect.x+rect.width/2,rect.y+rect.height/2);assert.notEqual(await avatar.locator('svg').getAttribute('data-state'),'love');assert.ok(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await phone.screenshot({path:resolve(out,'living-avatar-mobile.png')});await touch.close();
  });
  const motion=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'no-preference'});await motion.addCookies(fixture.cookies);await motion.addInitScript(()=>{window.__uiAnimations=[];const animate=Element.prototype.animate;Element.prototype.animate=function(frames,options){if(this.classList.contains('content-shell'))window.__uiAnimations.push(options.duration);return animate.call(this,frames,options)}});const page=await motion.newPage();await page.goto(fixture.base+'/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Свернуть меню',exact:true}).click();await page.waitForFunction(()=>window.__uiAnimations.includes(160));await page.getByRole('button',{name:'Развернуть меню',exact:true}).click();await page.waitForTimeout(200);assert.equal(await page.getByRole('button',{name:'Свернуть меню',exact:true}).getAttribute('aria-expanded'),'true');checks.push('Pointer sidebar collapse is animated and interruptible');await motion.close();
+ await run('Material dialog motion follows input and Escape closes only the visible top dialog',async()=>{
+  const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'no-preference'});
+  await context.addCookies(fixture.cookies);
+  await context.addInitScript(()=>{window.studyMotion=[];document.addEventListener('transitionrun',e=>{
+   const role=['study-layer','study-backdrop','study-sheet'].find(name=>e.target.classList?.contains(name));
+   if(role)window.studyMotion.push([role,e.propertyName,e.target.closest('.study-layer').hasAttribute('data-closing')?'close':'open']);
+  })});
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  try{
+   const url=fixture.base+'/projects/main/research';await page.goto(url);
+   const trigger=page.locator('a[href="/projects/main/studies/sample"]').first();
+   const sheet=page.locator('.study-sheet');
+   const close=page.getByRole('button',{name:'Закрыть материал',exact:true});
+   const events=()=>page.evaluate(()=>window.studyMotion);
+   const reset=()=>page.evaluate(()=>{window.studyMotion=[]});
+   const restored=()=>page.waitForFunction(()=>document.activeElement?.getAttribute('href')==='/projects/main/studies/sample');
+   await trigger.press('Enter');await sheet.waitFor();await page.waitForFunction(()=>document.activeElement?.classList.contains('study-sheet'));
+   await page.keyboard.press('Tab');assert.ok(await sheet.evaluate(el=>el.contains(document.activeElement)&&el!==document.activeElement));
+   await sheet.getByRole('button',{name:'Удалить исследование',exact:true}).press('Enter');
+   const nested=page.getByRole('dialog',{name:'Удалить исследование',exact:true});await nested.waitFor();
+   await page.waitForFunction(()=>document.activeElement?.closest('[role="dialog"][aria-label="Удалить исследование"]'));
+   await page.keyboard.press('Escape');await nested.waitFor({state:'hidden'});assert.ok(await sheet.isVisible());
+   await page.waitForFunction(()=>document.activeElement?.closest('.study-sheet'));
+   await page.keyboard.press('Escape');await sheet.waitFor({state:'hidden'});await page.waitForURL(url);await restored();
+   assert.deepEqual(await events(),[]);
+   await trigger.press('Enter');await close.press('Enter');await sheet.waitFor({state:'hidden'});await restored();assert.deepEqual(await events(),[]);
+   await trigger.click();await page.waitForFunction(()=>window.studyMotion.length===3);
+   assert.deepEqual((await events()).map(e=>e.join(':')).sort(),['study-backdrop:opacity:open','study-sheet:opacity:open','study-sheet:transform:open']);
+   assert.equal(await sheet.evaluate(el=>getComputedStyle(el.parentElement).opacity),'1');
+   await sheet.evaluate(async el=>{await Promise.allSettled(el.getAnimations().map(a=>a.finished))});
+   await close.click();await sheet.waitFor({state:'hidden'});await page.waitForURL(url);await restored();
+   assert.deepEqual((await events()).slice(3).map(e=>e.join(':')).sort(),['study-backdrop:opacity:close','study-sheet:opacity:close','study-sheet:transform:close']);
+   await reset();await page.emulateMedia({reducedMotion:'reduce'});await trigger.click();await close.click();await sheet.waitFor({state:'hidden'});
+   assert.deepEqual(await events(),[]);
+  }finally{await context.close()}
+ });
  assert.deepEqual(errors,[]);
 }finally{await writeFile(resolve(out,'checks.json'),JSON.stringify({checks,errors},null,2));await browser.close();await fixture.close()}
 console.log('UI check passed: '+checks.length+' scenarios; no JavaScript errors');

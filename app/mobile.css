@@ -66,7 +66,7 @@
  .study-summary .summary-blocks p,.transcript-paragraph p,.panel-finding blockquote{font-size:16px;line-height:1.65}
  .transcript-paragraph{padding:16px 0}.transcript-paragraph-head{gap:8px;flex-wrap:wrap}.transcript-paragraph-actions{display:flex;gap:4px;margin-inline-start:auto}
  .transcript-paragraph-actions .g-button,.transcript-time,.panel-speaker-actions .g-button{min-width:48px;min-height:48px}
- .speaker-chip{max-width:100%;white-space:normal}.transcript-toolbar{flex-wrap:wrap;gap:12px}.follow-transcript{white-space:normal;line-height:1.5;min-height:48px}
+ .speaker-chip{max-width:100%;white-space:normal}.transcript-toolbar{flex-wrap:wrap;gap:12px}
  .mobile-extracted>summary{display:none}.mobile-extracted{margin:0;padding:0;border:0}.mobile-document-mode .g-segmented-radio-group{min-height:36px}
  .mobile-material-search .g-text-input__control{height:42px}.g-root .g-text-input .g-text-input__control,.g-root .g-text-area .g-text-area__control{font-size:16px}.g-select__control{min-height:48px}
  .document-pages{background:var(--g-color-base-background)}.document-pages-bar{position:sticky;top:0;flex-wrap:wrap;padding:8px;gap:8px}.document-pages-name{flex-basis:100%;white-space:normal;overflow-wrap:anywhere;font-size:13px}

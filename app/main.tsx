@@ -119,6 +119,7 @@ export function App(){
  const serverVersion=useRef(0),stateRef=useRef(null),pending=useRef(Promise.resolve());
  const [state,setState]=useState(load);
  const [route,setRoute]=useState(appRoute);const routeRef=useRef(route);
+ const [animateStudy,setAnimateStudy]=useState(false);
 
  const [dialog,open]=useState<any>(null);
  const [projectAction,setProjectAction]=useState<any>(null);
@@ -178,7 +179,7 @@ export function App(){
   const saved=pending.current.then(async()=>{try{const data=changedUser?await api('/api/users/'+changedUser.id,{...Object.fromEntries(['role','status','admin'].filter(key=>changedUser[key]!==before.users.find(u=>u.id===changedUser.id)?.[key]).map(key=>[key,changedUser[key]])),workspaceId:changedUser.projectIds?.length===1?changedUser.projectIds[0]:undefined},'PATCH'):await api('/api/state',{version:serverVersion.current,changes:remote},'PATCH');receive(data);return true}catch(e){setToast(e.message);try{receive(await api('/api/state'))}catch{}return false }});
   pending.current=saved.then(()=>{});return saved;
  };
- const go=(path,segment=null)=>{setSelected(segment);navigate(path+(segment?(path.includes('?')?'&':'?')+'segment='+encodeURIComponent(segment):''));if(appRoute()===path&&segment)requestAnimationFrame(()=>document.getElementById('segment-'+segment)?.scrollIntoView({block:'center'}))};
+ const go=(path,segment=null,animateStudy=false)=>{setSelected(segment);navigate(path+(segment?(path.includes('?')?'&':'?')+'segment='+encodeURIComponent(segment):''),false,animateStudy);if(appRoute()===path&&segment)requestAnimationFrame(()=>document.getElementById('segment-'+segment)?.scrollIntoView({block:'center'}))};
  const notify=text=>setToast(text);
  const chatHistory=useResearchChats({demo:DEMO,userId:authInfo.user?.id,route,go,notify,state,accessKey:(authInfo.user?.workspaces||[]).map(w=>w.id+':'+w.role).sort().join('|')});
  const {messages:globalMessages,setMessages:setGlobalMessages,typing:globalTyping,error:globalError,ask:askGlobal}=chatHistory;
@@ -189,19 +190,19 @@ export function App(){
  useCompletionSound(state.studies,authInfo.user?.workspaceId,state.soundEnabled!==false,finished=>notify(finished.length===1?'Расшифровка готова: '+finished[0].title:'Расшифровки готовы: '+finished.length));
  useEffect(()=>{try{localStorage.setItem(storage,JSON.stringify({version:1,data:DEMO?state:{theme:state.theme,sidebarCollapsed:state.sidebarCollapsed,soundEnabled:state.soundEnabled!==false}}))}catch{setToast('Изменения не сохранились. Освободите место в хранилище браузера.')}},[state]);
  useEffect(()=>{
-  const h=async()=>{
+  const h=async(e:Event)=>{
    if(location.hash==='#main'&&appRoute()===routeRef.current){main.current?.focus();return}
    const next=appRoute(),requested=requestedWorkspace();
    if(requested&&authInfoRef.current?.workspaceId!==requested&&authInfoRef.current){
     try{await switchWorkspaceRef.current?.(requested,false);if(authInfoRef.current?.workspaceId!==requested){history.replaceState(null,'',appHref(routeRef.current));return}}catch{history.replaceState(null,'',appHref(routeRef.current));return}
    }
    const overlayRoute=(r:string)=>r.startsWith('study/')||management.some(([id])=>id===r.split('?')[0]);const overlay=overlayRoute(next)||overlayRoute(routeRef.current);
-   routeRef.current=next;setRoute(next);canonicalizeRoute();setSelected(new URLSearchParams(location.search).get('segment'));setMenuOpen(false);setPanel(null);
+   routeRef.current=next;setRoute(next);setAnimateStudy(e instanceof PopStateEvent&&e.state?.animateStudy===true);canonicalizeRoute();setSelected(new URLSearchParams(location.search).get('segment'));setMenuOpen(false);setPanel(null);
    if(!overlay){window.scrollTo(0,0);main.current?.parentElement?.scrollTo({top:0});requestAnimationFrame(()=>{main.current?.focus({preventScroll:true});if(next==='chat')main.current?.querySelector('.shared-composer textarea')?.focus()})}
   };
   const click=(e:MouseEvent)=>{const a=(e.target as Element).closest?.('a[href]');if(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.hasAttribute('download')||a.getAttribute('target'))return;
    const url=new URL(a.getAttribute('href'),location.href);if(url.origin!==location.origin||/^\/(api|mcp)(?:\/|$)/.test(url.pathname)||url.hash&&!url.hash.startsWith('#/'))return;
-   e.preventDefault();if(url.hash.startsWith('#/'))navigate(readRoute(url).route);else navigateHref(url.pathname+url.search+url.hash)
+   e.preventDefault();if(url.hash.startsWith('#/'))navigate(readRoute(url).route,false,e.detail>0);else navigateHref(url.pathname+url.search+url.hash,false,e.detail>0)
   };
   window.addEventListener('hashchange',h);window.addEventListener('popstate',h);document.addEventListener('click',click);
   return()=>{window.removeEventListener('hashchange',h);window.removeEventListener('popstate',h);document.removeEventListener('click',click)};
@@ -282,7 +283,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  return <ThemeProvider theme={effectiveTheme}><Context.Provider value={context}>{(!DEMO&&!authInfo.user)||['signup','login','reset'].includes(route.split('?')[0])?authInfo.loading?<div className="auth-loading" role="status"><Loader size="m"/><span>Открываем Мнемодак…</span></div>:route==='reset'?<RegistrationPage key="reset" reset theme={effectiveTheme} onTheme={theme} onComplete={completeAuth}/>:route.split('?')[0]==='signup'&&authInfo.registrationEnabled&&!new URLSearchParams(location.search).has('invite')?<RegistrationPage theme={effectiveTheme} onTheme={theme} onComplete={completeAuth}/>:<AuthPage key={route} registrationEnabled={authInfo.registrationEnabled} theme={effectiveTheme} login={route.split('?')[0]!=='signup'} onTheme={theme} setupRequired={authInfo.setupRequired} setupEnabled={authInfo.setupEnabled} onComplete={completeAuth}/>:<><a className="skip-link" href="#main">К содержимому</a><div className={'app-shell'+(collapsed?' rail-collapsed':'')+(shownPanel&&!panelClosing?' has-source-panel':'')}>
  {!mobile?<aside className="sidebar">{navContent}</aside>:null}
  <div className="content-shell"><header className="topbar">{mobile?<IconButton ref={menuTrigger} icon={Menu} label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(true)}/>:null}{findingsView?<FindingsBreadcrumbs project={globalFindingFlow||base==='all-findings'?undefined:workspaceName} finding={breadcrumbFinding}/>:globalView?base==='research'||base==='projects'?<ProjectBreadcrumbs/>:<div className="hub-topbar-title">{base==='chat'?'Новый чат':chatHistory.chats.find(c=>c.id===chatHistory.activeId)?.title||'Чат'}</div>:<ProjectBreadcrumbs project={workspaceName}/>}{!globalView&&state.workspace?<div className="topbar-actions"><ProjectShareButton mode={state.workspace.sharingMode} canManage={Boolean(state.workspace.canManageSharing)} url={location.origin+routeHref('home',state.workspace.id)+(state.workspace.sharingMode==='link'&&new URLSearchParams(location.search).get('share')?'?share='+encodeURIComponent(new URLSearchParams(location.search).get('share')):'')} notify={notify} onOpen={()=>setSharedProject({id:state.workspace.id,name:workspaceName})}/>{workspaces.find(w=>w.id===state.workspace.id)?<ProjectMenu project={workspaces.find(w=>w.id===state.workspace.id)} onAction={context.projectAction}/>:null}</div>:null}</header>
- <Context.Provider value={studyOpen?{...context,route:contentRoute}:context}><main id="main" ref={main} tabIndex={-1} className={'page '+(base==='chat'||contentRoute.startsWith('conversation/')?'research-chat-page':'')}>{switchingProject&&!globalView?<div className="project-loading" role="status">Открываем проект…</div>:base==='chat'||contentRoute.startsWith('conversation/')?<GlobalChat key={chatHistory.activeId||'new'}/>:base==='research'||base==='projects'?<ResearchCatalog key="materials"/>:base==='all-findings'?<ResearchCatalog key="findings" findings/>:!DEMO&&authInfo.user&&!authInfo.user.workspaceId?null:view==='home'?<Home/>:view==='library'?<LibraryPage/>:view==='findings'?<Findings key={(state.workspace?.id||'')+':'+contentRoute}/>:contentRoute.startsWith('finding/')?<FindingPage key={contentRoute}/>:base==='chat'?<Home/>:!DEMO&&authInfo.user&&!authInfo.user.workspaceId?<Empty title="Создайте первый проект" action={<Button view="action" size="l" onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать проект</Button>}>Создайте папку для материалов по одной теме, затем добавьте файлы.</Empty>:<Study key={pageRoute}/>}{!globalView&&!DEMO&&authInfo.user&&!authInfo.user.workspaceId?<Empty title="Создайте первый проект" action={<Button view="action" size="l" onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать проект</Button>}>Создайте папку для материалов по одной теме, затем добавьте файлы.</Empty>:null}</main></Context.Provider></div>{studyOpen?<StudyModal back={returnRoute}/>:null}{settingsTab?<SettingsModal tab={settingsTab} tabs={visibleManagement} ctx={context}/>:null}<SourcePanel key={shownPanel?shownPanel.studyId+':'+shownPanel.segmentId:'none'}/>{DEMO?null:<><FeedbackDialog open={feedbackOpen} onClose={()=>setFeedbackOpen(false)} onIdeas={()=>{setFeedbackOpen(false);setIdeasOpen(true)}}/><IdeasPanel open={ideasOpen} onClose={()=>{setIdeasOpen(false);if(location.hash==='#ideas')history.replaceState(history.state,'',location.pathname+location.search)}}/></>}</div>
+ <Context.Provider value={studyOpen?{...context,route:contentRoute}:context}><main id="main" ref={main} tabIndex={-1} className={'page '+(base==='chat'||contentRoute.startsWith('conversation/')?'research-chat-page':'')}>{switchingProject&&!globalView?<div className="project-loading" role="status">Открываем проект…</div>:base==='chat'||contentRoute.startsWith('conversation/')?<GlobalChat key={chatHistory.activeId||'new'}/>:base==='research'||base==='projects'?<ResearchCatalog key="materials"/>:base==='all-findings'?<ResearchCatalog key="findings" findings/>:!DEMO&&authInfo.user&&!authInfo.user.workspaceId?null:view==='home'?<Home/>:view==='library'?<LibraryPage/>:view==='findings'?<Findings key={(state.workspace?.id||'')+':'+contentRoute}/>:contentRoute.startsWith('finding/')?<FindingPage key={contentRoute}/>:base==='chat'?<Home/>:!DEMO&&authInfo.user&&!authInfo.user.workspaceId?<Empty title="Создайте первый проект" action={<Button view="action" size="l" onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать проект</Button>}>Создайте папку для материалов по одной теме, затем добавьте файлы.</Empty>:<Study key={pageRoute}/>}{!globalView&&!DEMO&&authInfo.user&&!authInfo.user.workspaceId?<Empty title="Создайте первый проект" action={<Button view="action" size="l" onClick={()=>open({type:'workspace'})}><Plus size={16}/>Создать проект</Button>}>Создайте папку для материалов по одной теме, затем добавьте файлы.</Empty>:null}</main></Context.Provider></div>{studyOpen?<StudyModal back={returnRoute} animateEntry={animateStudy}/>:null}{settingsTab?<SettingsModal tab={settingsTab} tabs={visibleManagement} ctx={context}/>:null}<SourcePanel key={shownPanel?shownPanel.studyId+':'+shownPanel.segmentId:'none'}/>{DEMO?null:<><FeedbackDialog open={feedbackOpen} onClose={()=>setFeedbackOpen(false)} onIdeas={()=>{setFeedbackOpen(false);setIdeasOpen(true)}}/><IdeasPanel open={ideasOpen} onClose={()=>{setIdeasOpen(false);if(location.hash==='#ideas')history.replaceState(history.state,'',location.pathname+location.search)}}/></>}</div>
  <Modal open={mobile&&menuOpen} onOpenChange={setMenuOpen} returnFocus={menuTrigger} onTransitionOutComplete={()=>{if(!document.querySelector('.g-modal_open'))menuTrigger.current?.focus()}} aria-label="Основная навигация" className="mobile-nav-modal" contentClassName="mobile-nav-sheet"><div className="mobile-nav">{navContent}</div></Modal>
  </>}{!DEMO&&authInfo.user?.workspaceId&&authInfo.user.role==='full'&&<BatchUpload key={authInfo.user.id+':'+authInfo.user.workspaceId} studies={state.studies} workspace={authInfo.user.workspaceId} open={dialog?.type==='upload'} close={()=>open(null)} model={state.models.find(m=>m.id===state.modelId)?.name||'проекта'} receive={receive} openStudy={id=>go('study/'+id)} busy={uploadingBatch}/>}<ProjectImporter open={dialog?.type==='import'} onClose={()=>{setApiWorkspace(authInfo.user?.workspaceId||null);open(null)}} onComplete={async id=>{await switchWorkspace(id)}}/>{sharedProject?<ProjectSharingDialog key={sharedProject.id} id={sharedProject.id} open onClose={()=>setSharedProject(null)} onChanged={refresh}/>:null}{projectAction&&<ProjectDialog returnFocus={mobile?main:undefined} key={projectAction.project.id+projectAction.action} {...projectAction} notify={notify} onClose={()=>setProjectAction(null)} onChanged={async(id,deleted)=>{await pending.current;if(deleted){setGlobalMessages([]);chatHistory.refresh().catch(()=>{});if(authInfo.user?.workspaceId===id){setApiWorkspace(null);document.cookie='mnema_ws=; path=/; SameSite=Lax';setState(s=>({...s,messages:[]}));go('projects')}}await refresh()}}/>}{dialog?.type==='delete-chat'?<Dialog open onClose={()=>open(null)} aria-label="Удалить чат" hasCloseButton><Dialog.Header caption="Удалить чат?"/><Dialog.Body><p>Переписка «{dialog.chat.title}» будет удалена. Исследования и находки сохранятся.</p></Dialog.Body><Dialog.Footer onClickButtonCancel={()=>open(null)} textButtonCancel="Отмена" textButtonApply="Удалить чат" propsButtonApply={{view:'outlined-danger'}} onClickButtonApply={async()=>{await chatHistory.remove(dialog.chat.id);open(null)}}/></Dialog>:<AppDialog key={dialog?.key||dialog?.type||'closed'}/>}<div className={'toast '+(toast?'shown':'')} role="status">{toast}</div></Context.Provider></ThemeProvider>
 }
@@ -463,19 +464,26 @@ function SettingsModal({tab,tabs,ctx}:{tab:string;tabs:[string,string,LucideIcon
   </div>
  </Modal>;
 }
-function StudyModal({back}:{back:string}) {
+function StudyModal({back,animateEntry}:{back:string;animateEntry:boolean}) {
  const {route,state,projectName}=useApp();
  const study=state.studies.find(s=>route==='study/'+s.id);
  const finding=state.findings.find(f=>back==='finding/'+f.id);
  const box=useRef<HTMLDivElement>(null);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const leaving=useRef(false);
  const [closing,setClosing]=useState(false);
- const close=()=>{
-  if(closeTimer.current!==null)return;
-  const leave=()=>history.state?.returnTo?history.back():navigate(back,true);
-  if(matchMedia('(prefers-reduced-motion: reduce)').matches){leave();return}
+ const leave=()=>{
+  if(leaving.current)return;
+  leaving.current=true;
+  if(closeTimer.current!==null)clearTimeout(closeTimer.current);
+  if(history.state?.returnTo)history.back();else navigate(back,true);
+ };
+ const close=(immediate=false)=>{
+  if(immediate||matchMedia('(prefers-reduced-motion: reduce)').matches){leave();return}
+  if(leaving.current||closeTimer.current!==null)return;
   setClosing(true);
-  closeTimer.current=setTimeout(leave,120);
+  // A transition may not run when the window is closed during its first frame.
+  closeTimer.current=setTimeout(leave,180);
  };
  useEffect(()=>{
   const before=document.activeElement as HTMLElement|null;
@@ -490,32 +498,39 @@ function StudyModal({back}:{back:string}) {
     if(sibling!==node&&!sibling.inert&&!sibling.matches('script,style,[role=status],[role=alert],[aria-live]')){sibling.inert=true;muted.push(sibling)}
   box.current?.focus({preventScroll:true});
   const key=(e:KeyboardEvent)=>{
-   if(e.defaultPrevented||!['Escape','Tab'].includes(e.key))return;
-   if(document.querySelector('.g-modal_open,.g-popup_open')&&!box.current?.contains(document.activeElement)&&document.activeElement!==document.body)return;
-   if(document.querySelectorAll('[role=dialog]').length>1||document.querySelector('.source-panel'))return;
-   if(e.key==='Escape'){close();return}
+   if(e.defaultPrevented)return;
    const sheet=box.current;
    if(!sheet)return;
+   if(document.querySelector('.g-modal_open,.g-popup_open')&&!sheet.contains(document.activeElement)&&document.activeElement!==document.body)return;
+   const visible=(node:HTMLElement)=>node.getClientRects().length>0&&!node.closest('[inert],[aria-hidden="true"]')&&getComputedStyle(node).visibility==='visible';
+   if(Array.from(document.querySelectorAll<HTMLElement>('[role=dialog],.source-panel,.g-popup_open [role=menu],.g-popup_open [role=listbox]')).some(node=>node!==sheet&&visible(node)))return;
+   if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(true);return}
    const controls=Array.from(sheet.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[controls],[contenteditable=true],[tabindex]:not([tabindex="-1"])'))
-    .filter(node=>node.getClientRects().length>0&&!node.closest('[inert]')&&getComputedStyle(node).visibility!=='hidden');
+    .filter(node=>node.getAttribute('tabindex')!=='-1'&&visible(node));
    const first=controls[0],last=controls.at(-1),active=document.activeElement;
    if(!first){e.preventDefault();sheet.focus();return}
    if(!sheet.contains(active)||active===sheet||(e.shiftKey?active===first:active===last)){
     e.preventDefault();(e.shiftKey?last:first)?.focus();
    }
   };
-  window.addEventListener('keydown',key);
+  // Tooltips can consume Escape before it reaches the window in the bubble phase.
+  const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!e.isComposing)key(e)};
+  const tab=(e:KeyboardEvent)=>{if(e.key==='Tab')key(e)};
+  window.addEventListener('keydown',escape,true);
+  window.addEventListener('keydown',tab);
   return()=>{
-   window.removeEventListener('keydown',key);
+   window.removeEventListener('keydown',escape,true);
+   window.removeEventListener('keydown',tab);
    if(closeTimer.current!==null)clearTimeout(closeTimer.current);
    root.style.overflow=overflow;
    for(const node of muted)node.inert=false;
    if(before?.isConnected)before.focus({preventScroll:true});
   };
  },[]);
- return <div className="study-layer" data-closing={closing||undefined} onMouseDown={e=>{if(e.target===e.currentTarget)close()}}>
-  <div ref={box} className="study-sheet" role="dialog" aria-modal="true" aria-label={study?.title||'Материал'} tabIndex={-1}>
-   <div className="study-sheet-bar">{finding||history.state?.findingsRoot?<FindingsBreadcrumbs project={history.state?.findingsRoot?.startsWith('/all-findings')?undefined:projectName} finding={finding} studyTitle={study?.title||'Материал'}/>:<ProjectBreadcrumbs project={projectName} studyTitle={study?.title||'Материал'}/>}<IconButton icon={X} label="Закрыть материал" onClick={close}/></div>
+ return <div className="study-layer" data-animate-entry={animateEntry||undefined} data-closing={closing||undefined} onMouseDown={e=>{if(e.button===0&&e.target===e.currentTarget)close()}}>
+  <div className="study-backdrop" aria-hidden="true"/>
+  <div ref={box} className="study-sheet" role="dialog" aria-modal="true" aria-label={study?.title||'Материал'} tabIndex={-1} onTransitionEnd={e=>{if(closing&&e.target===e.currentTarget&&e.propertyName==='opacity')leave()}}>
+   <div className="study-sheet-bar">{finding||history.state?.findingsRoot?<FindingsBreadcrumbs project={history.state?.findingsRoot?.startsWith('/all-findings')?undefined:projectName} finding={finding} studyTitle={study?.title||'Материал'}/>:<ProjectBreadcrumbs project={projectName} studyTitle={study?.title||'Материал'}/>}<IconButton icon={X} label="Закрыть материал" onClick={e=>close(e.detail===0)}/></div>
    <div className="study-sheet-scroll"><Study key={route}/></div>
   </div>
  </div>;
@@ -649,11 +664,11 @@ function SourcePanel(){const {panel,panelClosing,setPanel,state,go,openGlobalSou
  const problem=!study?['Источник удалён','Материал, на который ссылается вывод, больше недоступен.']:!seg?['Фрагмент не найден','Материал мог быть обработан заново, и фрагмент изменился. Проверьте находку по всему материалу.']:mediaError?['Таймкод за пределами записи',mediaError]:null;
  return <aside className="source-panel" data-closing={panelClosing||undefined} aria-label="Источник" aria-modal="false"><div className="source-panel-head"><div><div className="overline">Источник</div><h2>{study?.title||'Материал'}</h2>{study?<div className="finding-meta"><Label size="s">{study.type}</Label><Label size="s" theme={reportOf(study)==='none'?'warning':'success'}>{reportOf(study)==='none'?'По сырым данным':'Отчёт исследователя'}</Label>{seg?<Label size="s" theme="info">{where(seg)}</Label>:null}</div>:null}</div><Tooltip content="Закрыть источник"><Button ref={closeButton} view="flat" size="l" aria-label="Закрыть источник" onClick={close}><X size={18}/></Button></Tooltip></div>
  <div className="source-panel-body">{finding?<section className="panel-finding"><FindingMeta f={finding}/><h3>{finding.title}</h3>{finding.description?<p>{finding.description}</p>:null}{reader?null:<History f={finding}/>}</section>:null}
- {problem?<div className="panel-error" role="alert"><strong>{problem[0]}</strong><p>{problem[1]}</p>{study?<Button onClick={()=>{close();go('study/'+study.id)}}>Открыть весь материал</Button>:null}</div>:null}
+ {problem?<div className="panel-error" role="alert"><strong>{problem[0]}</strong><p>{problem[1]}</p>{study?<Button onClick={e=>{close();go('study/'+study.id,null,e.detail>0)}}>Открыть весь материал</Button>:null}</div>:null}
  {study&&seg?<>{isMedia?<video ref={media} src={projectFile(study.fileId)} controls preload="metadata" className="panel-media" onLoadedMetadata={e=>{const d=e.currentTarget.duration;if(Number.isFinite(d)&&seg.time>d)setMediaError('Фрагмент указывает на '+time(seg.time)+', а запись длится '+time(d)+'.');else e.currentTarget.currentTime=seg.time}}/>:null}
  {isPDF?<iframe title={'Исходный PDF, страница '+(seg.page||1)} className="panel-pdf" src={projectFile(study.fileId)+'#page='+(seg.page||1)}/>:null}
  <div className="panel-segments" ref={list}>{segments.slice(Math.max(0,index-2),index+3).map(t=><article key={t.id} className={'segment '+(t.id===seg.id?'selected':'')} aria-current={t.id===seg.id?'true':undefined}><div className="segment-head"><strong>{t.speaker}</strong><Button view="flat" size="s" onClick={()=>{if(media.current&&!t.page)media.current.currentTime=t.time;setPanel(p=>({...p,segmentId:t.id,number:t.id===panel.segmentId?p.number:undefined}))}} aria-label={'Перейти к '+where(t)}>{where(t)}</Button></div><p>{t.correctedText??t.text}{t.correctedText!==undefined?<small className="correction-label"> (исправлено)</small>:null}</p></article>)}</div>
- <Button view="outlined" width="max" onClick={()=>{close();go('study/'+study.id,seg.id)}}>Открыть в материале<ArrowRight size={16}/></Button></>:null}</div></aside>}
+ <Button view="outlined" width="max" onClick={e=>{close();go('study/'+study.id,seg.id,e.detail>0)}}>Открыть в материале<ArrowRight size={16}/></Button></>:null}</div></aside>}
 // Material titles read as "who said it"; «Тест чата · Респондент 1» keeps its last part.
 const sourceName=(src:ChatSource)=>{const name=(src.title||'Материал').split(' · ').pop()!.trim();return name.length>22?name.slice(0,20)+'…':name};
 const materialCount=(list:ChatSource[])=>new Set(list.map(x=>x.studyId)).size;
@@ -710,7 +725,7 @@ function AppDialog(){const ctx=useApp();const {dialog:d,open,state,update,receiv
  </div>:null}
  {d?.type==='passport'&&study?<><FormField label="Название"><TextInput value={form.title??study.title} onUpdate={v=>field('title',v)} controlRef={first}/></FormField><FormField label="Описание"><TextArea value={form.description??study.description??''} onUpdate={v=>field('description',v)} minRows={2}/></FormField><div className="form-row"><FormField label="Тип источника"><Select value={[form.type||study.type]} options={['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}))} onUpdate={v=>field('type',v[0])}/></FormField><FormField label="Проведено"><TextInput value={form.conducted??study.conducted??''} onUpdate={v=>field('conducted',v)} placeholder="Ноябрь 2026"/></FormField></div><FormField label="Метод"><TextInput value={form.method??study.method??''} onUpdate={v=>field('method',v)} placeholder="Юзабилити-тестирование"/></FormField><FormField label="Аудитория" help="Хозяева или гости, сегменты и размер выборки."><TextArea value={form.audience??study.audience??''} onUpdate={v=>field('audience',v)} minRows={2}/></FormField><FormField label="Автор"><TextInput value={form.author??study.author??''} onUpdate={v=>field('author',v)}/></FormField><div className="form-row"><FormField label="Отчёт исследователя"><Select value={[form.report||reportOf(study)]} options={[{value:'ready',content:'Отчёт есть'},{value:'none',content:'Отчёта нет'}]} onUpdate={v=>field('report',v[0])}/></FormField>{(form.report||reportOf(study))==='none'?<FormField label="Ожидаем отчёт"><TextInput type={"date" as "text"} value={form.reportExpected??study.reportExpected??''} onUpdate={v=>field('reportExpected',v)}/></FormField>:null}</div><Notice>Без отчёта находки и ответы чата по исследованию помечаются «по сырым данным».</Notice></>:null}
  {d?.type==='upload'?<><label className="file-drop"><Upload size={28}/><strong>{form.fileName||'Выберите исходный файл'}</strong><small>PDF, DOCX, DOC, XLS, XLSX, TXT, аудио и видео · до 2 ГБ</small><input type="file" accept=".mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx" aria-label="Выбрать исходный файл" onChange={e=>{const f=e.target.files[0];file.current=f;if(f)setForm(s=>({...s,fileName:f.name,title:s.title||f.name.replace(/\.[^.]+$/,'')}))}}/></label><FormField label="Название"><TextInput value={form.title||''} onUpdate={v=>field('title',v)}/></FormField><div className="form-row"><FormField label="Тип источника"><Select value={[form.type||'Интервью']} options={['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}))} onUpdate={v=>field('type',v[0])}/></FormField><FormField label="Тема"><TextInput value={form.project||''} onUpdate={v=>field('project',v)} placeholder="Календарь и цены"/></FormField></div><Switch checked={form.autoSummary!==false} onUpdate={v=>field('autoSummary',v)} content="Создать сводку после обработки"/><p className="upload-summary-note">{form.autoSummary!==false?'После обработки текст будет отправлен выбранной модели: '+(state.models.find(m=>m.id===state.modelId)?.name||'модель не выбрана')+'. Сводка сохранится как черновик ИИ.':'Текст останется в проекте. Сводку можно будет создать на странице материала.'}</p><Notice>Файл сохранится в проекте. Текст из TXT, PDF и Word станет доступен для поиска. {state.processors.some(p=>p.id==='whisper'&&p.configured)?'После загрузки запись автоматически попадёт в очередь распознавания.':'Распознавание речи на этом сервере пока не установлено. Запись можно сохранить для обработки позже.'} Сводку можно создать на странице материала.</Notice></>:null}
- {d?.type==='source'?<><div className="meta"><Folder size={14}/>{study?.title} · {study?.type}</div>{segment?<><blockquote>«{segment.correctedText??segment.text}»<footer>{segment.speaker} · {segment.page?'Стр. '+segment.page:time(segment.time)}</footer></blockquote><Button view="action" onClick={()=>{close();go('study/'+d.studyId,d.segmentId)}}>Открыть фрагмент {segment.page?'Стр. '+segment.page:time(segment.time)}<ArrowRight size={16}/></Button></>:<><p className="dialog-copy">У этой находки нет прямой цитаты. Это вопрос из демонстрационной внутренней встречи.</p><Button href={appHref('study/'+d.studyId)} onClick={close}>Открыть материал</Button></>}</>:null}
+ {d?.type==='source'?<><div className="meta"><Folder size={14}/>{study?.title} · {study?.type}</div>{segment?<><blockquote>«{segment.correctedText??segment.text}»<footer>{segment.speaker} · {segment.page?'Стр. '+segment.page:time(segment.time)}</footer></blockquote><Button view="action" onClick={e=>{close();go('study/'+d.studyId,d.segmentId,e.detail>0)}}>Открыть фрагмент {segment.page?'Стр. '+segment.page:time(segment.time)}<ArrowRight size={16}/></Button></>:<><p className="dialog-copy">У этой находки нет прямой цитаты. Это вопрос из демонстрационной внутренней встречи.</p><Button href={appHref('study/'+d.studyId)} onClick={close}>Открыть материал</Button></>}</>:null}
  {d?.type==='processor'?<><p className="dialog-copy">{state.processors.find(p=>p.id===d.id)?.name}: распознавание речи и LLM подключаются независимо. В этом прототипе модуль не установлен и не запускается.</p><Notice>Параметры сервера и скорость обработки нужно проверять на реальном корпусе.</Notice></>:null}
  {d?.type==='user'&&user?<div className="stack"><p>{user.email}</p><UserStatus user={user}/>{user.scope==='all'?<Notice>Изменение затронет общие проекты. Для закрытых проектов нужен отдельный доступ.</Notice>:null}{user.status==='expired'?<Button view="action" onClick={()=>open({type:'invite',initial:{name:user.name,email:user.email,role:user.role,workspace:user.scope==='all'?'all':ctx.user?.workspaceId}})}>Создать новое приглашение</Button>:null}{ctx.user?.owner?<Button view={user.status==='revoked'?'action':'outlined-danger'} onClick={async()=>{if(!await update(s=>({users:s.users.map(x=>x.id===user.id?{...x,status:x.status==='revoked'?'active':'revoked'}:x)})))return;if(!real)notify(user.status==='revoked'?'Доступ восстановлен в прототипе.':'Доступ отозван в прототипе.');close()}}>{user.status==='revoked'?'Восстановить доступ':'Отозвать доступ'}</Button>:null}</div>:null}
  {error&&d?.type!=='invite'?<p className={uploading?"muted":"form-error"} role={uploading?"status":"alert"}>{error}</p>:null}</Dialog.Body>{d?.type!=='whatsnew'&&<Dialog.Footer onClickButtonCancel={close} textButtonCancel={['search','source','processor','user'].includes(d?.type)?'Закрыть':'Отмена'} {...(['upload','finding','model','invite','passport','workspace'].includes(d?.type)?{onClickButtonApply:submit,propsButtonApply:{loading:uploading,disabled:uploading},textButtonApply:({upload:state.processors.some(p=>p.id==='whisper'&&p.configured)?'Загрузить и распознать':'Загрузить файл',finding:finding?(d.accept?'Принять с правкой':'Сохранить'):'Сохранить находку',model:'Сохранить настройки',invite:'Создать приглашение',passport:'Сохранить паспорт',workspace:'Создать и перейти'})[d.type]}:{})}/>}</Dialog><ModelConnectionDialog open={d?.type==='model'} model={model} ctx={ctx} onClose={close}/></>

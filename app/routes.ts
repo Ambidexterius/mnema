@@ -63,7 +63,7 @@ export function navigationState(current:URL,next:URL,previous:NavigationState={}
  return {app:1,previous:path,...(findingsRoot?{findingsRoot,findingsScroll:findingsScroll||0}:{}),...(returningToList?{scrollTop:previous.findingsScroll||0}:{}),...(material?{returnTo:path}:{})};
 }
 export function restoreRouteScroll(){const top=history.state?.scrollTop;if(Number.isFinite(top)&&top>=0)requestAnimationFrame(()=>document.querySelector('.content-shell')?.scrollTo({top}))}
-export function navigateHref(href:string,replace=false){
+export function navigateHref(href:string,replace=false,animateStudy=false){
  const current=new URL(location.href),next=new URL(href,current);
  if(next.origin!==current.origin)throw new Error('Внутренний переход должен оставаться в Мнемодаке.');
  const target=next.pathname+next.search+next.hash;
@@ -71,9 +71,9 @@ export function navigateHref(href:string,replace=false){
  if(readRoute(current).route.startsWith('study/')&&history.state?.returnTo===target){history.back();return}
  history.replaceState({...history.state,scrollTop:document.querySelector('.content-shell')?.scrollTop||0},'');
  history[replace?'replaceState':'pushState'](navigationState(current,next,history.state||{}),'',target);
- window.dispatchEvent(new PopStateEvent('popstate'));
+ window.dispatchEvent(new PopStateEvent('popstate',{state:animateStudy&&readRoute(next).route.startsWith('study/')?{animateStudy:true}:null}));
 }
-export function navigate(route:string,replace=false){navigateHref(appHref(route),replace)}
+export function navigate(route:string,replace=false,animateStudy=false){navigateHref(appHref(route),replace,animateStudy)}
 
 /** Auth return is limited to a project on this origin; never accept an external redirect. */
 export function projectReturnPath(url:URL):string|null{
