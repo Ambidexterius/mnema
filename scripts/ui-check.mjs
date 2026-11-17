@@ -25,6 +25,10 @@ try{
   const page=await context.newPage();page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
   const goto=async path=>{await page.goto(fixture.base+path);await page.locator('.app-shell').waitFor()};
   const screenshot=name=>page.screenshot({path:resolve(out,theme+'-'+name+'.png')});
+  const checkBackPosition=async(back,heading)=>{
+   const b=await back.boundingBox(),h=await heading.boundingBox(),bar=await page.locator('.topbar').boundingBox();
+   assert.ok(b.x+b.width<=h.x+1);assert.ok(b.y<h.y+h.height&&b.y+b.height>h.y);assert.ok(b.y>=bar.y+bar.height-1);assert.ok(b.width>=32&&b.height>=32);
+  };
   await run(theme+': centered startup status at 16px',async()=>{
    let unlock;const gate=new Promise(resolve=>unlock=resolve);await page.route('**/api/session',async route=>{await gate;await route.continue()});
    try{await page.goto(fixture.base+'/projects');await page.locator('.auth-loading').waitFor();const geometry=await page.locator('.auth-loading').evaluate(e=>{const t=e.querySelector(':scope>span').getBoundingClientRect(),loader=e.querySelector('.g-loader').getBoundingClientRect();return{font:getComputedStyle(e).fontSize,x:t.x+t.width/2,y:(loader.y+t.bottom)/2,width:innerWidth,height:innerHeight}});assert.equal(geometry.font,'16px');assert.ok(Math.abs(geometry.x-geometry.width/2)<1);assert.ok(Math.abs(geometry.y-geometry.height/2)<1);await screenshot('startup-loading')}
@@ -47,17 +51,17 @@ try{
    if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-folder-stage').getBoundingClientRect(),grid=document.querySelector('.projects-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
   });
   await run(theme+': mobile project navigation and desktop table',async()=>{
-   for(const width of [390,1024,1440]){
+   for(const width of [320,390,768,1024,1440]){
     await page.setViewportSize({width,height:844});
     await goto('/projects/main');
     const compact=width<960;
     const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
-    // Back navigation sits above the project title; sections stay below it.
+    // Back is an icon beside H1; no separate navigation row above the heading.
     assert.equal(await page.getByRole('link',{name:'К проектам'}).count(),0);
     assert.equal(await page.locator('.topbar .project-tabs').count(),0);
     const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
-    const back=page.getByRole('link',{name:'Назад',exact:true}),backBox=await back.boundingBox();assert.equal(await back.getAttribute('href'),'/projects');assert.ok(backBox.y+backBox.height<=title.y);assert.equal(backBox.x,title.x);
+    const back=page.getByRole('link',{name:'Назад',exact:true});assert.equal(await back.getAttribute('href'),'/projects');assert.equal(await page.locator('.page-heading .page-title-row>.page-back').count(),1);assert.equal(await page.locator('.project-back').count(),0);await checkBackPosition(back,page.locator('.project-overview h1'));
     assert.ok(tabs.y>=title.y+title.height);
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
@@ -188,7 +192,8 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    }finally{fixture.app.db.prepare('DELETE FROM mnema_idea_comments WHERE idea_id IN (?,?)').run(fresh,old);fixture.app.db.prepare('DELETE FROM mnema_ideas WHERE id IN (?,?)').run(fresh,old)}
   });
   await run(theme+': findings and material context',async()=>{
-   await goto('/all-findings');await page.locator('.finding-open').first().click();await page.locator('.finding-page').waitFor();assert.equal(await page.locator('.topbar .lucide-lightbulb').count(),1);
+   await goto('/all-findings');await page.locator('.finding-open').first().click();await page.locator('.finding-page').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');assert.equal(await page.locator('.topbar .lucide-lightbulb').count(),0);
+   for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});await page.waitForTimeout(80);await checkBackPosition(page.getByRole('link',{name:'Назад к находкам',exact:true}),page.locator('.finding-page h1'));assert.equal(await page.locator('.finding-page .page-back').count(),1);await screenshot('finding-back-inline-'+width)}await page.setViewportSize({width:1440,height:950});
    assert.equal(await page.locator('.finding-side>.finding-project-link').count(),0);assert.equal(await page.locator('.finding-block:has(#finding-study-title) .finding-project-link').count(),1);
    await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.locator('.catalog-table').waitFor();assert.equal(new URL(page.url()).pathname,'/all-findings');await screenshot('findings');
   });
