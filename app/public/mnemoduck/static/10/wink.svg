@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 100 100" role="img" aria-label="MnemoDuck — Подмигивает">
+<title>MnemoDuck — Подмигивает</title>
+
+<defs>
+  <linearGradient id="sun" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD23D"/><stop offset=".6" stop-color="#FFB50C"/><stop offset="1" stop-color="#FF9200"/></linearGradient>
+  <linearGradient id="bill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC218"/><stop offset="1" stop-color="#FF9700"/></linearGradient>
+</defs>
+
+<g class="body">
+<path d="M 23 3 H 60 C 80 3 95 18 95 39 V 65 C 95 84 83 96 63 96 H 31 C 13 96 3 86 3 68 V 24 C 3 12 11 3 23 3 Z" fill="url(#sun)"/>
+<path d="M 3 72 C 21 56 25 30 49 25 C 56 23 61 22 67 25 C 74 17 81 17 82 22 L 80 28 C 88 29 90 33 86 37 C 91 44 90 57 86 65 C 81 77 54 86 12 92 C 5 88 3 82 3 72 Z" fill="#FFFCF6"/>
+<ellipse class="eye" cx="64" cy="54" rx="4.6" ry="9" fill="#18131A"/><path class="eye" d="M74 49 Q80 42 86 49" fill="none" stroke="#1D171B" stroke-width="5" stroke-linecap="round"/><path class="beak" d="M69 67 Q82 65 94 63 Q87 77 74 76 Q70 74 69 67Z" fill="url(#bill)"/><path d="M72 74 Q81 80 90 72 Q82 83 75 78Z" fill="#ED7B00"/></g>
+</svg>

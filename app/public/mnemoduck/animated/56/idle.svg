@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 128 128" role="img" aria-label="MnemoDuck — Покой">
+<title>MnemoDuck — Покой</title>
+
+<defs>
+  <linearGradient id="sun" x1="0" y1="0" x2="0.84" y2="1"><stop offset="0" stop-color="#FFD137"/><stop offset=".48" stop-color="#FFBD10"/><stop offset="1" stop-color="#FF9100"/></linearGradient>
+  <linearGradient id="white" x1="0" y1="0" x2=".55" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFF7EE"/></linearGradient>
+  <linearGradient id="bill" x1="0" y1="0" x2=".65" y2="1"><stop offset="0" stop-color="#FFC000"/><stop offset=".65" stop-color="#FFAB00"/><stop offset="1" stop-color="#FF9100"/></linearGradient>
+  <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34302E"/><stop offset="1" stop-color="#120B16"/></linearGradient>
+  <linearGradient id="mouth" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#913900"/><stop offset="1" stop-color="#481814"/></linearGradient>
+</defs>
+<style>
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after {animation: none !important;} }
+.body{transform-origin: 63px 74px;transform-box:view-box;}
+.eye{transform-box:fill-box;transform-origin:center;}
+.beak{transform-box:fill-box;transform-origin:center;}
+.dec{transform-box:fill-box;transform-origin:center;}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.7px)}}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.018)}}
+@keyframes blink{0%,43%,48%,96%,100%{transform:scaleY(1)}45%,46%{transform:scaleY(.10)}}
+@keyframes listening{0%,100%{transform:translateX(-1px)}40%,70%{transform:translateX(2px)}}
+@keyframes nod{0%,100%{transform:rotate(0)}38%{transform:rotate(-3deg)}70%{transform:rotate(2deg)}}
+@keyframes wiggle{0%,100%{transform:rotate(0)}30%,70%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+@keyframes happy{0%,100%{transform:translateY(0) scale(1)}25%{transform:translateY(-2px) scale(1.02)}50%{transform:translateY(0) scale(1)}70%{transform:translateY(-1px)}}
+@keyframes wink{0%,58%,73%,100%{transform:scaleY(1)}64%{transform:scaleY(.13)}}
+@keyframes love{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+@keyframes pulse{0%,100%{transform:scale(.83);opacity:.25}50%{transform:scale(1);opacity:1}}
+@keyframes dots{0%,70%,100%{opacity:.18;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
+@keyframes pop{0%,15%,100%{transform:scale(1)}45%{transform:scale(1.17)}}
+@keyframes appear{0%,30%{transform:scale(0)}55%,100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}17%,51%{transform:translateX(-2px)}34%,68%{transform:translateX(2px)}}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes burst{0%,20%,100%{opacity:1;transform:scale(1)}47%{opacity:.5;transform:scale(1.1)}}
+@keyframes shimmer{0%,100%{opacity:1}50%{opacity:.70}}
+ .body{animation:float 2.7s ease-in-out infinite;} .eye{animation:blink 4.6s ease-in-out infinite;} </style>
+<g class="body">
+<path class="shell" d="M 35 18 C 18 18 7 29 7 46 L 7 92 C 7 111 21 123 42 123 L 74 123 C 100 123 118 106 119 79 C 121 47 101 18 69 18 Z" fill="url(#sun)"/>
+<path class="face" d="M 7 91 C 19 82 29 60 44 48 C 56 39 73 37 82 39 C 90 26 97 28 99 32 C 102 35 100 39 97 43 C 104 38 109 40 110 44 C 111 48 108 51 104 54 C 112 61 114 70 113 80 C 112 91 104 99 89 106 C 73 113 46 119 17 121 C 10 116 7 105 7 91 Z" fill="url(#white)"/>
+<ellipse class="eye" cx="76" cy="71" rx="4.3" ry="8.0" fill="url(#eye)" transform="rotate(-8 76 71)"/><ellipse class="eye" cx="98" cy="67" rx="4.3" ry="8.1" fill="url(#eye)" transform="rotate(-8 98 67)"/><g class="beak" transform="translate(-8 0)"><path d="M85 84 C88 94 98 99 109 96 C116 94 122 86 125 81 Q113 89 98 90 Q90 90 85 84Z" fill="#F08300"/>
+    <path d="M84 82 C84 77 92 79 104 77 C116 74 123 76 125 80 C120 86 107 90 96 89 C89 89 84 87 84 82Z" fill="url(#bill)"/></g><g class="dec rays" fill="none" stroke="#FFA900" stroke-width="6.1" stroke-linecap="round">
+    <path d="M 98 5 L 96 18"/><path d="M 118 11 L 108 24"/><path d="M 125 31 L 111 37"/>
+    </g></g>
+</svg>

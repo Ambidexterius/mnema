@@ -738,7 +738,6 @@ button.material-rail-empty:focus-visible{outline:2px solid var(--g-color-line-fo
 
 .sidebar .brand{row-gap:0}
 @media(min-width:960px){.sidebar{padding-top:8px}.sidebar-head{padding-bottom:12px}.sidebar .brand{padding-block:2px}.rail-collapsed .sidebar .brand{grid-template-rows:40px}}
-.g-root_theme_dark .brand-symbol{filter:brightness(0) invert(1)}
 
 /* Border adapted from Wensity's Liquid input; the existing composer stays intact. */
 .composer-animated-edge{position:relative;isolation:isolate;border-radius:var(--g-border-radius-l)}
@@ -1066,82 +1065,12 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 .thinking-elapsed{font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
 @keyframes thinking-step-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
 @keyframes thinking-shimmer{to{background-position:-150% 0}}
-/* Mascot: Mnemonika's agent, a 3D-extruded brand mark. Slices sit in preserve-3d; the spin wrapper carries the pose.
-   Motion only without reduced motion; text status always stays. */
-.mascot{position:relative;flex:none;display:block;perspective:calc(var(--u) * 260);--m-top:#ff7792;--m-bottom:#ee204d;--m-side:#c3173f;--m-side-deep:#a9123a;--m-logo:#ee204d;--m-lid:#f04a6c;--m-heart:#7d0f2e;--m-blush:#ffb3c2;--m-z:#ee204d}
-/* Dark theme: the logo turns white, so the agent turns soft milk-white too; brand red stays as the accent (hearts, z). */
-.g-root_theme_dark .mascot{--m-top:#ffffff;--m-bottom:#ddd6d8;--m-side:#a59ea1;--m-side-deep:#8a8386;--m-logo:#f2eeef;--m-lid:#ebe6e7;--m-heart:#ee204d;--m-blush:#ff8fa6;--m-z:#f2eeef}
-.mascot-figure,.mascot-sway,.mascot-spin,.mascot-layer{position:absolute;inset:0}
-.mascot-sway{transform-style:preserve-3d}
-.mascot-figure{transform-origin:50% 90%}
-.mascot-spin{transform-style:preserve-3d;transform:rotateX(10deg) rotateY(-22deg);transition:transform .45s cubic-bezier(.2,0,0,1)}
-.mascot-layer{width:100%;height:100%;overflow:visible;backface-visibility:visible}
-.mascot-slice{fill:var(--m-side)}.mascot-slice:nth-child(2),.mascot-slice:nth-child(3){fill:var(--m-side-deep)}
-.mascot-back .mascot-logo{fill:var(--m-logo)}
-.mascot-face-layer{pointer-events:none}
-.mascot-face,.mascot-glance,.mascot-eye{transform-box:fill-box;transform-origin:center}
-.mascot-face{transition:transform .3s cubic-bezier(.2,0,0,1)}
-/* Petals overlap by 3px at rest (one body); the split keyframe parts them into the brand mark. */
-.mascot-petal-tl{--mx:3.5px;--my:3.5px}.mascot-petal-tr{--mx:-3.5px;--my:3.5px}.mascot-petal-bl{--mx:3.5px;--my:-3.5px}.mascot-petal-br{--mx:-3.5px;--my:-3.5px}
-.mascot-petal{transform:translate(var(--mx),var(--my))}
-.mascot[data-mood=listening] .mascot-spin{transform:rotateX(24deg) rotateY(-12deg)}
-.mascot[data-mood=listening] .mascot-face{transform:translateY(3px)}
-.mascot[data-mood=puzzled] .mascot-spin{transform:rotateX(6deg) rotateY(-30deg) rotateZ(-9deg)}
-.mascot[data-mood=sad] .mascot-spin{transform:rotateX(-14deg) rotateY(-14deg)}
-.mascot[data-mood=sad] .mascot-face{transform:translateY(3px)}
-/* Extra emotions: a pose for the whole body plus the face drawn in Mascot.tsx. */
-.mascot-gaze{transform:translate(var(--gx,0px),var(--gy,0px));transition:transform .3s cubic-bezier(.2,0,0,1)}
-.mascot[data-mood=surprised] .mascot-spin{transform:rotateX(4deg) rotateY(-16deg)}
-.mascot[data-mood=love] .mascot-spin{transform:rotateX(8deg) rotateY(-10deg) rotateZ(4deg)}
-.mascot[data-mood=shy] .mascot-spin{transform:rotateX(16deg) rotateY(-38deg)}
-.mascot[data-mood=angry] .mascot-spin{transform:rotateX(18deg) rotateY(-8deg)}
-.mascot[data-mood=dizzy] .mascot-spin{transform:rotateX(10deg) rotateY(-22deg) rotateZ(8deg)}
-.mascot[data-mood=sleepy] .mascot-spin{transform:rotateX(20deg) rotateY(-18deg) rotateZ(-5deg)}
-.mascot[data-mood=wink] .mascot-spin{transform:rotateX(8deg) rotateY(-26deg) rotateZ(6deg)}
-.mascot-heart,.mascot-z,.mascot-swap{transform-box:fill-box;transform-origin:center}
-@media(prefers-reduced-motion:reduce){.mascot-out{display:none}}
+/* MnemoDuck motion is contained in the supplied SVGs; picture selects a static pose for reduced motion. */
+.mascot{flex:none;display:block}
+.mascot img{display:block;width:100%;height:100%}
 .answer-sign{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:13px;line-height:20px;color:var(--g-color-text-secondary)}
 .chat-error{display:flex;align-items:flex-start;gap:8px}
 .chat-welcome .mascot{margin:0 auto 16px}
-@media(prefers-reduced-motion:no-preference){
- .mascot[data-live] .mascot-figure{animation:mascot-breathe 3.8s ease-in-out infinite}
- .mascot[data-live] .mascot-glance{animation:mascot-glance 7s ease-in-out infinite}
- .mascot[data-live] .mascot-sway{animation:mascot-sway 7s cubic-bezier(.45,0,.55,1) infinite}
- .mascot[data-live][data-mood=idle] .mascot-petal{animation:mascot-split-rest 11s cubic-bezier(.2,0,0,1) infinite}
- .mascot[data-live] .mascot-eye{animation:mascot-blink 4.6s ease-in-out infinite}
- .mascot[data-mood=thinking] .mascot-spin{animation:mascot-think 3.6s cubic-bezier(.45,0,.55,1) .45s infinite}
- .mascot[data-mood=thinking] .mascot-petal{animation:mascot-split-think 3.6s cubic-bezier(.45,0,.55,1) .45s infinite}
- .mascot[data-mood=thinking] .mascot-face{animation:mascot-look 3.6s ease-in-out .45s infinite}
- .mascot[data-mood=happy] .mascot-figure{animation:mascot-hop .7s cubic-bezier(.2,0,0,1) both}
- .mascot[data-mood=happy] .mascot-spin{animation:mascot-wiggle .9s cubic-bezier(.2,0,0,1) both}
- .mascot[data-mood=surprised] .mascot-figure{animation:mascot-startle .5s cubic-bezier(.2,0,0,1) both}
- .mascot[data-mood=love] .mascot-figure{animation:mascot-hop .7s cubic-bezier(.2,0,0,1) both}
- .mascot[data-mood=love] .mascot-heart{animation:mascot-beat .9s ease-in-out infinite}
- .mascot[data-mood=angry] .mascot-figure{animation:mascot-shake .45s cubic-bezier(.36,.07,.19,.97) 2 both}
- .mascot[data-mood=dizzy] .mascot-spin{animation:mascot-dizzy 1.4s ease-in-out .45s infinite}
- .mascot[data-mood=sleepy] .mascot-figure{animation:mascot-breathe 5.5s ease-in-out infinite}
- .mascot[data-mood=sleepy] .mascot-z{animation:mascot-z 2.6s ease-out infinite}
- .mascot-in{animation:mascot-face-in .28s cubic-bezier(.2,0,0,1) both}
- .mascot-out{animation:mascot-face-out .18s ease-out both}
- @keyframes mascot-face-in{from{opacity:0;transform:scale(.6);filter:blur(1.5px)}}
- @keyframes mascot-face-out{to{opacity:0;transform:scale(.85);filter:blur(1.5px)}}
- @keyframes mascot-startle{0%{transform:none}30%{transform:translateY(-10%) scale(.94,1.08)}60%{transform:scale(1.05,.95)}100%{transform:none}}
- @keyframes mascot-beat{0%,100%{transform:scale(1)}30%{transform:scale(1.18)}45%{transform:scale(.96)}}
- @keyframes mascot-shake{0%,100%{transform:none}25%{transform:translateX(-6%) rotate(-3deg)}75%{transform:translateX(6%) rotate(3deg)}}
- @keyframes mascot-dizzy{0%,100%{transform:rotateX(10deg) rotateY(-22deg) rotateZ(8deg)}50%{transform:rotateX(10deg) rotateY(-4deg) rotateZ(-8deg)}}
- @keyframes mascot-z{0%{opacity:0;transform:translate(0,4px) scale(.7)}30%{opacity:1}100%{opacity:0;transform:translate(6px,-10px) scale(1.15)}}
- @keyframes mascot-breathe{0%,100%{transform:none}50%{transform:scale(1.03,.975)}}
- @keyframes mascot-glance{0%,36%,100%{transform:none}42%,56%{transform:translate(-3px,.5px)}62%,80%{transform:translate(2.5px,-1px)}}
- @keyframes mascot-sway{0%,100%{transform:none}50%{transform:rotateX(-2deg) rotateY(16deg)}}
- @keyframes mascot-split-rest{0%,84%,100%{transform:translate(var(--mx),var(--my))}88%,94%{transform:none}}
- /* Think: sway side to side, then one full turn that shows the logo on the back, then settle. */
- @keyframes mascot-think{0%{transform:rotateX(10deg) rotateY(-22deg)}22%{transform:rotateX(8deg) rotateY(26deg)}44%{transform:rotateX(10deg) rotateY(-22deg)}78%,100%{transform:rotateX(10deg) rotateY(338deg)}}
- @keyframes mascot-split-think{0%,50%,86%,100%{transform:translate(var(--mx),var(--my))}60%,72%{transform:none}}
- @keyframes mascot-look{0%,44%,100%{transform:none}14%{transform:translate(2px,-1px)}30%{transform:translate(-2px,-1px)}}
- @keyframes mascot-blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
- @keyframes mascot-hop{0%{transform:none}28%{transform:translateY(-12%) scale(.95,1.06)}56%{transform:translateY(0) scale(1.06,.94)}100%{transform:none}}
- @keyframes mascot-wiggle{0%{transform:rotateX(10deg) rotateY(-22deg)}35%{transform:rotateX(4deg) rotateY(12deg)}70%{transform:rotateX(10deg) rotateY(-30deg)}100%{transform:rotateX(10deg) rotateY(-22deg)}}
-}
 
 /* Only a newly received answer enters; restored history is rendered immediately. */
 .message-arrive{animation:message-arrive 200ms cubic-bezier(.23,1,.32,1) both}

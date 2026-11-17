@@ -10,7 +10,7 @@ Whisper Small и faster-whisper: MIT, https://huggingface.co/Systran/faster-whis
 
 ## Shapes Gallery
 
-Original Shape 69: Monika Michalczyk, https://www.shapes.gallery/. Geometry retained; color and viewBox adapted. See app/licenses/shapes-gallery.md.
+Прежний знак Shape 69: Monika Michalczyk, https://www.shapes.gallery/. С 17.11.2026 заменён на MnemoDuck. Историческое уведомление сохранено в app/licenses/shapes-gallery.md.
 
 ## Предпросмотр документов
 
@@ -27,3 +27,7 @@ Matrix rain renderer: Copyright (c) 2026 mishanaer, MIT, https://github.com/mish
 ## Project folders
 
 Visual reference: Glassmorphism Folder Cards by Kedhareswer Naidu, https://21st.dev/@kedhareswer/components/glass-folder-cards. Folder geometry and interaction are implemented for this application with a shared radius and project access controls.
+
+## MnemoDuck
+
+Логотип и анимации предоставлены владельцем проекта в архиве MnemoDuck_assets.zip 17.11.2026. SVG используются в исходном виде; иконка уведомления дополнена красной отметкой. Описание происхождения — app/licenses/mnemoduck.md.

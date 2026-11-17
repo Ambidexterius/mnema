@@ -116,6 +116,19 @@ try{
    await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor();assert.equal(await page.getByText('Горячие клавиши',{exact:true}).count(),0);assert.equal(await page.getByLabel('Звук уведомлений',{exact:true}).count(),1);await screenshot('profile-shortcuts-always-enabled');await page.getByRole('button',{name:/Профиль:/}).click();await page.locator('.account-menu').waitFor({state:'hidden'});
    await page.reload();await page.locator('.app-shell').waitFor();assert.equal(await create.getAttribute('aria-keyshortcuts'),'C');await main.press('c');await dialog.waitFor();await name.press('Escape');await dialog.waitFor({state:'hidden'});await screenshot('shortcuts');
   });
+  await run(theme+': MnemoDuck brand, chat poses and reduced motion',async()=>{
+   await page.setViewportSize({width:1440,height:950});await goto('/chat');
+   const brand=page.locator('.sidebar .brand-symbol');assert.ok(await brand.evaluate(e=>e.complete&&e.naturalWidth>0));assert.equal(await brand.evaluate(e=>getComputedStyle(e).filter),'none');
+   assert.match(await page.locator('link[rel~="icon"]').getAttribute('href'),/brand=mnemoduck-1/);
+   const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('');
+   const duck=page.locator('.chat-welcome .mascot img');await duck.waitFor();
+   await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/static/56/idle.svg'));
+   await composer.fill('Проверка состояния');await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/static/56/listening.svg'));
+   await page.emulateMedia({reducedMotion:'no-preference'});await page.waitForFunction(()=>document.querySelector('.chat-welcome .mascot img')?.currentSrc.endsWith('/animated/56/listening.svg'));
+   assert.ok(await duck.evaluate(e=>e.complete&&e.naturalWidth>0));await composer.fill('');await page.emulateMedia({reducedMotion:'reduce'});
+   for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
+   await screenshot('mnemoduck-chat');
+  });
   await run(theme+': sectioned chat answer: lead, captions, item leads and cards',async()=>{
    await page.setViewportSize({width:1440,height:950});await goto('/chat');const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('Какие проблемы у хозяев с ответом гостям?');await composer.press('Enter');
    const answer=page.locator('.answer_sectioned').last();await answer.locator('.answer-card_open').waitFor();
