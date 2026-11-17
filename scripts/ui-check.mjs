@@ -42,6 +42,10 @@ try{
   await run(theme+': primary action contrast keeps brand red',async()=>{
    await page.getByRole('button',{name:'Создать',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Новый проект',exact:true});await dialog.waitFor();
    const button=dialog.getByRole('button',{name:'Создать и перейти',exact:true});
+   const privacy=dialog.getByRole('checkbox',{name:'Только приглашённые',exact:true});
+   assert.equal(await privacy.isChecked(),false);
+   await privacy.check();
+   assert.equal(await privacy.isChecked(),true);
    const pair=()=>button.evaluate(e=>({text:getComputedStyle(e).color,fill:getComputedStyle(e,'::before').backgroundColor}));
    let colors=await pair();assert.equal(colors.fill,'rgb(224, 30, 72)');assert.ok(contrast(colors.text,colors.fill)>=4.5);
    await button.hover();await page.waitForTimeout(180);colors=await pair();assert.ok(contrast(colors.text,colors.fill)>=4.5);await page.mouse.move(0,0);await dialog.press('Escape');await dialog.waitFor({state:'hidden'});
@@ -74,6 +78,30 @@ try{
     await goto('/projects/main');await page.locator('.project-tabs').getByRole('link',{name:/^Находки/}).click();await page.waitForURL(fixture.base+'/projects/main/findings');await back.click();await page.waitForURL(fixture.base+'/projects/main');await page.locator('.project-overview').waitFor();await screenshot('project-back-'+width);
    }
   });
+  await run(theme+': private project shows its access mode at every width',async()=>{
+   const project=fixture.app.db.prepare('SELECT id FROM mnema_workspaces WHERE name=?').get('Другой раздел');
+   await context.request.patch(fixture.base+'/api/workspaces/'+project.id+'/sharing',{headers:{'X-Mnema-Request':'1'},data:{mode:'private'}});
+   await goto('/projects/'+project.id);
+   for(const width of [320,390,768,1024,1440]){
+    await page.setViewportSize({width,height:844});
+    const share=page.getByRole('button',{name:/Поделиться проектом.*Только приглашённые/});
+    await share.waitFor();
+    const bounds=await share.boundingBox();
+    assert.ok(bounds.x>=0 && bounds.x+bounds.width<=width+1);
+    if(width<=390)assert.ok(bounds.height>=48 && bounds.width>=48);
+    if(width!==320 && width!==1440)continue;
+    await share.click();
+    const dialog=page.getByRole('dialog',{name:'Поделиться проектом',exact:true});
+    await dialog.getByText('Только приглашённые',{exact:true}).waitFor();
+    await dialog.getByRole('textbox',{name:'Рабочая почта участника'}).fill('invite@example.test');
+    const role=dialog.getByRole('combobox',{name:'Роль нового участника'});
+    await role.click();await page.getByRole('option',{name:'Полный доступ',exact:true}).click();
+    assert.equal(await role.innerText().then(t=>t.trim()),'Полный доступ');
+    await screenshot('private-sharing-'+width);
+    await dialog.getByRole('button',{name:'Закрыть',exact:true}).click();
+    await dialog.waitFor({state:'hidden'});
+   }
+  });
   await run(theme+': overview materials column stays short in a large project',async()=>{
    const row=fixture.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get(),state=JSON.parse(row.data),base=state.studies.find(s=>s.id==='sample');
    const extra=Array.from({length:40},(_,i)=>({...base,id:'bulk'+i,title:'Интервью № '+i,date:'2026-11-0'+(1+i%9),...(i===39?{status:'error'}:{})}));
@@ -84,7 +112,9 @@ try{
      const section=page.getByRole('region',{name:/^Материалы/}),more=section.getByRole('link',{name:'Все материалы',exact:true}),add=section.getByRole('button',{name:'Добавить файл',exact:true});
      assert.match(await more.getAttribute('href'),/\/projects\/main\/research$/);assert.match(await section.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
      const heading=await section.locator('.section-heading').boundingBox(),link=await more.boundingBox(),button=await add.boundingBox(),first=await rows.first().boundingBox();
-     assert.ok(link.y>=heading.y&&link.y+link.height<=heading.y+heading.height+1);assert.ok(button.y>=heading.y+heading.height);assert.equal(button.x,heading.x);assert.equal(button.height,width<960?36:28);assert.ok(Math.abs(button.width-heading.width)<1);assert.ok(first.y>=button.y+button.height);
+     assert.ok(link.y>=heading.y&&link.y+link.height<=heading.y+heading.height+1);assert.ok(button.y>=heading.y+heading.height);const rail=await rows.first().boundingBox();
+     assert.ok(button.x>heading.x);assert.ok(Math.abs(button.x-rail.x)<1);
+     assert.equal(button.height,width<960?36:28);assert.ok(Math.abs(button.width-rail.width)<1);assert.ok(first.y>=button.y+button.height);
      const title=rows.first().locator('.material-rail-text a'),fullTitle=await title.innerText(),text=await title.evaluate(e=>({height:e.getBoundingClientRect().height,overflow:getComputedStyle(e).textOverflow,nowrap:getComputedStyle(e).whiteSpace,clipped:e.scrollWidth>e.clientWidth}));
      assert.equal(text.height,20);assert.equal(text.overflow,'ellipsis');assert.equal(text.nowrap,'nowrap');assert.equal(await title.getAttribute('title'),width<960?null:fullTitle);if(width===320||width===1440)assert.ok(text.clipped);
      const findings=page.getByRole('link',{name:'Все находки',exact:true});assert.equal(await findings.getAttribute('class'),await more.getAttribute('class'));assert.match(await findings.getAttribute('href'),/\/projects\/main\/findings$/);

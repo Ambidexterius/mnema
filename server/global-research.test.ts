@@ -11,7 +11,12 @@ test('global answers enforce each project role, exclude revoked projects and hid
  try{
   assert.equal((await req('/api/research-context')).response.status,401);
   const registered=await req('/api/register',{email:'global-owner@example.test',password:'global-test-password-only',setupToken:setup});assert.equal(registered.response.status,200);cookie=registered.response.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
-  const user:any=app.db.prepare('SELECT id FROM user').get();const b=await req('/api/workspaces',{name:'Проект с просмотром'}),c=await req('/api/workspaces',{name:'Закрытый проект'});const bid=b.data.id,cid=c.data.id;
+  const user:any=app.db.prepare('SELECT id FROM user').get();const b=await req('/api/workspaces',{name:'Проект с просмотром',mode:'private'}),c=await req('/api/workspaces',{name:'Закрытый проект',mode:'private'});const bid=b.data.id,cid=c.data.id;
+  // The actor is a normal member of these projects; ownership is not revocable membership.
+  const invite=await req('/api/invitations',{name:'Other project owner',email:'other-project-owner@example.test',role:'view',scope:'project'});
+  const other=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({email:'other-project-owner@example.test',password:'other-fixture-password',inviteToken:new URL(invite.data.inviteURL).searchParams.get('invite')})});assert.equal(other.status,200);
+  const otherId=app.db.prepare("SELECT id FROM user WHERE email='other-project-owner@example.test'").get().id;
+  app.db.prepare('UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id IN (?,?)').run(otherId,bid,cid);app.db.prepare('UPDATE mnema_workspaces SET created_by=? WHERE id IN (?,?)').run(otherId,bid,cid);
   const model={id:'global-test',name:'Тестовая модель',provider:'QA',url:'https://api.openai.com/v1',model:'fixture',keyRef:'LLM_KEY_CUSTOM2',enabled:true};
   const material=(text:string,id='shared',segments?:any[])=>({id,title:'Источник '+text,type:'Интервью',format:'TXT',status:'ready',report:'none',segments:segments||[{id:'same-segment',time:0,speaker:'Документ',text}],summary:[],tags:[]});
   const catalog={...material('CATALOG','catalog',[{id:'verified',time:0,text:'B_CATALOG_VERIFIED'},{id:'hidden',time:0,text:'B_CATALOG_HIDDEN'}]),importSource:{catalog:true},summaryInfo:{review:'draft',state:'ready'},summary:[{title:'Hidden',text:'B_AI_DRAFT_SECRET',segments:['hidden']}]};

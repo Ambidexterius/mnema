@@ -20,10 +20,10 @@ async function fixture(port:number){
 test('global user directory is independent of the selected project; full members invite and configure, only admins revoke and assign admins',async()=>{
  const f=await fixture(4256),{req,owner}=f;
  try{
-  const other=(await req('/api/workspaces',owner,{name:'Other'})).data.id;
+  const other=(await req('/api/workspaces',owner,{name:'Other',mode:'private'})).data.id;
   const full=await f.add('full@example.test','full'),reader=await f.add('reader@example.test'),scoped=await f.add('scoped@example.test','view','project',other);
   const fullSession=(await req('/api/session',full.cookie)).data.user,fullId=fullSession.id,readerId=(await req('/api/session',reader.cookie)).data.user.id;
-  assert.equal(fullSession.owner,false);assert.equal(fullSession.manageUsers,true);assert.equal(fullSession.admin,true);assert.equal(fullSession.workspaces.length,2);
+  assert.equal(fullSession.owner,false);assert.equal(fullSession.manageUsers,true);assert.equal(fullSession.admin,true);assert.deepEqual(fullSession.workspaces.map(w=>w.id),['main']);
   f.app.db.prepare('INSERT INTO mnema_invites(id,token_hash,email,name,role,expires,used,revoked,workspace_id) VALUES(?,?,?,?,?,?,0,0,?)').run('superseded','superseded-fixture-hash','full@example.test','Old invitation','full',Date.now()+86400000,'*');
   const directory=(await req('/api/users',owner)).data.users;assert.equal(directory.length,4);assert(directory.some(u=>u.email==='scoped@example.test'));
   for(const workspace of ['main',other])assert.deepEqual((await req('/api/state',owner,undefined,workspace)).data.state.users,directory);
@@ -50,7 +50,9 @@ test('global user directory is independent of the selected project; full members
 test('one-time migration opens all projects for old active accounts and invitations, preserving roles, revocation and later explicit restrictions',async()=>{
  const f=await fixture(4257),{req,owner}=f;
  try{
-  const other=(await req('/api/workspaces',owner,{name:'Other'})).data.id;
+  const other=(await req('/api/workspaces',owner,{name:'Other',mode:'private'})).data.id;
+  // This fixture predates private-by-default creation.
+  f.app.db.prepare("UPDATE mnema_project_sharing SET mode='legacy' WHERE workspace_id=?").run(other);
   const oldReader=await f.add('old-reader@example.test','view','project');
   const legacy=await f.add('legacy@example.test','full','project'),revoked=await f.add('revoked@example.test','view','project');
   const revokedId=(await req('/api/session',revoked.cookie)).data.user.id;
@@ -60,7 +62,7 @@ test('one-time migration opens all projects for old active accounts and invitati
   const user=(await req('/api/session',legacy.cookie)).data.user;assert.equal(user.workspaces.length,2);assert(user.workspaces.every(w=>w.role==='full'));assert.equal(user.owner,false);
   const migratedReader=(await req('/api/session',oldReader.cookie)).data.user;assert.equal(migratedReader.workspaces.length,2);assert(migratedReader.workspaces.every(w=>w.role==='view'));
   assert.equal((await req('/api/session',revoked.cookie)).data.user,null);assert.equal(f.app.db.prepare("SELECT workspace_id FROM mnema_invites WHERE email='old-pending@example.test'").get().workspace_id,'*');
-  const future=(await req('/api/workspaces',owner,{name:'Future'})).data.id;assert.equal((await req('/api/session',legacy.cookie)).data.user.workspaces.length,3);
+  const future=(await req('/api/workspaces',owner,{name:'Future',mode:'private'})).data.id;assert.deepEqual((await req('/api/session',legacy.cookie)).data.user.workspaces.map(w=>w.id).sort(),['main',other].sort());
   const scoped=await f.add('new-scoped@example.test','view','project',future);assert.equal((await req('/api/session',scoped.cookie)).data.user.workspaces.length,1);
   await f.restart();assert.equal((await req('/api/session',scoped.cookie)).data.user.workspaces.length,1);assert.equal((await req('/api/state',scoped.cookie,undefined,other)).status,403);
  }finally{await f.close()}

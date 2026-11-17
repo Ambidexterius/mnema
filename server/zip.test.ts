@@ -5,7 +5,7 @@ import {createWriteStream} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import {uniqueNames,writeZip} from './zip.ts';
 
 test('uniqueNames keeps the first name and numbers repeats before the extension',()=>{
@@ -20,7 +20,7 @@ test('writeZip produces an archive a standard reader opens with exact contents a
   const archive=join(dir,'out.zip');const out=createWriteStream(archive);
   await writeZip(out,files);await new Promise<void>(done=>out.on('finish',()=>done()));
   const check=execFileSync('python3',['-I','-c','import zipfile,sys,hashlib,json;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print(json.dumps({i.filename:hashlib.sha256(z.read(i)).hexdigest() for i in z.infolist()}))',archive],{encoding:'utf8'});
-  const sha=(b:Buffer)=>execFileSync('python3',['-I','-c','import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'],{input:b,encoding:'utf8'}).trim();
+  const sha=(data:Buffer)=>createHash('sha256').update(data).digest('hex');
   assert.deepEqual(JSON.parse(check),Object.fromEntries(files.map(f=>[f.name,sha(f.data)])));
  }finally{await rm(dir,{recursive:true,force:true})}
 });

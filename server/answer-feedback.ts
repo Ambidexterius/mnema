@@ -20,7 +20,7 @@ function reject(status:number,message:string):never {
   throw Object.assign(new Error(message),{status});
 }
 
-export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string) {
+export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string,readProject?:(person:Person,workspaceId:string)=>any[]) {
   db.exec(`CREATE TABLE IF NOT EXISTS mnema_answer_feedback(
     answer_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rating TEXT NOT NULL CHECK(rating IN ('up','down')),
     example TEXT NOT NULL, updated INTEGER NOT NULL
@@ -35,6 +35,12 @@ export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string)
     const receipt:Receipt={...example,grants,author:person.id,id:randomUUID(),issued:Date.now(),build};
     const content=Buffer.from(JSON.stringify(receipt)).toString('base64url');
     return content+'.'+sign(content).toString('base64url');
+  }
+  function readableSources(person:Person,example:Example,cache=new Map<string,any[]>()) {
+    return example.references.every(ref=>{
+      if(!cache.has(ref.workspaceId)){const studies=readProject?readProject(person,ref.workspaceId):JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(ref.workspaceId)?.data||'{"studies":[]}')).studies;cache.set(ref.workspaceId,studies)}
+      return cache.get(ref.workspaceId)?.find(study=>study.id===ref.studyId)?.segments?.some(segment=>segment.id===ref.segmentId);
+    });
   }
   function rate(person:Person,token:unknown,rating:unknown) {
     if(rating!=='up'&&rating!=='down'&&rating!==null)reject(400,'Неизвестная оценка.');
@@ -51,13 +57,8 @@ export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string)
     for(const grant of example.grants){
       const current=person.workspaces.find(w=>w.id===grant.id);
       if(!current||(grant.role==='full'&&current.role!=='full'))reject(403,'Доступ к проекту изменился.');
-      const ids=new Set(example.references.filter(r=>r.workspaceId===grant.id).map(r=>r.studyId));
-      if(ids.size){
-        const row=db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(grant.id);
-        const present=new Set(row?JSON.parse(String(row.data)).studies.map(s=>s.id):[]);
-        if([...ids].some(id=>!present.has(id)))reject(409,'Материал ответа удалён.');
-      }
     }
+    if(!readableSources(person,example))reject(409,'Источники или доступ к ним изменились.');
     db.prepare(`INSERT INTO mnema_answer_feedback VALUES(?,?,?,?,?)
       ON CONFLICT(answer_id) DO UPDATE SET rating=excluded.rating,updated=excluded.updated`)
       .run(example.id,person.id,rating as string,JSON.stringify(example),Date.now());
@@ -70,17 +71,18 @@ export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string)
     )`).run(workspaceId,studyId);
   }
   // Admin review: newest ratings with author name, project names and source titles; tokens and signatures stay out.
-  function list() {
+  function list(person:Person) {
     const workspace=db.prepare('SELECT name,data FROM mnema_workspaces WHERE id=?');
-    const cache=new Map<string,{name:string;studies:{id:string;title?:string}[]}|null>();
+    const cache=new Map<string,{name:string;studies:{id:string;title?:string}[]}|null>(),visible=new Map<string,any[]>();
     const ws=(id:string)=>{if(!cache.has(id)){const row=workspace.get(id) as any;cache.set(id,row?{name:String(row.name||''),studies:JSON.parse(String(row.data)).studies||[]}:null)}return cache.get(id)};
     return (db.prepare(`SELECT f.answer_id,f.rating,f.updated,f.example,u.name AS user_name FROM mnema_answer_feedback f
-      LEFT JOIN user u ON u.id=f.user_id ORDER BY f.updated DESC LIMIT 200`).all() as any[]).map(row=>{
+      LEFT JOIN user u ON u.id=f.user_id ORDER BY f.updated DESC LIMIT 200`).all() as any[]).flatMap(row=>{
       const e:Receipt=JSON.parse(String(row.example));
+      if(e.grants.some(grant=>{const current=person.workspaces.find(w=>w.id===grant.id);return !current||grant.role==='full'&&current.role!=='full'})||!readableSources(person,e,visible))return [];
       const sources=[...new Map(e.references.map(r=>[r.workspaceId+'/'+r.studyId,r])).values()]
         .map(r=>({projectId:r.workspaceId,studyId:r.studyId,title:ws(r.workspaceId)?.studies.find(s=>s.id===r.studyId)?.title||'Материал удалён'}));
-      return {id:String(row.answer_id),rating:row.rating as 'up'|'down',updated:Number(row.updated),userName:row.user_name?String(row.user_name):'Пользователь удалён',
-        question:e.question,answer:e.answer,model:e.model,kind:e.kind,scope:e.scope,projects:e.projectIds.map(id=>({id,name:ws(id)?.name||'Проект удалён'})),sources};
+      return [{id:String(row.answer_id),rating:row.rating as 'up'|'down',updated:Number(row.updated),userName:row.user_name?String(row.user_name):'Пользователь удалён',
+        question:e.question,answer:e.answer,model:e.model,kind:e.kind,scope:e.scope,projects:e.projectIds.map(id=>({id,name:ws(id)?.name||'Проект удалён'})),sources}];
     });
   }
   return {issue,rate,forgetStudy,list};

@@ -23,7 +23,7 @@ export function sendSmtp(message:CompletionMail):Promise<void>{return new Promis
  const child=spawn(process.env.MAIL_PYTHON||'python3',[join(dirname(fileURLToPath(import.meta.url)),'send-mail.py')],{stdio:['pipe','ignore','ignore'],timeout:30000});
  child.on('error',()=>reject(new Error('smtp_process_failed')));child.on('close',code=>code===0?resolve():reject(new Error('smtp_delivery_failed')));child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify(message));
 })}
-export function createCompletionMailer({db,baseURL,send}:{db:DatabaseSync;baseURL:string;send?:(message:CompletionMail)=>Promise<void>}){
+export function createCompletionMailer({db,baseURL,send,getAccess}:{db:DatabaseSync;baseURL:string;send?:(message:CompletionMail)=>Promise<void>;getAccess?:(userId:string,workspaceId:string)=>{role:string}|undefined}){
  const enabled=Boolean(send)||smtpConfigured();const deliver=send||sendSmtp;const q=(sql:string)=>db.prepare(sql) as any;
  db.exec("CREATE TABLE IF NOT EXISTS mnema_completion_mail(job_id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,study_id TEXT NOT NULL,user_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0)");
  q("UPDATE mnema_completion_mail SET status='pending' WHERE status='sending'").run();
@@ -31,11 +31,12 @@ export function createCompletionMailer({db,baseURL,send}:{db:DatabaseSync;baseUR
  let busy=false,closed=false;
  const tick=async()=>{if(!enabled||busy||closed)return;busy=true;try{for(const job of q("SELECT * FROM mnema_completion_mail WHERE status='pending' AND next_at<=? LIMIT 20").all(Date.now())){
   const ws=q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(job.workspace_id);const study=ws&&JSON.parse(ws.data).studies.find(s=>s.id===job.study_id);
-  const person=q('SELECT u.email,m.role FROM user u JOIN mnema_access a ON a.user_id=u.id JOIN mnema_members m ON m.user_id=u.id WHERE u.id=? AND m.workspace_id=? AND a.revoked=0 AND m.revoked=0').get(job.user_id,job.workspace_id);
-  if(!study||!person||['error','cancelled'].includes(study.status)){q("UPDATE mnema_completion_mail SET status='skipped' WHERE job_id=?").run(job.job_id);continue}
+  const person=getAccess?q('SELECT u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0').get(job.user_id):q('SELECT u.email,m.role FROM user u JOIN mnema_access a ON a.user_id=u.id JOIN mnema_members m ON m.user_id=u.id WHERE u.id=? AND m.workspace_id=? AND a.revoked=0 AND m.revoked=0').get(job.user_id,job.workspace_id);
+  const access=person&&(getAccess?getAccess(job.user_id,job.workspace_id):person);
+  if(!study||!person||!access||['error','cancelled'].includes(study.status)){q("UPDATE mnema_completion_mail SET status='skipped' WHERE job_id=?").run(job.job_id);continue}
   if(study.status!=='ready'||['queued','running'].includes(study.summaryInfo?.state)){q('UPDATE mnema_completion_mail SET next_at=? WHERE job_id=?').run(Date.now()+5000,job.job_id);continue}
   q("UPDATE mnema_completion_mail SET status='sending',attempts=attempts+1 WHERE job_id=?").run(job.job_id);
-  try{await deliver(completionEmail({study,workspaceId:job.workspace_id,workspaceName:ws.name,baseURL,to:person.email,jobId:job.job_id,canReadDraft:person.role==='full'}));if(!closed)q("UPDATE mnema_completion_mail SET status='sent' WHERE job_id=?").run(job.job_id)}catch{if(!closed){q("UPDATE mnema_completion_mail SET status=?,next_at=? WHERE job_id=?").run(job.attempts>=4?'failed':'pending',Date.now()+Math.min(3600000,60000*2**job.attempts),job.job_id);console.error('Completion email delivery failed')}}
+  try{await deliver(completionEmail({study,workspaceId:job.workspace_id,workspaceName:ws.name,baseURL,to:person.email,jobId:job.job_id,canReadDraft:access.role==='full'}));if(!closed)q("UPDATE mnema_completion_mail SET status='sent' WHERE job_id=?").run(job.job_id)}catch{if(!closed){q("UPDATE mnema_completion_mail SET status=?,next_at=? WHERE job_id=?").run(job.attempts>=4?'failed':'pending',Date.now()+Math.min(3600000,60000*2**job.attempts),job.job_id);console.error('Completion email delivery failed')}}
  }}finally{busy=false}};
  const timer=setInterval(()=>void tick().catch(()=>console.error('Completion email queue failed')),1000);timer.unref();
  return{queue,tick,close(){closed=true;clearInterval(timer)}};

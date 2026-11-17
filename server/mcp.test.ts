@@ -44,6 +44,9 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
   assert.equal(content(await modern.callTool({name:'get_findings',arguments:{}})).findings.length,2);
   const ownerId=(await req('/api/session',{cookie})).data.user.id;
   app.db.prepare('UPDATE mnema_mcp_grants SET expires=? WHERE id=?').run(Date.now()-1,issued.data.id);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,401);app.db.prepare('UPDATE mnema_mcp_grants SET expires=? WHERE id=?').run(Date.now()+86400000,issued.data.id);
+  const ownerInvite=await req('/api/invitations',{cookie,body:{name:'Other owner',email:'mcp-project-owner@example.test',role:'view',scope:'project'}});assert.equal(ownerInvite.response.status,201);
+  const otherOwner=await req('/api/register',{body:{email:'mcp-project-owner@example.test',password:'other-owner-fixture',inviteToken:new URL(ownerInvite.data.inviteURL).searchParams.get('invite')}});assert.equal(otherOwner.response.status,200);
+  const otherOwnerId=app.db.prepare("SELECT id FROM user WHERE email='mcp-project-owner@example.test'").get().id;app.db.prepare("UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id='main'").run(otherOwnerId);
   app.db.prepare("UPDATE mnema_members SET revoked=1 WHERE user_id=? AND workspace_id='main'").run(ownerId);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,403);app.db.prepare("UPDATE mnema_members SET revoked=0 WHERE user_id=? AND workspace_id='main'").run(ownerId);
   app.db.prepare('UPDATE mnema_access SET revoked=1 WHERE user_id=?').run(ownerId);assert.equal((await fetch(base+'/mcp',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'})).status,401);app.db.prepare('UPDATE mnema_access SET revoked=0 WHERE user_id=?').run(ownerId);
 
@@ -98,5 +101,17 @@ test('MCP: expired bot grants do not permanently exhaust the active connection l
   assert.throws(()=>service.createToken(person,{name:'Too many',projects:['fixture-project']}),/30/);
   db.prepare('UPDATE mnema_mcp_grants SET expires=?').run(Date.now()-1);
   assert.doesNotThrow(()=>service.createToken(person,{name:'Replacement',projects:['fixture-project']}));
+ }finally{await service.close();db.close()}
+});
+
+test('MCP team audit hides private-only grants and strips private projects from mixed grants',async()=>{
+ const db=new DatabaseSync(':memory:');
+ db.exec("CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT);CREATE TABLE mnema_access(user_id TEXT,revoked INTEGER);CREATE TABLE mnema_workspaces(id TEXT,name TEXT);INSERT INTO user VALUES('reviewer','Reviewer','reviewer@example.test'),('member','Member','member@example.test');INSERT INTO mnema_access VALUES('reviewer',0),('member',0);INSERT INTO mnema_workspaces VALUES('shared','Shared project'),('private','Secret project title')");
+ const shared={id:'shared',name:'Shared project',role:'full'},privateProject={id:'private',name:'Secret project title',role:'full'};
+ const reviewer={id:'reviewer',owner:true,workspaces:[shared]},member={id:'member',workspaces:[shared,privateProject]};
+ const service=createMcpService({db,auth:{},baseURL:'http://127.0.0.1:4297',version:'fixture',getPerson:id=>id==='reviewer'?reviewer:member,readProject:()=>({studies:[],findings:[]})});
+ try{
+  service.createToken(member,{name:'Private-only connection',projects:['private']});service.createToken(member,{name:'Shared connection',projects:['shared','private']});
+  const team=service.settings(reviewer).team;assert.equal(team.length,1);assert.equal(team[0].name,'Shared connection');assert.deepEqual(team[0].projects,[{id:'shared',name:'Shared project'}]);assert.doesNotMatch(JSON.stringify(team),/Secret project|Private-only|"private"/);
  }finally{await service.close();db.close()}
 });

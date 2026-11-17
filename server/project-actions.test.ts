@@ -31,12 +31,13 @@ test('rename and invitation target an explicit project independently of the acti
  const asB=await req('/api/state',undefined,'GET',viewer,b);assert.equal(asB.data.user.role,'full');assert.equal(asB.data.user.admin,true);assert.equal(asB.data.user.owner,false);
  assert.equal((await req('/api/state',undefined,'GET',viewer,a)).data.user.role,'view');
 });
-test('readers are blocked; full access can manage project settings and invitations',async()=>{
+test('readers and full editors cannot manage sharing; only the project owner changes settings and invitations',async()=>{
  assert.equal((await req('/api/workspaces/'+a,{name:'Attack'},'PATCH',viewer)).status,403);
  assert.equal((await req('/api/workspaces/'+a,{name:'Project A'},'DELETE',viewer)).status,403);
  assert.equal((await req('/api/workspaces/'+a+'/invitations',{name:'Other',email:'other@example.test',role:'full'},'POST',viewer)).status,403);
- assert.equal((await req('/api/workspaces/'+b,{name:'Renamed B'},'PATCH',viewer)).status,200);
- assert.equal((await req('/api/workspaces/'+b+'/invitations',{name:'Other',email:'other@example.test',role:'view'},'POST',viewer)).status,201);
+ assert.equal((await req('/api/workspaces/'+b,{name:'Renamed B'},'PATCH',viewer)).status,403);
+ assert.equal((await req('/api/workspaces/'+b+'/invitations',{name:'Other',email:'other@example.test',role:'view'},'POST',viewer)).status,403);
+ assert.equal((await req('/api/workspaces/'+b+'/invitations',{name:'Other',email:'other@example.test',role:'view'},'POST',owner)).status,201);
  assert.equal((await req('/api/workspaces/unknown',{name:'Attack'},'PATCH')).status,403);
 });
 test('file counts do not expose hidden catalog materials to readers',async()=>{

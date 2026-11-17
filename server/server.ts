@@ -1,4 +1,5 @@
 import {createRegistration,corporateEmail} from './registration.ts';
+import {createProjectSharing} from './project-sharing.ts';
 import {createChatHistory} from './chat-history.ts';
 import {fileNameKey,existingFileMessage,uploadingFileMessage} from '../app/file-name.ts';
 import {createAnswerFeedback} from './answer-feedback.ts';
@@ -36,8 +37,8 @@ import {getMigrations} from 'better-auth/db/migration';
 import type {Finding} from '../app/types.ts';
 
 export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
-interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;fileCount?:number;filePreviews?:{name:string;format:string}[]}
-interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[]}
+interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
+interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels=new Set(['deepseek','amvera-deepseek-v4','local-stub']);
 const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
@@ -119,10 +120,12 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  CREATE TABLE IF NOT EXISTS mnema_usage(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,kind TEXT NOT NULL,amount INTEGER NOT NULL,created INTEGER NOT NULL);`);
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,version INTEGER NOT NULL,data TEXT NOT NULL,created INTEGER NOT NULL,created_by TEXT);
  CREATE TABLE IF NOT EXISTS mnema_members(workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(workspace_id,user_id));`);
- const chats=createChatHistory(db,(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]});
- const feedback=createAnswerFeedback(db,authSecret,BUILD_ID);
+ const readableStudies=(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]};
+ const chats=createChatHistory(db,readableStudies);
+ const feedback=createAnswerFeedback(db,authSecret,BUILD_ID,readableStudies);
  const ideas=createIdeas(db,{baseURL,send:options.sendCompletionMail||(smtpConfigured()?sendSmtp:undefined)});
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
+  person=scopedPerson(person);
   const references=reply.sources.map(source=>({
    workspaceId:source.workspaceId||person.workspaceId,studyId:source.studyId,segmentId:source.segmentId||source.id
   }));
@@ -146,7 +149,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  if(!q("SELECT 1 FROM mnema_migrations WHERE name='workspaces-v1'").get()&&!q('SELECT 1 FROM mnema_workspaces LIMIT 1').get()){const legacy=q('SELECT * FROM mnema_workspace WHERE id=1').get();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,NULL)').run('main','Команда',legacy?.version||0,legacy?.data||JSON.stringify(initialState()),Date.now())}
  if(!q("SELECT 1 FROM mnema_migrations WHERE name='workspaces-v1'").get())q("INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin,revoked) SELECT 'main',user_id,role,admin,revoked FROM mnema_access WHERE EXISTS(SELECT 1 FROM mnema_workspaces w WHERE w.id='main') AND NOT EXISTS(SELECT 1 FROM mnema_members m WHERE m.user_id=mnema_access.user_id)").run();
  q("INSERT OR IGNORE INTO mnema_migrations(name) VALUES('workspaces-v1')").run();
- const completionMail=createCompletionMailer({db,baseURL,send:options.sendCompletionMail});
+ const sharing=createProjectSharing(db,baseURL,authSecret);
+ const createProject=(name:string,person:Person,mode='all',state=initialState())=>{const id=randomUUID();db.exec('BEGIN IMMEDIATE');try{q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(state),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');sharing.init(id,person.id,mode);db.exec('COMMIT');return id}catch(error){db.exec('ROLLBACK');throw error}};
+ const completionMail=createCompletionMailer({db,baseURL,send:options.sendCompletionMail,getAccess:(userId,workspaceId)=>sharing.projects(userId).find(p=>p.id===workspaceId)});
  const wsStore=new AsyncLocalStorage<string>();const currentWs=()=>wsStore.getStore()||'main';
  const interruptedJobs=q("SELECT count(*) AS count FROM mnema_jobs WHERE status='running'").get().count;
  q("UPDATE mnema_jobs SET status='queued' WHERE status='running'").run();if(interruptedJobs)console.info('Processing recovery',JSON.stringify({requeued:interruptedJobs}));
@@ -159,16 +164,16 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const storageMirror=createS3Mirror(db,dir,s3Config());
  const processors=()=>{const r=processingReadiness();return [{id:'whisper',name:r.model,description:r.diarization?'Локальная речь, таймкоды и разделение спикеров':'Локальная речь и таймкоды, без разделения спикеров',mode:'Локально',enabled:true,configured:r.asr},{id:'speakers',name:'Разделение спикеров',description:'pyannote segmentation 3.0 и WeSpeaker, локально на CPU',mode:'Локально',enabled:true,configured:Boolean(options.speakerProcessor)||r.diarization},{id:'tesseract',name:'Tesseract + Poppler',description:'PDF и сканы, русский и английский, номера страниц',mode:'Локально',enabled:true,configured:r.ocr}]};
  const ownerExists=()=>Boolean(q('SELECT 1 FROM mnema_access WHERE admin=1 LIMIT 1').get());
- const users=()=>q(`SELECT u.id,u.name,u.email,m.role,m.admin,m.revoked,a.all_projects FROM user u JOIN mnema_members m ON m.user_id=u.id JOIN mnema_access a ON a.user_id=u.id WHERE m.workspace_id=?`).all(currentWs()).map(u=>({...u,owner:Boolean(u.admin),scope:u.all_projects?'all':'project',status:u.revoked?'revoked':'active'})).concat(
+ const users=()=>q(`SELECT u.id,u.name,u.email,m.role,m.admin,m.revoked,a.all_projects FROM user u JOIN mnema_members m ON m.user_id=u.id JOIN mnema_access a ON a.user_id=u.id JOIN mnema_project_sharing s ON s.workspace_id=m.workspace_id WHERE m.workspace_id=? AND (m.grant_source='explicit' OR s.mode='legacy' OR s.owner_id=m.user_id)`).all(currentWs()).map(u=>({...u,owner:Boolean(u.admin),scope:u.all_projects?'all':'project',status:u.revoked?'revoked':'active'})).concat(
   q(`SELECT i.id,i.name,i.email,i.role,i.expires,i.revoked,i.workspace_id FROM mnema_invites i
    WHERE i.workspace_id IN (?,'*') AND i.used=0
    AND NOT EXISTS(SELECT 1 FROM mnema_invites newer WHERE newer.workspace_id=i.workspace_id AND newer.email=i.email AND newer.used=0 AND newer.rowid>i.rowid)
    AND NOT EXISTS(SELECT 1 FROM user u JOIN mnema_members m ON m.user_id=u.id WHERE lower(u.email)=i.email AND m.workspace_id=?)`).all(currentWs(),currentWs()).map(u=>({...u,scope:u.workspace_id==='*'?'all':'project',status:u.revoked?'revoked':u.expires<=Date.now()?'expired':'invited'})));
- // keepOwned: widening access keeps a creator's role in their own projects; an explicit role change by the owner does not.
- const grantAllProjects=(id:string,role:string,keepOwned=true)=>{
+ // Account-wide grants apply only to projects that retain their legacy access policy.
+ const grantAllProjects=(id:string,role:string)=>{
   q('UPDATE mnema_access SET all_projects=1,role=?,revoked=0 WHERE user_id=?').run(role,id);
-  q(`INSERT INTO mnema_members(workspace_id,user_id,role,admin,revoked) SELECT id,?,?,0,0 FROM mnema_workspaces WHERE true
-   ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=CASE WHEN mnema_members.admin=1 AND ? THEN mnema_members.role ELSE excluded.role END,revoked=0`).run(id,role,keepOwned?1:0);
+  q(`INSERT INTO mnema_members(workspace_id,user_id,role,admin,revoked,grant_source) SELECT w.id,?,?,0,0,'all' FROM mnema_workspaces w JOIN mnema_project_sharing s ON s.workspace_id=w.id WHERE s.mode='legacy'
+   ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=CASE WHEN mnema_members.admin=1 THEN 'full' WHEN mnema_members.grant_source='explicit' THEN mnema_members.role ELSE excluded.role END`).run(id,role);
  };
  // Apply the explicitly requested widening once; later explicit project-only invitations stay scoped.
  if(!q("SELECT 1 FROM mnema_migrations WHERE name='all-existing-users-2026-11-13'").get()){
@@ -178,21 +183,25 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    q("INSERT INTO mnema_migrations(name) VALUES('all-existing-users-2026-11-13')").run();db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error}
  }
- const userDirectory=()=>{
+ const userDirectory=(person:Person)=>{
+  const visible=new Set(person.workspaces.map(w=>w.id));
   const members=q('SELECT m.*,w.name FROM mnema_members m JOIN mnema_workspaces w ON w.id=m.workspace_id ORDER BY w.created').all();
   const accounts=q('SELECT u.id,u.name,u.email,a.role,a.admin,a.revoked,a.all_projects FROM user u JOIN mnema_access a ON a.user_id=u.id').all().map(user=>{
-   const grants=members.filter(m=>m.user_id===user.id),active=grants.filter(m=>!m.revoked),shown=active.length?active:grants;
-   return {...user,admin:Boolean(user.admin),owner:Boolean(user.admin),scope:user.all_projects?'all':'project',role:user.all_projects?user.role:shown[0]?.role||user.role,projectIds:shown.map(m=>m.workspace_id),projectNames:shown.map(m=>m.name),status:user.revoked||!active.length?'revoked':'active'};
+   const grants=members.filter(m=>m.user_id===user.id),active=grants.filter(m=>!m.revoked),shown=(active.length?active:grants).filter(m=>visible.has(m.workspace_id));
+   return {...user,admin:Boolean(user.admin),owner:Boolean(user.admin),scope:user.all_projects?'all':'project',role:user.all_projects?user.role:shown[0]?.role||user.role,projectIds:shown.map(m=>m.workspace_id),projectNames:shown.map(m=>m.name),status:user.revoked?'revoked':'active'};
   });
-  const invites=q(`SELECT i.* FROM mnema_invites i WHERE used=0 AND NOT EXISTS(SELECT 1 FROM mnema_invites newer WHERE newer.email=i.email AND newer.workspace_id=i.workspace_id AND newer.used=0 AND newer.rowid>i.rowid) ORDER BY i.rowid DESC`).all().filter(invite=>!accounts.some(account=>account.email.toLowerCase()===invite.email.toLowerCase())).map(user=>({id:user.id,name:user.name,email:user.email,role:user.role,scope:user.workspace_id==='*'?'all':'project',expires:user.expires,projectIds:user.workspace_id==='*'?[]:[user.workspace_id],projectNames:user.workspace_id==='*'?[]:[q('SELECT name FROM mnema_workspaces WHERE id=?').get(user.workspace_id)?.name||'Удалённый проект'],status:user.revoked?'revoked':user.expires<=Date.now()?'expired':'invited'}));
+  const invites=q(`SELECT i.* FROM mnema_invites i WHERE used=0 AND NOT EXISTS(SELECT 1 FROM mnema_invites newer WHERE newer.email=i.email AND newer.workspace_id=i.workspace_id AND newer.used=0 AND newer.rowid>i.rowid) ORDER BY i.rowid DESC`).all().filter(invite=>(invite.workspace_id==='*'||visible.has(invite.workspace_id))&&!accounts.some(account=>account.email.toLowerCase()===invite.email.toLowerCase())).map(user=>({id:user.id,name:user.name,email:user.email,role:user.role,scope:user.workspace_id==='*'?'all':'project',expires:user.expires,projectIds:user.workspace_id==='*'?[]:[user.workspace_id],projectNames:user.workspace_id==='*'?[]:[q('SELECT name FROM mnema_workspaces WHERE id=?').get(user.workspace_id)?.name||'Удалённый проект'],status:user.revoked?'revoked':user.expires<=Date.now()?'expired':'invited'}));
   return [...accounts,...invites];
  };
  const session=async (req:any):Promise<Person|null>=>{const s=await auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!s)return null;const access=q('SELECT * FROM mnema_access WHERE user_id=?').get(s.user.id);if(!access||access.revoked)return null;
-  const all=q(`SELECT w.id,w.name,w.version,length(w.data) AS data_length,m.role,m.admin,m.revoked,(SELECT count(*) FROM mnema_members members WHERE members.workspace_id=w.id AND members.revoked=0) AS member_count FROM mnema_members m JOIN mnema_workspaces w ON w.id=m.workspace_id WHERE m.user_id=? ORDER BY w.created`).all(s.user.id);const active=all.filter((m:any)=>!m.revoked);
-  // Someone whose every membership was revoked is locked out; a user with no workspace yet may create one.
-  if(all.length&&!active.length)return null;
-  const explicit=String(req.headers['x-mnema-workspace']||new URL(req.url,'http://localhost').searchParams.get('workspace')||'');if(explicit&&!active.some(m=>m.id===explicit))fail(403,'Доступ к проекту закрыт. Обновите список проектов.');const wanted=explicit||cookieValue(req,'mnema_ws');const current=active.find((m:any)=>m.id===wanted)||active[0]||null;
-  return {...s.user,role:current?.role||'view',admin:Boolean(current?.role==='full'||access.admin),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.role==='full'||access.admin),fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+  const active=sharing.projects(s.user.id);
+  const requestURL=new URL(req.url,'http://localhost'),redeeming=/^\/api\/workspaces\/[^/]+\/share$/.test(requestURL.pathname),explicit=redeeming?'':String(req.headers['x-mnema-workspace']||requestURL.searchParams.get('workspace')||'');const wanted=explicit||cookieValue(req,'mnema_ws');
+  let current=active.find((m:any)=>m.id===wanted)||(!explicit?active[0]:null),sharedProject;
+  if(wanted&&!active.some(m=>m.id===wanted)){
+   const share=String(req.headers['x-mnema-share']||requestURL.searchParams.get('share')||cookieValue(req,'mnema_share_'+wanted));
+   if(sharing.validLink(wanted,share)){current=sharing.linkProject(wanted);sharedProject={id:current.id,name:current.name,role:'view' as const,admin:false,sharingMode:'link',shareVersion:current.nonce}}else if(explicit)fail(403,'Доступ к проекту закрыт. Обновите список проектов.');
+  }
+  return {...s.user,role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
  // Every request lists the user's projects. Parsing each project's full transcripts here made
  // project switching and polling slow, so folder cards are cached per stored revision and role.
  const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number}}>();
@@ -208,12 +217,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
   // projectSummary is always present, so switching projects never keeps the previous project's summary on the client.
   const state={...raw,projectSummary:raw.projectSummary||null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
-  return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{}},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory():person.admin?users():[]},user:person}};
+  return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{},canManageSharing:sharing.canManage(currentWs(),person.id),sharingMode:q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(currentWs())?.mode},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory(person):sharing.canManage(currentWs(),person.id)?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
+ const scopedPerson=(person:Person):Person=>person.sharedProject&&!person.workspaces.some(w=>w.id===person.sharedProject.id)?{...person,workspaces:[...person.workspaces,person.sharedProject]}:person;
  const globalResearch=(person:Person)=>collectGlobalResearch(person,project=>wsStore.run(project.id,()=>view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state));
  const mcpService=createMcpService({db,auth,baseURL,version:VERSION,
   getPerson:id=>{const user=q('SELECT u.id,u.name,u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0').get(id);if(!user)return null;
-   const workspaces=q('SELECT w.id,w.name,m.role FROM mnema_workspaces w JOIN mnema_members m ON m.workspace_id=w.id WHERE m.user_id=? AND m.revoked=0').all(id).map(w=>({...w,admin:false}));return {...user,workspaces,workspaceId:workspaces[0]?.id||null,role:workspaces[0]?.role||'view',admin:false,owner:false};},
+   const workspaces=sharing.projects(id).map(w=>({...w,admin:false}));return {...user,workspaces,workspaceId:workspaces[0]?.id||null,role:workspaces[0]?.role||'view',admin:false,owner:false};},
   readProject:(person,project)=>wsStore.run(project.id,()=>view(person).state),
  });
  const mcpNodeHandler=toNodeHandler(mcpService.fetch);
@@ -242,6 +252,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    db.exec('BEGIN');try{
     q('INSERT INTO mnema_access(user_id,role,admin,self_registered) VALUES(?,?,?,?)').run(u.id,role,admin?1:0,self?1:0);
     if(self||admin||invitation?.workspace_id==='*')grantAllProjects(u.id,role);else q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,?)').run(invitation?.workspace_id||'main',u.id,role,admin?1:0);
+    if(admin)sharing.claimUnowned(u.id);
     if(invitation)q('UPDATE mnema_invites SET used=1 WHERE id=?').run(invitation.id);
     if(profile){q('INSERT INTO mnema_profiles VALUES(?,?,?,?,?)').run(u.id,profile.firstName,profile.lastName,photo,photo?'image/png':null);q('UPDATE user SET emailVerified=1,image=? WHERE id=?').run(photo?'/api/profile/avatar/'+u.id:null,u.id);signup.consume(req,res)}
     db.exec('COMMIT');
@@ -251,6 +262,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  })};
  const providerURL=model=>modelBase(model);
  const callProvider=async(person,model,payload,workspace)=>{
+  const current=sharing.projects(person.id).find(w=>w.id===workspace),before=person.workspaces?.find(w=>w.id===workspace);
+  const shared=person.sharedProject?.id===workspace&&sharing.validRevision(workspace,person.sharedProject.shareVersion)&&q('SELECT 1 FROM mnema_access WHERE user_id=? AND revoked=0').get(person.id);
+  if(!current&&!shared||!person.workspaces&&current?.role!=='full'||before?.role==='full'&&current?.role!=='full')fail(403,'Доступ к проекту изменился. Повторите действие.');
   const key=modelKey(model,workspace);if(!key||!model.model)fail(503,'Модель ещё не подключена.');
   const since=Date.parse(new Date().toISOString().slice(0,7)+'-01T00:00:00Z');
   const count=q("SELECT count(*) AS n FROM mnema_usage WHERE kind='llm' AND created>=?").get(since).n;
@@ -294,7 +308,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  };
  const processSummary=async(study)=>{
   const info={...study.summaryInfo},revision=transcriptRevision(study.segments||[]);if(revision!==info.revision)throw new Error('Расшифровка изменилась. Создайте сводку заново.');
-  const member=q('SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?').get(currentWs(),info.requestedBy);if(!member||member.revoked||member.role!=='full')throw new Error('Доступ изменился. Попросите участника с полным доступом создать сводку.');
+  const member=sharing.projects(info.requestedBy).find(w=>w.id===currentWs());if(member?.role!=='full')throw new Error('Доступ изменился. Попросите участника с полным доступом создать сводку.');
   const model=getState().state.models.find(m=>m.id===info.modelId&&m.enabled);if(!model)throw new Error('Модель выключена. Выберите подключённую модель и повторите.');
   mutate(s=>{s.studies.find(x=>x.id===study.id).summaryInfo.state='running'});
   const summary=await summarizeMaterial(study.segments,study.title,payload=>requestSummary(model.model,payload,request=>callModel({id:info.requestedBy},model,request),()=>mutate(s=>{const target=s.studies.find(x=>x.id===study.id);if(target)target.summaryInfo.progress=(target.summaryInfo.progress||'Анализируем материал')+' · Повтор ответа'})),progress=>mutate(s=>{s.studies.find(x=>x.id===study.id).summaryInfo.progress=progress}));
@@ -315,7 +329,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   return {added,merged}};
  const processFindings=async(study)=>{
   const info={...study.findingsInfo},revision=transcriptRevision(study.segments||[]);if(revision!==info.revision)throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');
-  const member=q('SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?').get(currentWs(),info.requestedBy);if(!member||member.revoked||member.role!=='full')throw new Error('Доступ изменился. Попросите участника с полным доступом повторить поиск.');
+  const member=sharing.projects(info.requestedBy).find(w=>w.id===currentWs());if(member?.role!=='full')throw new Error('Доступ изменился. Попросите участника с полным доступом повторить поиск.');
   const model=getState().state.models.find(m=>m.id===info.modelId&&m.enabled);if(!model)throw new Error('Модель выключена. Выберите подключённую модель и повторите.');
   const setInfo=patch=>mutate(s=>{const t=s.studies.find(x=>x.id===study.id);if(t)t.findingsInfo={...t.findingsInfo,...patch}});
   setInfo({state:'running',progress:'Ищем находки'});
@@ -384,19 +398,21 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
  const inviteToProject=async(person:Person,b:any)=>{
   const all=b.scope==='all'||b.scope===undefined&&person.manageUsers,workspace=all?'*':currentWs();
-  if(all?!person.manageUsers:!person.admin)fail(403,'Приглашать во все проекты может администратор или участник с полным доступом.');
+  if(all?!person.manageUsers:!sharing.canManage(currentWs(),person.id))fail(403,'Приглашать во все проекты может администратор или участник с полным доступом.');
   limit('invitation:'+person.id,10);
   const email=text(b.email,150).toLowerCase(),name=text(b.name,70);
   if(!/^\S+@\S+\.\S+$/.test(email)||!name||!roles.has(b.role))fail(400,'Укажите имя, почту и уровень доступа.');
-  const existing=q('SELECT u.id,a.all_projects,a.admin FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE lower(u.email)=?').get(email);
+  const existing=q('SELECT u.id,a.all_projects,a.admin,a.revoked FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE lower(u.email)=?').get(email);
+  if(existing?.revoked)fail(403,'Доступ к аккаунту закрыт. Обратитесь к администратору.');
+  if(existing?.id&&sharing.canManage(currentWs(),existing.id)&&!all)fail(409,'У владельца уже есть доступ к проекту.');
   if(existing?.admin&&all)fail(403,'Доступ владельца не изменяется.');
   const duplicate=all?existing?.all_projects||q("SELECT 1 FROM mnema_invites WHERE email=? AND workspace_id='*' AND used=0 AND revoked=0 AND expires>?").get(email,Date.now()):users().some(u=>u.email.toLowerCase()===email&&!['expired','revoked'].includes(u.status));
   if(duplicate)fail(409,'Этот адрес уже добавлен. Измените доступ в таблице пользователей.');
   const mailArgs={to:email,name,workspaceId:workspace,workspaceName:all?'Все проекты':q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs()).name,inviterName:person.name,role:b.role,baseURL};
-  if(existing){if(all)grantAllProjects(existing.id,b.role);else q('INSERT INTO mnema_members(workspace_id,user_id,role,admin,revoked) VALUES(?,?,?,0,0) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=excluded.role,revoked=0').run(currentWs(),existing.id,b.role);const emailStatus=await sendInvitationEmail(mailArgs,options.sendInvitationMail);return {added:true,emailStatus}}
+  if(existing){if(all)grantAllProjects(existing.id,b.role);else q("INSERT INTO mnema_members(workspace_id,user_id,role,admin,revoked) VALUES(?,?,?,0,0) ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=excluded.role,revoked=0,grant_source='explicit'").run(currentWs(),existing.id,b.role);const emailStatus=await sendInvitationEmail(mailArgs,options.sendInvitationMail);return {added:true,emailStatus}}
   const token=randomBytes(32).toString('base64url');
   q('INSERT INTO mnema_invites(id,token_hash,email,name,role,expires,used,revoked,workspace_id) VALUES(?,?,?,?,?,?,0,0,?)').run(randomUUID(),hash(token),email,name,b.role,Date.now()+7*86400000,workspace);
-  const inviteURL=origin+'/signup?invite='+token+'&email='+encodeURIComponent(email);
+  const inviteURL=origin+'/signup?invite='+token+'&email='+encodeURIComponent(email)+(all?'':'&returnTo='+encodeURIComponent('/projects/'+encodeURIComponent(workspace)));
   const emailStatus=await sendInvitationEmail({...mailArgs,inviteURL},options.sendInvitationMail);
   return {inviteURL,emailStatus};
  };
@@ -442,7 +458,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     const person=await session(req);if(!person)fail(401,'Войдите в Мнемодак.');writingUsers.set(req,person);
      if(path.startsWith('/api/profile/avatar/')&&req.method==='GET'){
       const id=path.slice('/api/profile/avatar/'.length);if(!/^[\w-]{1,80}$/.test(id))fail(404,'Фотография не найдена.');
-      const shared=id===person.id||q('SELECT 1 FROM mnema_members a JOIN mnema_members b ON a.workspace_id=b.workspace_id JOIN mnema_access c ON c.user_id=b.user_id WHERE a.user_id=? AND b.user_id=? AND a.revoked=0 AND b.revoked=0 AND c.revoked=0').get(person.id,id);
+      const shared=id===person.id||q('SELECT 1 FROM mnema_access WHERE user_id=? AND revoked=0').get(id)&&sharing.projects(id).some(project=>person.workspaces.some(own=>own.id===project.id));
       const profile=shared&&q('SELECT photo,photo_mime FROM mnema_profiles WHERE user_id=?').get(id);if(!profile?.photo)fail(404,'Фотография не найдена.');
       res.writeHead(200,{'Content-Type':profile.photo_mime,'Content-Length':profile.photo.length,'Cache-Control':'no-store'});return res.end(Buffer.from(profile.photo));
      }
@@ -451,9 +467,9 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       const input=await body(req);
       const current=await session(req);
       if(!current)fail(401,'Войдите в Мнемодак.');
-      return json(res,200,feedback.rate(current,input.token,input.rating));
+      return json(res,200,feedback.rate(scopedPerson(current),input.token,input.rating));
      }
-     if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list()})}
+     if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list(person)})}
      if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person),admin:person.owner});
      if(path==='/api/ideas'&&req.method==='POST'){limit('ideas:'+person.id,20);return json(res,200,ideas.create(person,await body(req)))}
      if(/^\/api\/ideas\/[\w-]{1,64}$/.test(path)&&req.method==='PATCH'){limit('ideas:'+person.id,60);return json(res,200,ideas.edit(person,path.split('/').pop(),await body(req)))}
@@ -468,12 +484,33 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       if(action==='comments')return json(res,200,ideas.comment(person,id,b));
       return json(res,200,await ideas.moderate(person,id,b));
      }}
-     if(path==='/api/users'&&req.method==='GET'){if(!person.manageUsers)fail(403,'Список пользователей доступен участникам с полным доступом.');return json(res,200,{users:userDirectory()})}
+     if(path==='/api/users'&&req.method==='GET'){if(!person.manageUsers)fail(403,'Список пользователей доступен участникам с полным доступом.');return json(res,200,{users:userDirectory(person)})}
      if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
      if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}
      if(path==='/api/mcp/consent'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);return json(res,200,await mcpService.consent(person,await body(req),fromNodeHeaders(req.headers)))}
      if(path==='/api/mcp/tokens'&&req.method==='POST'){limit('mcp-token:'+person.id,5);return json(res,201,mcpService.createToken(person,await body(req)))}
      if(/^\/api\/mcp\/grants\/[^/]+\/revoke$/.test(path)&&req.method==='POST'){await body(req);return json(res,200,await mcpService.revoke(person,path.split('/')[4],fromNodeHeaders(req.headers)))}
+
+     if(/^\/api\/workspaces\/[^/]+\/share$/.test(path)&&req.method==='POST'){
+      limit('project-share:'+person.id,30);const id=path.split('/')[3],input=await body(req);
+      if(!sharing.validLink(id,input.token))fail(403,'Ссылка недействительна или доступ закрыт. Попросите владельца прислать новую ссылку.');
+      const cookies=res.getHeader('Set-Cookie');res.setHeader('Set-Cookie',[...(Array.isArray(cookies)?cookies:cookies?[cookies]:[]),'mnema_share_'+id+'='+input.token+'; Path=/api; HttpOnly; SameSite=Lax; Max-Age=604800'+(production?'; Secure':'')]);
+      return json(res,200,{id});
+     }
+     {const match=path.match(/^\/api\/workspaces\/([^/]+)\/sharing(?:\/(members)(?:\/([^/]+))?|\/(link\/rotate))?$/);if(match){
+      const [,id,members,memberId,rotate]=match;
+      if(!sharing.canManage(id,person.id))fail(403,'Управлять доступом может только владелец проекта.');
+      if(req.method==='GET'&&!members&&!rotate)return json(res,200,sharing.info(id,person.id));
+      limit('project-sharing:'+person.id,60);const input=await body(req),latest=await session(req);if(!latest||!sharing.canManage(id,latest.id))fail(403,'Доступ к проекту изменился.');
+      if(req.method==='PATCH'&&!members&&!rotate)return json(res,200,sharing.setMode(id,latest.id,input.mode));
+      if(req.method==='POST'&&rotate)return json(res,200,sharing.rotate(id,latest.id));
+      if(members&&memberId&&['PATCH','DELETE'].includes(req.method))return json(res,200,sharing.member(id,latest.id,memberId,req.method==='PATCH'?(input.role??null):undefined));
+      if(members&&!memberId&&req.method==='POST')return await wsStore.run(id,async()=>{
+       const result=await inviteToProject({...latest,workspaceId:id,admin:true,role:'full'},{...input,name:text(input.name,70)||text(input.email,150).split('@')[0],scope:'project'});
+       return json(res,201,{...sharing.info(id,latest.id),...result});
+      });
+      fail(405,'Метод недоступен.');
+     }}
 
      if(/^\/api\/workspaces\/[^/]+(?:\/invitations)?$/.test(path)&&['PATCH','DELETE','POST'].includes(req.method)){
       const id=path.split('/')[3],target=person.workspaces.find(w=>w.id===id);
@@ -512,13 +549,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
        return json(res,200,{ok:true});
       });
      }
-     if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(initialState()),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) SELECT ?,user_id,role,0 FROM mnema_access WHERE all_projects=1 AND revoked=0').run(id);return json(res,201,{id,name})}
-     if(path==='/api/chats'&&req.method==='GET')return json(res,200,{chats:chats.list(person)});
-     if(path==='/api/chats'&&req.method==='POST'){const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest,typeof b?.projectId==='string'?b.projectId:null))}
+     if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(b.mode!==undefined&&!['private','all','link'].includes(b.mode))fail(400,'Выберите способ доступа к проекту.');if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=createProject(name,person,b.mode||'all');return json(res,201,{id,name})}
+     if(path==='/api/chats'&&req.method==='GET')return json(res,200,{chats:chats.list(scopedPerson(person))});
+     if(path==='/api/chats'&&req.method==='POST'){const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(scopedPerson(latest),typeof b?.projectId==='string'?b.projectId:null))}
      if(/^\/api\/chats\/[^/]+$/.test(path)){
       const id=path.split('/')[3];
-      if(req.method==='GET')return json(res,200,chats.get(person,id));
-      if(req.method==='DELETE'){chats.remove(person,id);return json(res,200,{ok:true})}
+      if(req.method==='GET')return json(res,200,chats.get(scopedPerson(person),id));
+      if(req.method==='DELETE'){chats.remove(scopedPerson(person),id);return json(res,200,{ok:true})}
       fail(405,'Метод недоступен.');
      }
      if(path==='/api/research-library'&&req.method==='GET'){
@@ -532,31 +569,31 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');
       const current=await session(req);if(!current)fail(401,'Войдите в Мнемодак.');
       const chatId=typeof b.chatId==='string'?b.chatId:null;
-      const chat=chatId?chats.acquire(current,chatId):null;
+      const chat=chatId?chats.acquire(scopedPerson(current),chatId):null;
       try{
       const prior=(chat?.messages||[]).slice(-12).map(m=>({role:m.role,content:String(m.role==='user'?m.text:m.answer).slice(0,3000)}));
       const retrievalQuestion=[...(chat?.messages||[]).filter(m=>m.role==='user').slice(-2).map(m=>m.text),question].join(' ');
-      const research=globalResearch(current);const {sources,coverage,reviewedFindings}=chatEvidence(research,retrievalQuestion,chat?.projectId);
-      const finish=async(reply:any)=>{const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');
+      const research=globalResearch(current.sharedProject&&chat?.projectId===current.sharedProject.id?{...current,workspaces:[current.sharedProject]}:current);const {sources,coverage,reviewedFindings}=chatEvidence(research,retrievalQuestion,chat?.projectId);
+      const finish=async(reply:any)=>{const found=await session(req);if(!found)fail(401,'Войдите в Мнемодак.');const latest=scopedPerson(found);
        if(current.workspaces.some(before=>{const access=latest.workspaces.find(w=>w.id===before.id);return !access||(before.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Начните новый чат.');
        const rated=ratedReply(latest,question,'global',reply,research.model?.model);
        return json(res,200,chatId?{...rated,chat:chats.append(latest,chatId,question,rated)}:rated);
       };
       if(!sources.length)return await finish({answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемодак'});
       if(!research.model)fail(503,'Модель ещё не подключена. Попросите владельца проекта настроить подключение.');
-      const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Предыдущие сообщения нужны для понимания уточнений. Доказательства и номера сносок для нового ответа бери только из текущего набора sources; номера в прошлых ответах относятся к прошлым наборам. Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},...prior,{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!current.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=current.workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
-      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return await finish({answer,sources,coverage,model:(result.mnemaModel||research.model).name,usage:result.usage});
+      const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Предыдущие сообщения нужны для понимания уточнений. Доказательства и номера сносок для нового ответа бери только из текущего набора sources; номера в прошлых ответах относятся к прошлым наборам. Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},...prior,{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!scopedPerson(current).workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=scopedPerson(current).workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
+      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!scopedPerson(latest).workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=scopedPerson(latest).workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return await finish({answer,sources,coverage,model:(result.mnemaModel||research.model).name,usage:result.usage});
       }finally{if(chatId)chats.release(chatId)}
      }
-     if(!person.workspaceId){if(path==='/api/state'&&req.method==='GET')return json(res,200,{version:0,state:{studies:[],findings:[],models:[],processors:[],users:person.manageUsers?userDirectory():[],modelId:''},user:person});fail(409,'Сначала создайте проект.')}
+     if(!person.workspaceId){if(path==='/api/state'&&req.method==='GET')return json(res,200,{version:0,state:{studies:[],findings:[],models:[],processors:[],users:person.manageUsers?userDirectory(person):[],modelId:''},user:person});fail(409,'Сначала создайте проект.')}
      // Everything below reads and writes the workspace chosen by the mnema_ws cookie.
      wsStore.enterWith(person.workspaceId);
     if(path==='/api/imports/source/status'&&req.method==='GET'){
      if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;return json(res,200,{workspaceId:currentWs(),quota,used,files:getState().state.studies.filter(s=>s.importSource?.provider==='external'&&s.importSource.fileId).map(s=>({sourceId:s.importSource.fileId,studyId:s.id,ready:s.status==='ready'}))});
     }
     if(path==='/api/imports/source/project'&&req.method==='POST'){
-     if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const b=await body(req),url=sourceURL(b.url),name=text(b.name,60);if(!name)fail(400,'Назовите проект.');for(const w of person.workspaces.filter(w=>w.admin)){const raw=q('SELECT data FROM mnema_workspaces WHERE id=?').get(w.id);if(JSON.parse(raw.data).importSource?.url===url)return json(res,200,{id:w.id,name:w.name});}
-     if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID(),st=initialState();st.importSource={provider:'external',url,text:String(b.text||'').slice(0,50000),importedBy:person.id,importedAt:Date.now()} as any;q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(st),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) SELECT ?,user_id,role,0 FROM mnema_access WHERE all_projects=1 AND revoked=0').run(id);return json(res,201,{id,name});
+     if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const b=await body(req),url=sourceURL(b.url),name=text(b.name,60);if(b.mode!==undefined&&!['private','all','link'].includes(b.mode))fail(400,'Выберите способ доступа к проекту.');if(!name)fail(400,'Назовите проект.');for(const w of person.workspaces.filter(w=>w.admin)){const raw=q('SELECT data FROM mnema_workspaces WHERE id=?').get(w.id);if(JSON.parse(raw.data).importSource?.url===url)return json(res,200,{id:w.id,name:w.name});}
+     if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const st=initialState();st.importSource={provider:'external',url,text:String(b.text||'').slice(0,50000),importedBy:person.id,importedAt:Date.now()} as any;const id=createProject(name,person,b.mode||'all',st);return json(res,201,{id,name});
     }
     if(path==='/api/imports/source/material'&&req.method==='POST'){
      if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const b=await body(req),segments=importedSegments(b.segments),url=sourceURL(b.url);const found=getState().state.studies.find(s=>s.id===b.studyId&&s.importSource?.provider==='external');if(!found)fail(404,'Сначала загрузите исходный файл в этот проект.');
@@ -629,24 +666,24 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       if(account.admin&&!latest.owner)fail(403,'Права администратора изменяет только администратор.');
       if(account.all_projects&&!latest.manageUsers)fail(403,'Недостаточно прав для изменения общего доступа.');
       const admin=b.admin===undefined?Boolean(account.admin):b.admin,role=admin?'full':b.role||account.role;
-      if(admin||account.all_projects||b.admin!==undefined){
+      if(admin||account.all_projects||b.admin!==undefined||b.status!==undefined){
        if(!latest.manageUsers)fail(403,'Недостаточно прав для изменения общего доступа.');
        const revoked=b.status===undefined?account.revoked:b.status==='revoked'?1:0;
        db.exec('BEGIN');try{
         q('UPDATE mnema_access SET admin=?,role=?,revoked=? WHERE user_id=?').run(admin?1:0,role,revoked,id);
-        if(revoked)q('UPDATE mnema_members SET revoked=1 WHERE user_id=?').run(id);else grantAllProjects(id,role,false);
+        if(!revoked&&(admin||account.all_projects||b.admin!==undefined))grantAllProjects(id,role);
         db.exec('COMMIT');
        }catch(error){db.exec('ROLLBACK');throw error}
       }else{
        const workspace=typeof b.workspaceId==='string'?b.workspaceId:currentWs();
-       if(!latest.owner&&!latest.workspaces.some(w=>w.id===workspace&&w.admin))fail(403,'Управление этим проектом недоступно.');
-       const member=q('SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?').get(workspace,id);if(!member)fail(404,'Участник не найден.');if(member.admin&&!latest.owner)fail(403,'Доступ владельца проекта не изменяется.');
+       if(!sharing.canManage(workspace,latest.id))fail(403,'Управление этим проектом недоступно.');
+       const member=q('SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?').get(workspace,id);if(!member)fail(404,'Участник не найден.');if(sharing.canManage(workspace,id))fail(403,'Доступ владельца проекта не изменяется.');
        q('UPDATE mnema_members SET role=?,revoked=? WHERE workspace_id=? AND user_id=?').run(b.role||member.role,b.status===undefined?member.revoked:b.status==='revoked'?1:0,workspace,id);
       }
      }else{
       const invite=q('SELECT * FROM mnema_invites WHERE id=? AND used=0').get(id);if(!invite)fail(404,'Участник не найден.');
       if(b.admin!==undefined)fail(400,'Назначить администратора можно после регистрации.');
-      if(invite.workspace_id==='*'?!latest.manageUsers:!latest.manageUsers&&!latest.workspaces.some(w=>w.id===invite.workspace_id&&w.admin))fail(403,'Управление приглашением недоступно.');
+      if(invite.workspace_id==='*'?!latest.manageUsers:!sharing.canManage(invite.workspace_id,latest.id))fail(403,'Управление приглашением недоступно.');
       q('UPDATE mnema_invites SET role=?,revoked=? WHERE id=?').run(b.role||invite.role,b.status===undefined?invite.revoked:b.status==='revoked'?1:0,id);
      }
      return json(res,200,view(latest));
@@ -729,13 +766,14 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      const files=view(person).state.studies.filter(s=>s.fileId).map(s=>q("SELECT id,name FROM mnema_uploads WHERE id=? AND status='ready'").get(s.fileId)).filter(Boolean);
      if(!files.length)fail(404,'В проекте нет файлов для скачивания.');
      for(const f of files){try{if(!(await stat(join(dir,'uploads',f.id))).isFile())throw 0}catch{fail(404,'Исходный файл недоступен. Обратитесь к администратору.')}}
+     const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||files.some(f=>!view(current).state.studies.some(s=>s.fileId===f.id)))fail(403,'Доступ к файлам закрыт.');
      const project=q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name||'Материалы';
      res.writeHead(200,{'Content-Type':'application/zip','Cache-Control':'private, no-store','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(project+'.zip')}`});
      const names=uniqueNames(files.map(f=>f.name));await writeZip(res,files.map((f,i)=>({name:names[i],path:join(dir,'uploads',f.id)})));return;
     }
     if(/^\/api\/files\/[^/]+$/.test(path)&&['GET','HEAD'].includes(req.method)){
      const id=path.split('/').at(-1);const study=view(person).state.studies.find(s=>s.fileId===id);const file=study&&q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);if(!file)fail(404,'Файл не найден.');const isPDF=/\.pdf$/i.test(file.name),isText=/\.txt$/i.test(file.name);const mime=isPDF?'application/pdf':isText?'text/plain; charset=utf-8':/^video\//.test(file.mime)||/^audio\//.test(file.mime)?file.mime:'application/octet-stream';
-     let start=0,end=file.size-1,status=200;const r=req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);if(req.headers.range&&!r)fail(416,'Некорректный диапазон.');if(r){start=Number(r[1]);end=r[2]?Math.min(Number(r[2]),end):end;if(start>end||start>=file.size)fail(416,'Некорректный диапазон.');status=206}const headers={'Content-Type':mime,'Content-Length':end-start+1,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','Content-Disposition':`${url.searchParams.get('download')==='1'?'attachment':'inline'}; filename*=UTF-8''${encodeURIComponent(file.name)}`};if(status===206)headers['Content-Range']=`bytes ${start}-${end}/${file.size}`;if(storageMirror.has(id)){try{const remote=await storageMirror.objects.request(req.method,storageMirror.objectKey(id),undefined,req.headers.range?{range:req.headers.range}:{});const remoteHeaders={...headers,'X-Mnema-Storage':'s3','Content-Length':remote.headers.get('content-length')||String(end-start+1),...(remote.headers.get('content-range')?{'Content-Range':remote.headers.get('content-range')}:{})};res.writeHead(remote.status,remoteHeaders);if(req.method==='HEAD')return res.end();await pipeline(Readable.fromWeb(remote.body as any),res);return}catch(e){if(res.headersSent)throw e;console.error('S3 read unavailable; using retained local copy')}}const local=join(dir,'uploads',id);let info;try{info=await stat(local)}catch{fail(404,'Исходный файл недоступен. Обратитесь к администратору.')}if(!info.isFile())fail(404,'Исходный файл недоступен.');if(info.size!==file.size)fail(409,'Размер исходного файла изменился. Обратитесь к администратору.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||!view(latest).state.studies.some(s=>s.fileId===id))fail(403,'Доступ к файлу закрыт.');res.writeHead(status,{...headers,'X-Mnema-Storage':'local'});if(req.method==='HEAD')return res.end();await pipeline(createReadStream(local,{start,end}),res);return;
+     let start=0,end=file.size-1,status=200;const r=req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);if(req.headers.range&&!r)fail(416,'Некорректный диапазон.');if(r){start=Number(r[1]);end=r[2]?Math.min(Number(r[2]),end):end;if(start>end||start>=file.size)fail(416,'Некорректный диапазон.');status=206}const headers={'Content-Type':mime,'Content-Length':end-start+1,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','Content-Disposition':`${url.searchParams.get('download')==='1'?'attachment':'inline'}; filename*=UTF-8''${encodeURIComponent(file.name)}`};if(status===206)headers['Content-Range']=`bytes ${start}-${end}/${file.size}`;if(storageMirror.has(id)){try{const remote=await storageMirror.objects.request(req.method,storageMirror.objectKey(id),undefined,req.headers.range?{range:req.headers.range}:{});const remoteHeaders={...headers,'X-Mnema-Storage':'s3','Content-Length':remote.headers.get('content-length')||String(end-start+1),...(remote.headers.get('content-range')?{'Content-Range':remote.headers.get('content-range')}:{})};const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||!view(latest).state.studies.some(s=>s.fileId===id)){await remote.body?.cancel();fail(403,'Доступ к файлу закрыт.')}res.writeHead(remote.status,remoteHeaders);if(req.method==='HEAD')return res.end();await pipeline(Readable.fromWeb(remote.body as any),res);return}catch(e){if(res.headersSent)throw e;console.error('S3 read unavailable; using retained local copy')}}const local=join(dir,'uploads',id);let info;try{info=await stat(local)}catch{fail(404,'Исходный файл недоступен. Обратитесь к администратору.')}if(!info.isFile())fail(404,'Исходный файл недоступен.');if(info.size!==file.size)fail(409,'Размер исходного файла изменился. Обратитесь к администратору.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||!view(latest).state.studies.some(s=>s.fileId===id))fail(403,'Доступ к файлу закрыт.');res.writeHead(status,{...headers,'X-Mnema-Storage':'local'});if(req.method==='HEAD')return res.end();await pipeline(createReadStream(local,{start,end}),res);return;
     }
     if(/^\/api\/studies\/[^/]+$/.test(path)&&req.method==='DELETE'){
      if(person.role!=='full')fail(403,'Удалять исследования может участник с полным доступом.');const id=path.split('/')[3];const study=getState().state.studies.find(s=>s.id===id);if(!study)fail(404,'Материал не найден.');
@@ -847,7 +885,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      const corpus=view({...person,role:'view'}).state;const ready=corpus.studies.filter(s=>s.status==='ready').length;if(!ready)fail(409,'Дождитесь обработки материалов.');
      const question='Кратко: главные выводы этого исследования';
      const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,'all',corpus.findings);if(!sources.length)fail(409,'В материалах пока нет текста для сводки.');
-     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.'+(coverage.sampled?' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.':''),sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},payload=>callModel(person,model,payload));
+     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.'+(coverage.sampled?' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.':''),sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');return callModel(person,model,payload)});
      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string'||!answer.trim())fail(502,'Модель вернула неожиданный ответ. Повторите попытку.');
      const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');
      const summary={answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,at:Date.now(),materials:ready};

@@ -1,10 +1,10 @@
 import React,{useRef,useState} from 'react';
 import {Button,Dialog,DropdownMenu,RadioGroup,TextInput} from '@gravity-ui/uikit';
-import {FileText,MoreHorizontal,Pencil,Trash2,UserPlus} from 'lucide-react';
+import {FileText,MoreHorizontal,Pencil,Trash2,Link} from 'lucide-react';
 import {api} from './api.ts';
 import {invitationMailNotice} from './invitation-mail-status.ts';
 
-export type ProjectRef={id:string;name:string;role:'view'|'full';admin:boolean;fileCount?:number;filePreviews?:{name:string;format:string}[]};
+export type ProjectRef={id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:'private'|'all'|'link'|'legacy';fileCount?:number;filePreviews?:{name:string;format:string}[]};
 export const fileCount=(n:number)=>`${n} ${new Intl.PluralRules('ru').select(n)==='one'?'файл':new Intl.PluralRules('ru').select(n)==='few'?'файла':'файлов'}`;
 export function ProjectMenu({project,onAction}:{project:ProjectRef;onAction:(action:string,project:ProjectRef)=>void}){
  const [menuOpen,setMenuOpen]=useState(false);
@@ -13,8 +13,8 @@ export function ProjectMenu({project,onAction}:{project:ProjectRef;onAction:(act
   items={[
    {text:fileCount(project.fileCount||0),iconStart:<FileText size={16}/>,action:()=>onAction('files',project)},
    ...(project.admin?[
+    {text:'Поделиться',iconStart:<Link size={16}/>,action:()=>onAction('share',project)},
     {text:'Переименовать',iconStart:<Pencil size={16}/>,action:()=>onAction('rename',project)},
-    {text:'Добавить пользователя',iconStart:<UserPlus size={16}/>,action:()=>onAction('invite',project)},
     {text:'Удалить проект',iconStart:<Trash2 size={16}/>,theme:'danger' as const,action:()=>onAction('delete',project)},
    ]:[])
   ]}/>;

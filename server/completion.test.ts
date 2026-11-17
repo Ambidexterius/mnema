@@ -42,3 +42,14 @@ test('mail failures retry without changing transcription status',async()=>{
  const mailer=createCompletionMailer({db,baseURL:'https://example.test',send:async()=>{throw new Error('temporary')}});
  try{mailer.queue('job','space','recording','u');await mailer.tick();const row:any=db.prepare('SELECT * FROM mnema_completion_mail').get();assert.equal(row.status,'pending');assert.equal(row.attempts,1);assert(row.next_at>Date.now());assert.equal(JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces').get().data)).studies[0].status,'ready')}finally{mailer.close();db.close()}
 });
+
+
+test('completion mail rechecks sharing access after a legacy project becomes private',async()=>{
+ const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE mnema_workspaces(id TEXT,name TEXT,data TEXT);CREATE TABLE user(id TEXT,email TEXT);CREATE TABLE mnema_access(user_id TEXT,revoked INTEGER);CREATE TABLE mnema_members(workspace_id TEXT,user_id TEXT,role TEXT,revoked INTEGER);INSERT INTO user VALUES('u','qa@example.test');INSERT INTO mnema_access VALUES('u',0);INSERT INTO mnema_members VALUES('space','u','full',0)");
+ db.prepare('INSERT INTO mnema_workspaces VALUES(?,?,?)').run('space','Private project',JSON.stringify({studies:[study]}));
+ const sent:any[]=[];let allowed=true;const mailer=createCompletionMailer({db,baseURL:'https://example.test',send:async m=>{sent.push(m)},getAccess:()=>allowed?{role:'view'}:undefined});
+ try{
+  mailer.queue('downgraded','space','recording','u');await mailer.tick();assert.equal(sent.length,1);assert.doesNotMatch(sent[0].text,/Текст & вывод/,'fresh view access excludes the AI draft despite the old full membership row');
+  mailer.queue('narrowed','space','recording','u');allowed=false;await mailer.tick();assert.equal(sent.length,1);assert.equal(db.prepare("SELECT status FROM mnema_completion_mail WHERE job_id='narrowed'").get().status,'skipped');assert.equal(db.prepare("SELECT revoked FROM mnema_members WHERE user_id='u'").get().revoked,0,'the obsolete membership alone must not authorize a private completion email');
+ }finally{mailer.close();db.close()}
+});

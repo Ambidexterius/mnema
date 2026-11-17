@@ -74,3 +74,14 @@ export function navigateHref(href:string,replace=false){
  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 export function navigate(route:string,replace=false){navigateHref(appHref(route),replace)}
+
+/** Auth return is limited to a project on this origin; never accept an external redirect. */
+export function projectReturnPath(url:URL):string|null{
+ let target:URL;
+ try{target=url.searchParams.has('returnTo')?new URL(url.searchParams.get('returnTo')||'',url.origin):url}catch{return null}
+ if(target.origin!==url.origin||!target.pathname.startsWith('/projects/')||!readRoute(target).workspace)return null;
+ target=new URL(target);target.searchParams.delete('returnTo');return target.pathname+target.search;
+}
+export function authPageHref(path:string,url=new URL(location.href)){
+ const target=new URL(path,url.origin),back=projectReturnPath(url);if(back)target.searchParams.set('returnTo',back);return target.pathname+target.search;
+}

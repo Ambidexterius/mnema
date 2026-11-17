@@ -5,6 +5,7 @@ import AuthMatrix from './AuthMatrix.tsx';
 import AuthHeading from './AuthHeading.tsx';
 import OtpInput from './OtpInput.tsx';
 import {api} from './api.ts';
+import {authPageHref,projectReturnPath} from './routes.ts';
 import {normalizeCorporateEmail} from './corporate-email.ts';
 import './registration.css';
 
@@ -31,7 +32,7 @@ export default function RegistrationPage({theme,onTheme,onComplete,reset=false}:
  const emailError=()=>{if(!email)setErrors(previous=>({...previous,email:reset?'Введите почту, например name@sutochno.ru':'Используйте рабочую почту @sutochno.ru'}))};
  async function action(kind:'submit'|'resend'|'change-email'='submit'){
   if(busyRef.current||readingPhoto)return;
-  if(created){location.assign('/projects');return}
+  if(created){location.assign(projectReturnPath(new URL(location.href))||'/projects');return}
   if(kind==='submit'&&stage==='email'&&!email){emailError();emailRef.current?.focus();return}
   if(kind==='submit'&&stage==='password'){
    if(password.length<8||password.length>128){setErrors({password:password.length>128?'Пароль слишком длинный. Сократите его.':'Минимум 8 символов'});passwordRef.current?.focus();return}
@@ -53,7 +54,7 @@ export default function RegistrationPage({theme,onTheme,onComplete,reset=false}:
    }
    if(stage==='code'){
     const state=await api(base+'verify-code',{email:pending.email,code},'POST',false);if(!alive.current)return;
-    receivePending(state);if(reset){setStage('password');return}if(state.existingAccount){clearDraft();location.assign('/login?email='+encodeURIComponent(state.email));return}setStage('password');return;
+    receivePending(state);if(reset){setStage('password');return}if(state.existingAccount){clearDraft();location.assign(authPageHref('/login?email='+encodeURIComponent(state.email)));return}setStage('password');return;
    }
    if(reset)await api(base+'complete',{password},'POST',false);else await api('/api/register',{email:pending.email,password,firstName:firstName.trim(),lastName:lastName.trim(),photo},'POST',false);if(!alive.current)return;
    setCreated(true);setPassword('');setPhoto('');
@@ -62,7 +63,7 @@ export default function RegistrationPage({theme,onTheme,onComplete,reset=false}:
    if(!alive.current)return;
    const message=error.message||'Не удалось выполнить действие. Попробуйте ещё раз',field=stage==='email'?'email':stage==='code'?'code':'general';
    if(error.code==='VERIFICATION_REQUIRED'||error.code==='EMAIL_CHANGED'){setPassword('');setPending({pending:false});setStage('email');setNotice(reset?'':'Подтвердите почту ещё раз. Имя и фамилия сохранены');setErrors({email:message})}
-   else if(error.code==='ACCOUNT_EXISTS')location.assign('/login?email='+encodeURIComponent(pending.email||''));
+   else if(error.code==='ACCOUNT_EXISTS')location.assign(authPageHref('/login?email='+encodeURIComponent(pending.email||'')));
    else if(error.code==='FIRST_NAME'){setErrors({firstName:message});firstRef.current?.focus()}
    else if(error.code==='LAST_NAME'){setErrors({lastName:message});lastRef.current?.focus()}
    else if(error.code==='PHOTO')setErrors({photo:message});
@@ -97,6 +98,6 @@ export default function RegistrationPage({theme,onTheme,onComplete,reset=false}:
  <div className="registration-photo"><Avatar imgUrl={photo||undefined} text={((firstName.trim()[0]||'')+(lastName.trim()[0]||'')).toUpperCase()||undefined} size="xl"/><div><Button type="button" view="outlined" size="l" onClick={()=>photoRef.current?.click()} disabled={busy||readingPhoto} loading={readingPhoto}>Загрузить фото</Button>{photo?<Button className="registration-remove-photo" type="button" view="flat" onClick={()=>{photoSequence.current++;setPhoto('');setPhotoLost(false);setReadingPhoto(false);setErrors(previous=>({...previous,photo:''}))}} disabled={busy}>Удалить фото</Button>:null}<p className="registration-hint">Необязательно · JPG, PNG, WebP до 5 МБ</p></div><input ref={photoRef} type="file" accept="image/jpeg,image/png,image/webp" aria-label="Выбрать фотографию" hidden onChange={choosePhoto}/></div>{error('photo')}</>:null}
  {error('general')}<Button type="submit" view="action" size="xl" width="max" loading={busy} disabled={busy||readingPhoto||stage==='code'&&(code.length!==6||expired||Boolean(pending.locked))}>{created?'Открыть проекты':stage==='email'?'Получить код':stage==='code'?'Подтвердить':stage==='password'?reset?'Сохранить и войти':'Продолжить':'Начать работу'}</Button>
  </form>
- {stage==='email'?<p className="registration-bottom auth-switch">{reset?'Вспомнили пароль?':'Уже есть аккаунт?'} <Link href="/login" underline>Войти</Link></p>:stage==='code'?<div className="registration-secondary-actions"><Button view="flat" onClick={()=>void action('resend')} disabled={busy||cooldown>0}>{cooldown?'Отправить ещё раз через '+cooldown+' с':'Отправить новый код'}</Button><Button view="flat" onClick={()=>void action('change-email')} disabled={busy}>Изменить почту</Button></div>:<Button className="registration-back" type="button" view="flat" onClick={()=>{if(stage==='password')void action('change-email');else{setErrors({});setStage('password')}}} disabled={busy}><ArrowLeft size={16}/>{stage==='password'?'Изменить почту':'Назад'}</Button>}
+ {stage==='email'?<p className="registration-bottom auth-switch">{reset?'Вспомнили пароль?':'Уже есть аккаунт?'} <Link href={authPageHref('/login')} underline>Войти</Link></p>:stage==='code'?<div className="registration-secondary-actions"><Button view="flat" onClick={()=>void action('resend')} disabled={busy||cooldown>0}>{cooldown?'Отправить ещё раз через '+cooldown+' с':'Отправить новый код'}</Button><Button view="flat" onClick={()=>void action('change-email')} disabled={busy}>Изменить почту</Button></div>:<Button className="registration-back" type="button" view="flat" onClick={()=>{if(stage==='password')void action('change-email');else{setErrors({});setStage('password')}}} disabled={busy}><ArrowLeft size={16}/>{stage==='password'?'Изменить почту':'Назад'}</Button>}
  </>}</section></main></div>;
 }
