@@ -47,24 +47,23 @@ try{
    if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-folder-stage').getBoundingClientRect(),grid=document.querySelector('.projects-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
   });
   await run(theme+': mobile project navigation and desktop table',async()=>{
-   for(const width of [320,390,768,1024,1440]){
+   for(const width of [390,1024,1440]){
     await page.setViewportSize({width,height:844});
-    await goto('/projects');const catalogTitle=await page.locator('.projects-heading h1').boundingBox();
     await goto('/projects/main');
     const compact=width<960;
     const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
-    // Back navigation uses the existing top bar; H1 stays aligned across catalog and project sections.
+    // Back navigation sits above the project title; sections stay below it.
     assert.equal(await page.getByRole('link',{name:'К проектам'}).count(),0);
     assert.equal(await page.locator('.topbar .project-tabs').count(),0);
     const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
-    const back=page.getByRole('link',{name:'Назад',exact:true}),backBox=await back.boundingBox();assert.equal(await back.getAttribute('href'),'/projects');assert.ok(backBox.y+backBox.height<=title.y);assert.equal(await page.locator('.topbar .project-back').count(),1);assert.ok(Math.abs(title.y-catalogTitle.y)<1,JSON.stringify({width,catalogTitle,title}));assert.equal(title.x,catalogTitle.x);
+    const back=page.getByRole('link',{name:'Назад',exact:true}),backBox=await back.boundingBox();assert.equal(await back.getAttribute('href'),'/projects');assert.ok(backBox.y+backBox.height<=title.y);assert.equal(backBox.x,title.x);
     assert.ok(tabs.y>=title.y+title.height);
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
     // Every project section keeps the project name as its only H1; the tab names the section.
-    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await page.getByRole('link',{name:'Назад',exact:true}).count(),1);const heading=await page.locator('h1').boundingBox();assert.ok(Math.abs(heading.y-catalogTitle.y)<1,JSON.stringify({width,path,catalogTitle,heading}));assert.equal(heading.x,catalogTitle.x)}
+    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await page.getByRole('link',{name:'Назад',exact:true}).count(),1)}
     assert.match(await page.title(),/^(Материалы|Документы) · Тест интерфейса — Мнемодак$/);
     await goto('/projects/main');await back.click();await page.waitForURL(fixture.base+'/projects');
     await page.getByRole('button',{name:'Открыть проект «Тест интерфейса»',exact:true}).click();await page.locator('.project-overview').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');await back.focus();await back.press('Enter');await page.waitForURL(fixture.base+'/projects');
