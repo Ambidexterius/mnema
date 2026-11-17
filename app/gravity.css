@@ -151,11 +151,6 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .settings-tab[aria-current=page]{color:var(--g-color-text-primary);border-bottom-color:var(--g-color-line-brand)}
 @media(hover:hover){.settings-tab:hover{color:var(--g-color-text-primary)}}
 .heading-actions{display:flex;align-items:center;gap:var(--g-spacing-2)}
-.whats-new{list-style:none;margin:0;padding:0;display:grid;gap:var(--g-spacing-4)}
-.whats-new li{display:flex;gap:var(--g-spacing-3);align-items:flex-start}
-.whats-new-icon{display:grid;place-items:center;width:32px;height:32px;border-radius:var(--g-border-radius-m);background:var(--g-color-base-generic);flex:none}
-.whats-new strong{font:var(--g-text-subheader-2-font)}
-.whats-new p{color:var(--g-color-text-secondary);line-height:1.5;margin-top:var(--g-spacing-1)}
 .page-heading>.heading-actions{flex:0 0 auto;min-width:0}
 .home-hero{max-width:none}
 
@@ -1475,3 +1470,14 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .users-table .user-cell{align-items:flex-start}.users-table .user-cell>.g-avatar{align-self:flex-start;flex:none}
 
 .participant-count{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+
+.g-dialog.updates-dialog{--g-dialog-width:520px;max-width:calc(100vw - 24px)}
+.updates-dialog .g-dialog-body{padding-bottom:var(--_--side-padding)}
+.updates-feed{font:var(--g-text-body-2-font);color:var(--g-color-text-primary)}
+.updates-feed section+section{border-top:1px solid var(--g-color-line-generic);margin-top:24px;padding-top:20px}
+.updates-feed time{font:var(--g-text-body-1-font);color:var(--g-color-text-secondary)}
+.updates-feed h3{font:var(--g-text-subheader-2-font);margin:6px 0 10px}
+.updates-feed p,.updates-feed ul{margin:8px 0 0;line-height:1.55}
+.updates-feed ul{padding-inline-start:20px;list-style:disc}
+.updates-feed li+li{margin-top:6px}
+.updates-feed li::marker{color:var(--g-color-text-secondary)}
