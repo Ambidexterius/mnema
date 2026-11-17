@@ -84,11 +84,18 @@ try{
    await goto('/projects/'+project.id);
    for(const width of [320,390,768,1024,1440]){
     await page.setViewportSize({width,height:844});
-    const share=page.getByRole('button',{name:/Поделиться проектом.*Только приглашённые/});
+    const share=page.getByRole('button',{name:'Поделиться проектом',exact:true});
     await share.waitFor();
+    const status=page.locator('.project-access-status');
+    assert.match(await status.innerText(),width<960?/Приватный/:/Только приглашённые/);
+    assert.equal(await status.evaluate(el=>Boolean(el.closest('button,a'))),false);
     const bounds=await share.boundingBox();
     assert.ok(bounds.x>=0 && bounds.x+bounds.width<=width+1);
-    if(width<=390)assert.ok(bounds.height>=48 && bounds.width>=48);
+    if(width<=390){
+     assert.ok(bounds.height>=48 && bounds.width>=48);
+     const face=await share.evaluate(el=>{const box=el.getBoundingClientRect(),style=getComputedStyle(el,'::before');return [box.width-parseFloat(style.left)-parseFloat(style.right),box.height-parseFloat(style.top)-parseFloat(style.bottom)]});
+     assert.deepEqual(face,[36,36]);
+    }
     if(width!==320 && width!==1440)continue;
     await share.click();
     const dialog=page.getByRole('dialog',{name:'Поделиться проектом',exact:true});

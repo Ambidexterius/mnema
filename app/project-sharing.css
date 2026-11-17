@@ -37,7 +37,7 @@
 .project-sharing-dialog .g-dialog-btn-close{inset-inline-end:8px;inset-block-start:8px}.sharing-figma-dialog .sharing-dialog-header{padding-right:56px}
 .sharing-loading{display:flex;align-items:center;gap:12px;min-height:80px;color:var(--g-color-text-secondary)}.sharing-people{max-height:40vh;overflow:auto}.sharing-error{margin:16px 0 0;font-size:13px;line-height:20px}
 .topbar-actions .project-share-trigger .g-button__text{display:inline-flex;align-items:center;gap:8px}.topbar-actions .project-share-trigger .g-button__text>svg{margin:0}.project-share-trigger.project-share-private .g-button__text>svg{color:var(--g-color-text-brand-heavy)}.project-share-status{font-weight:500}.project-share-action{color:var(--g-color-text-secondary)}.project-share-status:empty{display:none}
-@media(max-width:959px){.topbar-actions .g-button.project-share-trigger{--_--height:48px;min-height:48px;min-width:48px;padding:0 8px}.project-share-status{display:none}.project-share-action{color:var(--g-color-text-primary)}}
+@media(max-width:959px){.topbar-actions .g-button.project-share-trigger{--_--height:48px;min-height:48px;min-width:48px;padding:0 8px}.topbar-actions .project-share-trigger.g-button::before,.topbar-actions .project-share-trigger.g-button::after{inset-block:6px;border-radius:var(--g-border-radius-l)}.project-share-status{display:none}.project-share-action{color:var(--g-color-text-primary)}}
 
 .sharing-figma-dialog>.g-dialog-btn-close{display:none}.sharing-figma-dialog .sharing-dialog-header{padding-inline-end:var(--_--side-padding)}.sharing-header-actions{display:flex;align-items:center;gap:8px;flex:none}.sharing-header-actions>.g-button{min-width:28px}.sharing-header-close .g-button__text>svg{margin:0}
 @media(max-width:959px){.project-sharing-dialog .g-button,.project-sharing-dialog .g-select-control,.project-sharing-dialog .g-text-input__control,.project-sharing-dialog .g-text-input__additional-content{min-height:48px}.sharing-header-actions>.g-button{--_--height:48px;min-height:48px;min-width:48px}.sharing-figma-dialog .sharing-dialog-header{padding-block:16px}}
@@ -48,3 +48,27 @@
 
 .new-project-sharing .sharing-create-note{margin-top:8px}
 @media(max-width:959px){.new-project-sharing .g-checkbox{min-height:48px;align-items:center}}
+
+
+.project-access-status{display:inline-flex;align-items:center;gap:6px;margin-inline-end:8px;color:var(--g-color-text-secondary);font:var(--g-text-body-1-font);white-space:nowrap}
+.project-access-status svg{flex:none}
+.project-access-status.is-private svg{color:var(--g-color-text-brand-heavy)}
+.access-short{display:none}
+/* Align the glyph to the form edge; keep its whole square hit target centered on it. */
+.sharing-header-actions .sharing-header-close.g-button{
+ --close-target:28px;
+ inline-size:var(--close-target);
+ block-size:var(--close-target);
+ padding:0;
+ margin-inline-end:calc((14px - var(--close-target)) / 2);
+}
+.sharing-header-close.g-button .g-button__text{display:grid;place-items:center;margin:0;width:100%}
+@media(max-width:959px){.sharing-header-actions .sharing-header-close.g-button{--close-target:48px}}
+@media(max-width:959px){.access-full{display:none}.access-short{display:inline}.project-access-status{margin-inline-end:4px}}
+@media(max-width:640px){.project-share-action{display:none}.topbar-actions .project-share-trigger.g-button{width:48px;padding:0}.topbar-actions .project-share-trigger.g-button::before,.topbar-actions .project-share-trigger.g-button::after{inset-inline:6px}.project-access-status{gap:4px}}
+@media(max-width:359px){
+ .topbar:has(.project-access-status) .mobile-path:has(>span:only-child){display:none}
+ .topbar .mobile-path:has(>span:only-child)+.topbar-actions{flex:1}
+ .topbar .mobile-path:has(>span:only-child)+.topbar-actions .project-access-status{margin-inline-end:auto}
+ .topbar .mobile-path:has(>a)+.topbar-actions .access-short{display:none}
+}
