@@ -65,7 +65,7 @@ export function navigationState(current:URL,next:URL,previous:NavigationState={}
 export function restoreRouteScroll(){const top=history.state?.scrollTop;if(Number.isFinite(top)&&top>=0)requestAnimationFrame(()=>document.querySelector('.content-shell')?.scrollTo({top}))}
 export function navigateHref(href:string,replace=false){
  const current=new URL(location.href),next=new URL(href,current);
- if(next.origin!==current.origin)throw new Error('Внутренний переход должен оставаться в Мнемонике.');
+ if(next.origin!==current.origin)throw new Error('Внутренний переход должен оставаться в Мнемодаке.');
  const target=next.pathname+next.search+next.hash;
  if(current.pathname+current.search+current.hash===target)return;
  if(readRoute(current).route.startsWith('study/')&&history.state?.returnTo===target){history.back();return}

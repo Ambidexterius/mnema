@@ -3,9 +3,9 @@
 /* One spacing scale for login and every registration step: label→field 8, field→error/hint 4, between fields 16, last block→action 16, action→secondary 8. */
 .auth-clean.auth-with-variants .auth-minimal-main{max-width:720px}
 .auth-clean .auth-form-heading{margin:0 0 24px;text-align:center}
-.auth-clean .auth-symbol{position:relative;width:40px;height:40px;margin:0 auto 24px}
+.auth-clean .auth-symbol{width:40px;height:40px;margin:0 auto 24px}
 .auth-clean .auth-symbol .brand-symbol{width:40px;height:40px}
-.auth-clean .auth-symbol .beta-mark{position:absolute;inset-inline-start:calc(100% + 4px);inset-block-end:0}
+.auth-clean .auth-title-beta{display:inline-flex;vertical-align:middle;margin-inline-start:8px;translate:0 -1px}
 .auth-clean .auth-form .auth-title{font:var(--g-text-header-1-font);font-weight:600;line-height:1.3;letter-spacing:-.01em;margin:0;text-align:center}
 .auth-clean .auth-description{max-width:none;margin:8px 0 0;font-size:14px;line-height:1.5;letter-spacing:0;overflow-wrap:anywhere;text-wrap:pretty}
 .auth-clean .auth-form form{display:flex;flex-direction:column;align-items:stretch}

@@ -132,7 +132,7 @@ test('password reset works for any mail domain without self-registration, stays 
   assert.equal((await request('/api/password-reset/complete',{password:'another-password'})).status,403);
   assert.equal((await request('/api/auth/sign-in/email',{email:'owner@example.test',password:'old-password'},jar())).status,401);
   assert.equal((await request('/api/auth/sign-in/email',{email:'owner@example.test',password:'new-password'},jar())).status,200);
-  assert.equal(mails.at(-1).subject,'Пароль в Мнемонике изменён');assert.equal(mails.at(-1).to,'owner@example.test');
+  assert.equal(mails.at(-1).subject,'Пароль в Мнемодаке изменён');assert.equal(mails.at(-1).to,'owner@example.test');
   app.db.prepare('UPDATE mnema_access SET revoked=1').run();app.db.prepare('UPDATE mnema_registration SET resend_at=0').run();
   assert.equal((await request('/api/password-reset/request-code',{email:'owner@example.test'})).status,200);assert.equal(mails.length,2);
  }finally{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true})}

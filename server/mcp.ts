@@ -82,7 +82,7 @@ export function createMcpService({db,auth,baseURL,version,getPerson,readProject}
  const serve=(request:Request,id:string)=>{const {grant}=resolveGrant(id);rate(grant.user_id);db.prepare('UPDATE mnema_mcp_grants SET last_used=? WHERE id=?').run(Date.now(),id);return handler.fetch(request,{authInfo:{token:'',clientId:grant.client_id,scopes:['mcp:read'],extra:{grantId:id}}})};
  const protectedHandler=requireMcpAuth(auth,async(request,claims)=>{
   const grant=db.prepare("SELECT id FROM mnema_mcp_grants WHERE user_id=? AND client_id=? AND kind='oauth'").get(String(claims.sub||''),String(claims.azp||''));
-  if(!grant||claims.mnema_grant_id!==grant.id)return challenge('Подтвердите доступ к проектам в Мнемонике.');return serve(request,grant.id);
+  if(!grant||claims.mnema_grant_id!==grant.id)return challenge('Подтвердите доступ к проектам в Мнемодаке.');return serve(request,grant.id);
  },{resource,requiredScopes:['mcp:read']});
  const cors=(response:Response,origin:string|null)=>{const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');if(origin){headers.set('Access-Control-Allow-Origin',origin);headers.set('Vary','Origin');headers.set('Access-Control-Expose-Headers','WWW-Authenticate, MCP-Protocol-Version, MCP-Session-Id')}return new Response(response.body,{status:response.status,statusText:response.statusText,headers})};
  const fetchMcp=async(request:Request)=>{

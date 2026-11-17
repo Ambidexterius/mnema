@@ -6,7 +6,7 @@ import {FileText, MessageSquare} from 'lucide-react';
 // states belong to the server when the corresponding adapter is implemented.
 const plannedIntegrations = [
   {id: 'mattermost', name: 'Mattermost', icon: MessageSquare,
-    description: 'Задавайте вопросы Мнемонике прямо из рабочего чата.'},
+    description: 'Задавайте вопросы Мнемодаку прямо из рабочего чата.'},
   {id: 'confluence', name: 'Confluence', icon: FileText,
     description: 'Используйте базу знаний команды в работе с исследованиями.'},
 ];

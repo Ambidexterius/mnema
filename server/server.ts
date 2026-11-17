@@ -219,7 +219,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const json=(res,status,data,extra={})=>{void sendBody(res.req,res,status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra},Buffer.from(JSON.stringify(data))).catch(()=>{if(!res.headersSent)res.writeHead(500);res.end()})};
  const staticCache=new Map<string,Buffer>();
  const writingUsers=new WeakMap<object,Person>();
- const recheckWrite=async(req)=>{const before=writingUsers.get(req);if(!before)return;const now=await session(req);if(!now)fail(401,'Войдите в Мнемонику.');if(before.workspaceId!==now.workspaceId||before.role==='full'&&now.role!=='full'||before.admin&&!now.admin||before.owner&&!now.owner||before.manageUsers&&!now.manageUsers)fail(403,'Доступ изменился. Обновите страницу и повторите действие.')};
+ const recheckWrite=async(req)=>{const before=writingUsers.get(req);if(!before)return;const now=await session(req);if(!now)fail(401,'Войдите в Мнемодак.');if(before.workspaceId!==now.workspaceId||before.role==='full'&&now.role!=='full'||before.admin&&!now.admin||before.owner&&!now.owner||before.manageUsers&&!now.manageUsers)fail(403,'Доступ изменился. Обновите страницу и повторите действие.')};
  const body=async (req,max=2*1024**2)=>{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>max)fail(413,'Слишком большой запрос.');chunks.push(chunk)}let value;try{value=JSON.parse(Buffer.concat(chunks).toString()||'{}')}catch{fail(400,'Не удалось прочитать запрос.')}await recheckWrite(req);return value};
  const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();const earlier=res.getHeader('Set-Cookie');if(cookies.length||earlier)headers['set-cookie']=[...(Array.isArray(earlier)?earlier:earlier?[earlier]:[]),...cookies];res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
  const limits=new Map();
@@ -278,7 +278,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   setInfo({state:'running',progress:'Подготовка аудио'});
   try{
    const result=await(options.speakerProcessor||detectSpeakers)({filePath,segments:study.segments||[],signal,onProgress:progress=>setInfo({progress})});signal.throwIfAborted();
-   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;const before=new Map((item.segments||[]).map(x=>[x.id,x.speaker]));for(const seg of item.segments||[])if(result.speakers[seg.id])seg.speaker=result.speakers[seg.id];item.speakerInfo={state:'ready',count:result.count,engine:result.engine,finishedAt:Date.now()};item.speakerEdits=[...(item.speakerEdits||[]),{action:'detected',count:result.count,changed:(item.segments||[]).filter(x=>before.get(x.id)!==x.speaker).length,by:'Мнемоника',at:Date.now()}].slice(-500)});
+   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;const before=new Map((item.segments||[]).map(x=>[x.id,x.speaker]));for(const seg of item.segments||[])if(result.speakers[seg.id])seg.speaker=result.speakers[seg.id];item.speakerInfo={state:'ready',count:result.count,engine:result.engine,finishedAt:Date.now()};item.speakerEdits=[...(item.speakerEdits||[]),{action:'detected',count:result.count,changed:(item.segments||[]).filter(x=>before.get(x.id)!==x.speaker).length,by:'Мнемодак',at:Date.now()}].slice(-500)});
   }catch(e){signal.throwIfAborted();console.error('Speakers failed',e.name);setInfo({state:'error',progress:null,error:'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.'})}
  };
  const processStudy=async(study,kind,checkpointDir,signal:AbortSignal)=>{
@@ -437,7 +437,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(path.startsWith('/api/auth/'))fail(404,'Метод недоступен.');
    if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),registrationEnabled:Boolean(options.corporateRegistration&&ownerExists()),version:VERSION})}
    if(path.startsWith('/api/')){
-    const person=await session(req);if(!person)fail(401,'Войдите в Мнемонику.');writingUsers.set(req,person);
+    const person=await session(req);if(!person)fail(401,'Войдите в Мнемодак.');writingUsers.set(req,person);
      if(path.startsWith('/api/profile/avatar/')&&req.method==='GET'){
       const id=path.slice('/api/profile/avatar/'.length);if(!/^[\w-]{1,80}$/.test(id))fail(404,'Фотография не найдена.');
       const shared=id===person.id||q('SELECT 1 FROM mnema_members a JOIN mnema_members b ON a.workspace_id=b.workspace_id JOIN mnema_access c ON c.user_id=b.user_id WHERE a.user_id=? AND b.user_id=? AND a.revoked=0 AND b.revoked=0 AND c.revoked=0').get(person.id,id);
@@ -448,7 +448,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       limit('answer-feedback:'+person.id,60);
       const input=await body(req);
       const current=await session(req);
-      if(!current)fail(401,'Войдите в Мнемонику.');
+      if(!current)fail(401,'Войдите в Мнемодак.');
       return json(res,200,feedback.rate(current,input.token,input.rating));
      }
      if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list()})}
@@ -512,7 +512,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      }
      if(path==='/api/workspaces'&&req.method==='POST'){limit('workspace:'+person.id,5);const b=await body(req);const name=text(b.name,60);if(!name)fail(400,'Назовите проект.');if(person.workspaces.filter(w=>w.admin).length>=20)fail(409,'Можно создать не больше 20 проектов.');const id=randomUUID();q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(initialState()),Date.now(),person.id);q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(id,person.id,'full');q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) SELECT ?,user_id,role,0 FROM mnema_access WHERE all_projects=1 AND revoked=0').run(id);return json(res,201,{id,name})}
      if(path==='/api/chats'&&req.method==='GET')return json(res,200,{chats:chats.list(person)});
-     if(path==='/api/chats'&&req.method==='POST'){const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest,typeof b?.projectId==='string'?b.projectId:null))}
+     if(path==='/api/chats'&&req.method==='POST'){const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');limit('create-chat:'+latest.id,30);return json(res,201,chats.create(latest,typeof b?.projectId==='string'?b.projectId:null))}
      if(/^\/api\/chats\/[^/]+$/.test(path)){
       const id=path.split('/')[3];
       if(req.method==='GET')return json(res,200,chats.get(person,id));
@@ -528,19 +528,19 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      }
      if(path==='/api/chat/global'&&req.method==='POST'){
       limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');
-      const current=await session(req);if(!current)fail(401,'Войдите в Мнемонику.');
+      const current=await session(req);if(!current)fail(401,'Войдите в Мнемодак.');
       const chatId=typeof b.chatId==='string'?b.chatId:null;
       const chat=chatId?chats.acquire(current,chatId):null;
       try{
       const prior=(chat?.messages||[]).slice(-12).map(m=>({role:m.role,content:String(m.role==='user'?m.text:m.answer).slice(0,3000)}));
       const retrievalQuestion=[...(chat?.messages||[]).filter(m=>m.role==='user').slice(-2).map(m=>m.text),question].join(' ');
       const research=globalResearch(current);const {sources,coverage,reviewedFindings}=chatEvidence(research,retrievalQuestion,chat?.projectId);
-      const finish=async(reply:any)=>{const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемонику.');
+      const finish=async(reply:any)=>{const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');
        if(current.workspaces.some(before=>{const access=latest.workspaces.find(w=>w.id===before.id);return !access||(before.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Начните новый чат.');
        const rated=ratedReply(latest,question,'global',reply,research.model?.model);
        return json(res,200,chatId?{...rated,chat:chats.append(latest,chatId,question,rated)}:rated);
       };
-      if(!sources.length)return await finish({answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемоника'});
+      if(!sources.length)return await finish({answer:'Прямых данных нет: в доступных исследованиях не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Попробуйте другую формулировку или добавьте материалы в проект.',sources:[],coverage,model:research.model?.name||'Мнемодак'});
       if(!research.model)fail(503,'Модель ещё не подключена. Попросите владельца проекта настроить подключение.');
       const result=await requestChatAnswer(research.model,{model:research.model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,research.model.instructions)+' Предыдущие сообщения нужны для понимания уточнений. Доказательства и номера сносок для нового ответа бери только из текущего набора sources; номера в прошлых ответах относятся к прошлым наборам. Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.'},...prior,{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,sources:sources.map(s=>({number:s.number,project:s.workspaceName,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||!current.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=current.workspaces.find(w=>w.id===source.workspaceId),before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return callModel(person,research.model,payload,research.modelWorkspaceId)});
       const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||!latest.workspaces.some(w=>w.id===research.modelWorkspaceId)||sources.some(source=>{const access=latest.workspaces.find(w=>w.id===source.workspaceId);const before=person.workspaces.find(w=>w.id===source.workspaceId);return !access||(before?.role==='full'&&access.role!=='full')}))fail(409,'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');return await finish({answer,sources,coverage,model:(result.mnemaModel||research.model).name,usage:result.usage});
@@ -613,7 +613,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      mutate(s=>{if(changes.models)for(const old of s.models)if(!changes.models.some(m=>m.id===old.id))modelKeys.remove(currentWs(),old.id);Object.assign(s,changes);if(!s.models.some(m=>m.id===s.modelId&&m.enabled))s.modelId=s.models.find(m=>m.enabled)?.id||'';return s});return json(res,200,view(person));
     }
     if(path==='/api/invitations'&&req.method==='POST'){
-     const b=await body(req),fresh=await session(req);if(!fresh)fail(401,'Войдите в Мнемонику.');const result=await inviteToProject(fresh,b);
+     const b=await body(req),fresh=await session(req);if(!fresh)fail(401,'Войдите в Мнемодак.');const result=await inviteToProject(fresh,b);
      const latest=await session(req),access=latest?.workspaces.find(w=>w.id===currentWs());if(!latest?.manageUsers&&!access?.admin)fail(403,'Доступ к проекту изменился.');
      return json(res,201,{...view({...latest,workspaceId:currentWs(),role:access.role,admin:access.admin}),...result});
     }
@@ -830,7 +830,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(path==='/api/chat'&&req.method==='POST'){
      limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');const {state}=getState();const model=state.models.find(m=>m.id===(b.modelId||state.modelId)&&m.enabled);if(!model)fail(400,'Выберите включённую модель.');const key=modelKey(model);if(!key||!model.model)fail(503,'Модель ещё не подключена. Владелец должен указать её идентификатор и API-ключ.');
-     const corpus=view(person).state;const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,ratedReply(person,question,'project',{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемонике ещё нет.',sources:[],model:model.name},model.model));
+     const corpus=view(person).state;const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,ratedReply(person,question,'project',{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемодаке ещё нет.',sources:[],model:model.name},model.model));
      const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||person.role==='full'&&current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return callModel(person,model,payload)});const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'project',{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,coverage,usage:result.usage},(result.mnemaModel||model).model));
     }
     fail(404,'Метод не найден.');
