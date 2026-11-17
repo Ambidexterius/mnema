@@ -53,17 +53,21 @@ try{
     const compact=width<960;
     const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
-    // Sections sit under the title; the overview has no back arrow and the top bar has no section tabs.
+    // Back navigation sits above the project title; sections stay below it.
     assert.equal(await page.getByRole('link',{name:'К проектам'}).count(),0);
     assert.equal(await page.locator('.topbar .project-tabs').count(),0);
     const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
+    const back=page.getByRole('link',{name:'Назад',exact:true}),backBox=await back.boundingBox();assert.equal(await back.getAttribute('href'),'/projects');assert.ok(backBox.y+backBox.height<=title.y);assert.equal(backBox.x,title.x);
     assert.ok(tabs.y>=title.y+title.height);
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
     // Every project section keeps the project name as its only H1; the tab names the section.
-    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса'])}
+    for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await page.getByRole('link',{name:'Назад',exact:true}).count(),1)}
     assert.match(await page.title(),/^(Материалы|Документы) · Тест интерфейса — Мнемодак$/);
+    await goto('/projects/main');await back.click();await page.waitForURL(fixture.base+'/projects');
+    await page.getByRole('button',{name:'Открыть проект «Тест интерфейса»',exact:true}).click();await page.locator('.project-overview').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');await back.focus();await back.press('Enter');await page.waitForURL(fixture.base+'/projects');
+    await goto('/projects/main');await page.locator('.project-tabs').getByRole('link',{name:/^Находки/}).click();await page.waitForURL(fixture.base+'/projects/main/findings');await back.click();await page.waitForURL(fixture.base+'/projects/main');await page.locator('.project-overview').waitFor();await screenshot('project-back-'+width);
    }
   });
   await run(theme+': overview materials column stays short in a large project',async()=>{

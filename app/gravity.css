@@ -212,6 +212,9 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .project-tabs a[aria-current=page]{color:var(--g-color-text-primary);background:var(--g-color-base-selection)}
 .project-tabs a:hover{background:var(--g-color-base-generic-hover)}
 .page-heading .project-tabs{margin-top:16px}
+.project-back{display:inline-flex;align-items:center;gap:8px;min-height:36px;margin-bottom:8px;color:var(--g-color-text-secondary);font-size:14px;line-height:20px}
+.project-back:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+@media(hover:hover){.project-back:hover{text-decoration:underline}}
 .tab-count{margin-left:6px;color:var(--g-color-text-hint);font-variant-numeric:tabular-nums}
 .project-tabs a[aria-current=page] .tab-count{color:inherit;opacity:.7}
 .topbar-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
