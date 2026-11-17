@@ -1,4 +1,4 @@
-# Подключение писем Мнемоники
+# Подключение писем Мнемодака
 
 Статус на 11.11.2026: код очереди, шаблон HTML/plain text и SMTP-транспорт подготовлены; настоящий SMTP ещё не подключён. Реальные письма не отправлялись.
 
@@ -15,7 +15,7 @@
 | SMTP_SECURE | true |
 | SMTP_USER | идентификатор SMTP API-ключа |
 | SMTP_PASSWORD | секретная часть ключа |
-| SMTP_FROM | Мнемоника <notify@example.org> — заменить домен |
+| SMTP_FROM | Мнемодак <notify@example.org> — заменить домен |
 | APP_URL | https://your-app.example.org |
 
 Для другого SMTP подходят те же переменные. На порту 587 указать `SMTP_SECURE=false`: транспорт обязательно делает STARTTLS с проверкой сертификата. Параметры Postbox: https://yandex.cloud/ru/docs/postbox/operations/send-email.
