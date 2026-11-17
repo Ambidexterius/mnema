@@ -9,7 +9,7 @@ const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx';
 const formats=new Set(accept.split(','));
 const types=['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}));
 const size=(bytes:number)=>bytes<1024**2?Math.max(1,Math.round(bytes/1024))+' КБ':new Intl.NumberFormat('ru',{maximumFractionDigits:1}).format(bytes/1024**2)+' МБ';
-type Draft=UploadItem&{id:string;checked:boolean;invalid:string};
+type Draft=UploadItem&{id:string;checked:boolean;invalid:string;countText?:string};
 const countFiles=(n:number)=>n+' '+({one:'файл',few:'файла',many:'файлов',other:'файла'}[new Intl.PluralRules('ru').select(n)]);
 const labels:Record<UploadRow['state'],string>={queued:'В очереди',uploading:'Загружается',saving:'Сохраняется',ready:'Загружен',error:'Ошибка загрузки',cancelling:'Отменяем',cancelled:'Отменён','cancel-error':'Ошибка отмены'};
 
@@ -51,6 +51,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
  }
  const available=rows.filter(row=>!unavailable(row));
  const selected=available.filter(row=>row.checked);
+ const invalidCount=(r:Draft)=>Boolean(r.countText)&&(!/^\d+$/.test(r.countText)||!Number.isSafeInteger(Number(r.countText))||Number(r.countText)<1);
  const chosenNames=new Set(selected.map(row=>fileNameKey(row.file.name)));
  const availableNames=new Set(available.map(row=>fileNameKey(row.file.name)));
  const allSelected=availableNames.size>0&&chosenNames.size===availableNames.size;
@@ -92,6 +93,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
       </div>
       {!error&&expanded===r.id&&<div id={'fields-'+r.id} className="upload-edit-fields"><label>Название<TextInput value={r.title} onUpdate={title=>edit(r.id,{title})} controlProps={{maxLength:140}}/></label>
        <div><span>Тип источника</span><Select width="max" aria-label="Тип источника" value={[r.type]} options={types} onUpdate={v=>edit(r.id,{type:v[0]})}/></div>
+       {/\.(mp4|mov|webm|mp3|wav|m4a)$/i.test(r.file.name)&&<label>Число участников<TextInput placeholder="Определить автоматически" controlProps={{inputMode:'numeric'}} value={r.countText||''} onUpdate={countText=>edit(r.id,{countText})} validationState={invalidCount(r)?'invalid':undefined} errorMessage={invalidCount(r)?'Введите целое число больше нуля.':undefined}/></label>}
        <label>Тема<TextInput value={r.project} onUpdate={project=>edit(r.id,{project})} controlProps={{maxLength:80}}/></label></div>}
      </li>
     })}</ul>
@@ -99,7 +101,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
    <div className="upload-summary-setting"><div><strong>Создать сводки</strong><small>{autoSummary?'После обработки текст получит модель '+model+'.':'Сводку можно создать позже в материале.'}</small></div>
     <Switch checked={autoSummary} onUpdate={setSummary} controlProps={{'aria-label':'Создать сводки после обработки'}}/></div>
   </div></Dialog.Body>
-  <Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={close} textButtonApply={selected.length?'Загрузить '+countFiles(selected.length):'Загрузить'} propsButtonApply={{disabled:!selected.length}} onClickButtonApply={()=>{start(selected.map(({file,title,type,project})=>({file,title:title.trim()||file.name,type,project,autoSummary})));close()}}/>
+  <Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={close} textButtonApply={selected.length?'Загрузить '+countFiles(selected.length):'Загрузить'} propsButtonApply={{disabled:!selected.length||selected.some(invalidCount)}} onClickButtonApply={()=>{start(selected.map(({file,title,type,project,countText})=>({...(countText?{participants:Number(countText)}:{}),file,title:title.trim()||file.name,type,project,autoSummary})));close()}}/>
  </Dialog>;
 }
 

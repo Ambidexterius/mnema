@@ -1,7 +1,7 @@
 import {uploadFile} from './api.ts';
 import {fileNameKey,uploadingFileMessage} from './file-name.ts';
 
-export type UploadItem={file:File;title:string;type:string;project:string;autoSummary:boolean};
+export type UploadItem={file:File;participants?:number;title:string;type:string;project:string;autoSummary:boolean};
 type State='queued'|'uploading'|'saving'|'ready'|'error'|'cancelling'|'cancel-error'|'cancelled';
 export type UploadRow={id:string;name:string;size:number;percent:number;state:State;permanentDuplicate?:boolean;error?:string;studyId?:string};
 type Source={item:UploadItem;workspace:string;key:string;discard?:()=>Promise<any>};

@@ -35,7 +35,7 @@ def _cosine(a, b) -> float:
 
 def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
                    threshold: float = 0.7, link: float = 0.55, minimum: float = 10.0,
-                   on_progress=None):
+                   on_progress=None, max_speakers=0):
     """Returns [(start, end, speaker_index)] in recording time and total speakers."""
     import numpy as np
     import sherpa_onnx as so
@@ -118,7 +118,24 @@ def diarize_chunks(chunks: list[Path], models: str, threads: int = 1,
             merge[i] = i
         else:
             merge[i] = max(keep, key=lambda k: _cosine(voices[i], voices[k]) if voices[i].shape == voices[k].shape else -1)
-    return [(s, e, merge[k]) for s, e, k in turns], len(keep)
+    merge = limit_voice_groups(voices, spoken, keep, merge, max_speakers)
+    return [(s, e, merge[k]) for s, e, k in turns], len(set(merge.values()))
+
+
+def limit_voice_groups(voices, spoken, keep, merge, max_speakers):
+    if not max_speakers or len(keep) <= max_speakers:
+        return merge
+    import numpy as np
+    import sherpa_onnx as so
+    # Apply the limit across the whole recording, after matching chunks.
+    reliable = [i for i in keep if len(voices[i]) > 1 and np.linalg.norm(voices[i]) > 0]
+    if len(reliable) > max_speakers and max_speakers > 1:
+        cluster = so.FastClustering(so.FastClusteringConfig(num_clusters=max_speakers))
+        groups = dict(zip(reliable, cluster(np.asarray([voices[i] for i in reliable], dtype=np.float32))))
+    else:
+        groups = {i: (index if max_speakers > 1 else 0) for index, i in enumerate(reliable)}
+    fallback = groups[max(reliable, key=lambda i: spoken[i])] if reliable else 0
+    return {i: groups.get(k, fallback) for i, k in merge.items()}
 
 
 def label_segments(segments: list[dict], turns: list[tuple[float, float, int]]) -> tuple[list[dict], int]:
@@ -155,6 +172,7 @@ def main():
     parser.add_argument('--models', required=True)
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--duration', type=float, default=0)
+    parser.add_argument('--max-speakers', type=int, default=0)
     args = parser.parse_args()
     os.umask(0o077)
     started = time.monotonic()
@@ -164,7 +182,7 @@ def main():
                           'processedSeconds': round(min(done, args.duration), 2),
                           'totalSeconds': args.duration, 'chunk': index, 'chunks': total}), flush=True)
     turns, _ = diarize_chunks(sorted(Path(args.audio).glob('audio-*.flac')), args.models, max(1, args.threads),
-                              float(os.environ.get('ASR_DIARIZATION_THRESHOLD', '0.7')), on_progress=progress)
+                              float(os.environ.get('ASR_DIARIZATION_THRESHOLD', '0.7')), on_progress=progress, max_speakers=args.max_speakers)
     segments, count = label_segments(segments, turns)
     result = {'speakers': {s['id']: s['speaker'] for s in segments if 'id' in s and s.get('speaker', '').startswith(LABEL)},
               'count': count, 'engine': 'pyannote-segmentation-3.0 + WeSpeaker ResNet34',

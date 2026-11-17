@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--duration', type=float, default=0)
     parser.add_argument('--checkpoint')
+    parser.add_argument('--max-speakers', type=int, default=0)
     args = parser.parse_args()
     os.umask(0o077)
     os.environ.setdefault('OMP_NUM_THREADS', str(max(1, args.threads)))
@@ -119,6 +120,7 @@ def main():
                 turns, _ = diarize_chunks(chunks, models,
                                           max(1, args.threads),
                                           float(os.environ.get('ASR_DIARIZATION_THRESHOLD', '0.7')),
+                                          max_speakers=args.max_speakers,
                                           on_progress=lambda done, index, total: progress('diarization', done, index, total, force=True))
                 segments, speakers = label_segments(segments, turns)
         except Exception as error:  # Speakers are optional: keep the transcript.

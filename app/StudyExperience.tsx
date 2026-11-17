@@ -36,7 +36,7 @@ function ParticipantCount({study,editable,receive}:{study:Study;editable:boolean
   {editable&&draft!==null&&<Dialog open onClose={()=>{if(!busy)setDraft(null)}} aria-label="Число участников" size="s">
    <Dialog.Header caption="Число участников"/><Dialog.Body>
     <TextInput autoFocus type="text" controlProps={{inputMode:'numeric','aria-label':'Сколько человек говорили в записи'}} label="Сколько человек говорили в записи" value={draft} onUpdate={setDraft} onKeyDown={e=>{if(e.key==='Enter')save()}} hasClear disabled={busy} validationState={valid?undefined:'invalid'} errorMessage={valid?undefined:'Введите целое число больше нуля.'}/>
-    {error&&<p role="alert">{error}</p>}</Dialog.Body>
+    <p className="muted">Учтём число при следующем определении спикеров.</p>{error&&<p role="alert">{error}</p>}</Dialog.Body>
    <Dialog.Footer textButtonCancel="Отмена" onClickButtonCancel={()=>setDraft(null)} propsButtonCancel={{disabled:busy}} textButtonApply="Сохранить" onClickButtonApply={save} propsButtonApply={{loading:busy,disabled:!valid}}/>
   </Dialog>}
  </div>

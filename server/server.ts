@@ -293,7 +293,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const setInfo=info=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item)item.speakerInfo={...item.speakerInfo,...info}})};
   setInfo({state:'running',progress:'Подготовка аудио'});
   try{
-   const result=await(options.speakerProcessor||detectSpeakers)({filePath,segments:study.segments||[],signal,onProgress:progress=>setInfo({progress})});signal.throwIfAborted();
+   const result=await(options.speakerProcessor||detectSpeakers)({filePath,segments:study.segments||[],participants:study.participants,signal,onProgress:progress=>setInfo({progress})});signal.throwIfAborted();
    mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;const before=new Map((item.segments||[]).map(x=>[x.id,x.speaker]));for(const seg of item.segments||[])if(result.speakers[seg.id])seg.speaker=result.speakers[seg.id];item.speakerInfo={state:'ready',count:result.count,engine:result.engine,finishedAt:Date.now()};item.speakerEdits=[...(item.speakerEdits||[]),{action:'detected',count:result.count,changed:(item.segments||[]).filter(x=>before.get(x.id)!==x.speaker).length,by:'Мнемодак',at:Date.now()}].slice(-500)});
   }catch(e){signal.throwIfAborted();console.error('Speakers failed',e.name);setInfo({state:'error',progress:null,error:'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.'})}
  };
@@ -301,7 +301,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   signal.throwIfAborted();
   const record=q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);if(!record)throw new Error('Исходник не найден. Добавьте файл заново.');
   if(kind==='speakers')return processSpeakers(study,join(dir,'uploads',record.id),signal);
-  const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
+  const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,participants:study.participants,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
   const result=await(kind==='document'?extractDocument(args):(options.recordingProcessor||transcribeRecording)(args));
   signal.throwIfAborted();
   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item)Object.assign(item,{status:'ready',step:4,segments:result.segments,summary:[],summaryInfo:undefined,speakerInfo:kind==='document'?undefined:result.diarization?{state:'ready',count:result.speakers,engine:'pyannote-segmentation-3.0 + WeSpeaker ResNet34',finishedAt:Date.now()}:result.diarizationError?{state:'error',error:'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.'}:undefined,error:null,progress:null,duration:result.duration||0,processing:{...result,segments:undefined,processingSeconds:(Date.now()-started)/1000}});if(item?.autoSummary){const request=item.autoSummary;item.summaryInfo={state:'queued',review:'draft',revision:transcriptRevision(item.segments),modelId:request.modelId,requestedBy:request.requestedBy,autoFindings:true,startedAt:Date.now(),progress:'В очереди'};delete item.autoSummary}});
@@ -395,7 +395,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    throw error;
   }
  }
- const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
+ const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:isDoc?0:meta.participants||0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
  const inviteToProject=async(person:Person,b:any)=>{
   const all=b.scope==='all'||b.scope===undefined&&person.manageUsers,workspace=all?'*':currentWs();
   if(all?!person.manageUsers:!sharing.canManage(currentWs(),person.id))fail(403,'Приглашать во все проекты может администратор или участник с полным доступом.');
@@ -691,9 +691,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/upload-sessions'&&req.method==='POST'){
      if(person.role!=='full')fail(403,'Добавление материалов недоступно.');limit('upload-init:'+person.id,60);const b=await body(req),name=text(b.name,200),size=b.size;
      if(!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Этот формат файла не поддерживается.');if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');
+     if(b.participants!==undefined&&(!Number.isSafeInteger(b.participants)||b.participants<1))fail(400,'Введите целое число участников больше нуля.');
      await expireUploads();
      const id=reserveUpload(name,text(b.mime,100)||'application/octet-stream',size,person.id,{
-      title:b.title,type:b.type,project:b.project,autoSummary:b.autoSummary===true,autoProcess:b.autoProcess!==false,
+      title:b.title,type:b.type,project:b.project,participants:b.participants,autoSummary:b.autoSummary===true,autoProcess:b.autoProcess!==false,
       deferProcessing:person.admin&&b.deferProcessing===true,
       importId:person.admin&&/^[a-f0-9-]{36}$/.test(b.importId||'')?b.importId:undefined,
       sha256:person.admin&&/^[a-f0-9]{64}$/.test(b.sha256||'')?b.sha256:undefined

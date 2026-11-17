@@ -9,7 +9,7 @@ import {createHash} from 'node:crypto';
 import type {Segment} from '../app/types.ts';
 
 type Run=(cmd:string,args:string[],options?:Record<string,unknown>)=>Promise<{stdout:string;stderr?:string}>;
-interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;signal?:AbortSignal;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
+interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;participants?:number;signal?:AbortSignal;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
 // execFile still bounds captured output; progress lines contain measurements only.
 // Reading them while the child runs avoids waiting hours for its final stdout.
 export const runProcessingCommand:Run=(cmd,args,options={})=>new Promise((resolve,reject)=>{
@@ -79,7 +79,8 @@ export async function extractDocument({filePath,fileName='',fileId,signal,onProg
  signal?.throwIfAborted();if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
  return {segments,pages,ocrPages,engine:/\.xlsx?$/i.test(fileName)?'Excel stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
-export async function transcribeRecording({filePath,fileId,checkpointDir,signal,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
+const speakerCountArgs=(n?:number)=>Number.isSafeInteger(n)&&n>0?['--max-speakers',String(n)]:[];
+export async function transcribeRecording({filePath,fileId,checkpointDir,participants,signal,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  const readiness=processingReadiness();if(!readiness.asr)throw new Error('Локальная модель речи ещё не установлена. Дождитесь обновления сервера.');
  const probe=await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration,format_name','-of','json',filePath],{timeout:30000,maxBuffer:1024**2});const info=JSON.parse(probe.stdout).format||{};
@@ -94,7 +95,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,signal,
   onProgress('Локальное распознавание речи');const script=join(dirname(fileURLToPath(import.meta.url)),'transcribe.py');
   let result:any;
   try{
-   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
+   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   }catch(error){
    signal?.throwIfAborted();
    // The Python checkpoint is written only after ALL speech chunks finish.
@@ -121,7 +122,7 @@ function prepareAudio(run:Run,filePath:string,audio:string,maximum:number){
  return run('ffmpeg',['-nostdin','-v','error','-protocol_whitelist','file,pipe','-threads','1','-i',filePath,'-map','0:a:0','-vn','-ac','1','-ar','16000','-c:a','flac','-threads','1','-t',String(maximum),'-f','segment','-segment_time','900','-reset_timestamps','1',audio],{timeout:15*60000,maxBuffer:1024**2});
 }
 /** Labels speakers of an existing transcript without running speech recognition again. */
-export async function detectSpeakers({filePath,segments,signal,onProgress=()=>{},run=runProcessingCommand}:{filePath:string;segments:Segment[];signal?:AbortSignal;onProgress?:(p:string)=>void;run?:Run}){
+export async function detectSpeakers({filePath,segments,participants,signal,onProgress=()=>{},run=runProcessingCommand}:{filePath:string;segments:Segment[];participants?:number;signal?:AbortSignal;onProgress?:(p:string)=>void;run?:Run}){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  if(!processingReadiness().diarization)throw new Error('Определение спикеров не установлено на этом сервере.');
  const {duration,maximum}=await probeRecording(run,filePath);
@@ -131,7 +132,7 @@ export async function detectSpeakers({filePath,segments,signal,onProgress=()=>{}
   const input=join(working,'segments.json'),output=join(working,'speakers.json');
   await writeFile(input,JSON.stringify(segments.map(s=>({id:s.id,time:s.time,end:s.end,speaker:s.speaker}))),{mode:0o600});
   onProgress('Определяем спикеров');const script=join(dirname(fileURLToPath(import.meta.url)),'diarize.py');
-  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration)],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
+  await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants)],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};
   signal?.throwIfAborted();if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
