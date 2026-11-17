@@ -30,7 +30,6 @@
 }
 .g-root_theme_dark :is(.sidebar,.app-shell,.settings-nav){background:var(--mn-color-shell)}
 .g-root_theme_dark .content-shell{box-shadow:inset 0 0 0 1px #1a1b1d}
-.g-root_theme_dark .digest-list a:not(:hover){background:var(--g-color-base-generic);box-shadow:inset 0 0 0 1px var(--g-color-line-generic)}
 .g-root_theme_dark :is(.shared-composer,.project-question-body){background:var(--g-color-base-generic);box-shadow:0 0 0 1px var(--g-color-line-generic-accent)}
 .g-root_theme_dark :is(.source-panel,.settings-sheet,.ideas-sheet){background:var(--g-color-base-modal)}
 .g-root_theme_dark .settings-body{--settings-group-bg:#1a1a1b}

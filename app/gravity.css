@@ -211,6 +211,13 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .project-tabs a{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--g-border-radius-l);min-height:36px;color:var(--g-color-text-secondary);font-size:13px;white-space:nowrap}
 .project-tabs a[aria-current=page]{color:var(--g-color-text-primary);background:var(--g-color-base-selection)}
 .project-tabs a:hover{background:var(--g-color-base-generic-hover)}
+.page-heading .project-tabs{margin-top:16px}
+.tab-count{margin-left:6px;color:var(--g-color-text-hint);font-variant-numeric:tabular-nums}
+.project-tabs a[aria-current=page] .tab-count{color:inherit;opacity:.7}
+.topbar-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
+.topbar-actions .project-menu-trigger{opacity:1}
+/* Desktop: the content is a card 8 px above the window edge; the fade under the question dock stops at the card. */
+@media(min-width:960px){.project-overview .project-question::before{bottom:calc(8px - max(24px,env(safe-area-inset-bottom)))}}
 .page-heading{margin-bottom:32px;align-items:center}
 .page-heading h1{font-size:28px;font-weight:600;line-height:36px;letter-spacing:-.025em;text-align:left;overflow-wrap:anywhere}
 .page-heading p{font-size:14px;line-height:24px;margin-top:8px}
@@ -556,13 +563,52 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .findings-digest>.section-heading{margin:0 0 8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .findings-digest h2{display:flex;align-items:center;gap:8px}
 .digest-all{display:inline-flex;align-items:center;gap:4px;min-height:44px;font-size:13px;color:var(--g-color-text-secondary);border-radius:var(--g-border-radius-xs)}
-.digest-list{display:grid;gap:8px;list-style:none;margin:0;padding:0}
-.digest-list a{display:block;min-height:44px;padding:16px 20px;background:var(--g-color-base-simple-hover-solid);border-radius:var(--g-border-radius-xl)}
-@media(hover:hover){.digest-list a:hover{background:var(--g-color-base-generic-hover)}}
-@media(max-width:639px){.digest-list a{padding:16px}}
+.digest-list{display:grid;list-style:none;margin:0;padding:0;border-top:1px solid var(--g-color-line-generic)}
+.digest-list>li{border-bottom:1px solid var(--g-color-line-generic)}
+.digest-list a{display:block;min-height:44px;padding:12px 0;color:inherit}
 .digest-title{display:block;font-size:16px;line-height:24px;font-weight:400;overflow-wrap:anywhere}
 .digest-list .finding-meta{margin-top:8px}
 .digest-empty{color:var(--g-color-text-secondary);line-height:22px;margin:8px 0 0}
+/* Project overview: «Кратко» and findings on the left, materials on the right; the passport above stays as it is. */
+.overview-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:40px;align-items:start;margin-top:32px}
+.overview-main{display:flex;flex-direction:column;gap:40px;min-width:0}
+.overview-grid .findings-digest{margin:0}
+@media(max-width:1023px){.overview-grid{grid-template-columns:minmax(0,1fr)}}
+.overview-grid .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-height:36px;margin:0 0 12px}
+.overview-grid .section-heading h2{display:flex;align-items:center;gap:8px}
+.section-count{color:var(--g-color-text-hint);font-weight:400}
+.section-note{font-size:12px;line-height:16px;color:var(--g-color-text-hint)}
+.segment-count{margin-left:6px;color:var(--g-color-text-hint)}
+.digest-filters{margin:0 0 8px}
+.summary-card{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--g-color-line-generic);border-radius:var(--g-border-radius-xl)}
+.summary-text{font-size:15px;line-height:24px}.summary-text :is(p,ul,ol){margin:0}.summary-text :is(ul,ol){display:grid;gap:8px;padding-left:20px}.summary-text>*+*{margin-top:8px}
+.summary-pending{display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;border-radius:var(--g-border-radius-m);background:var(--g-color-base-info-light);font-size:13px;line-height:18px}
+.summary-empty{margin:0;color:var(--g-color-text-secondary);font-size:14px;line-height:20px}
+.summary-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding-top:12px;border-top:1px solid var(--g-color-line-generic)}
+.summary-actions:first-child{padding-top:0;border-top:0}
+.summary-questions{display:flex;flex-wrap:wrap;gap:8px}
+.digest-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:6px;font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
+.digest-sources{color:var(--g-color-text-hint)}
+.strength{display:inline-flex;gap:2px}.strength i{width:5px;height:10px;border-radius:1.5px;background:var(--g-color-line-generic-accent)}
+.strength i[data-on]{background:var(--g-color-text-secondary)}.strength[data-tone=danger] i[data-on]{background:var(--g-color-text-danger)}.strength[data-tone=warning] i[data-on]{background:var(--g-color-text-warning)}
+.material-rail{list-style:none;margin:0 0 16px;padding:0 0 8px;border-bottom:1px solid var(--g-color-line-generic)}
+.material-rail>li{display:grid;grid-template-columns:20px minmax(0,1fr) 32px;align-items:start;gap:12px;padding:8px 0}
+.material-rail-icon{margin-top:2px;color:var(--g-color-text-secondary)}.material-rail .table-download{margin-top:-6px}
+.material-rail-text{display:grid;gap:2px;min-width:0}
+.material-rail-text>a{display:-webkit-box;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:var(--g-color-text-primary);font-size:14px;line-height:20px;overflow-wrap:anywhere}
+.material-rail-error{color:var(--g-color-text-danger)}
+.progress-dots i{font-style:normal;animation:progress-dot 1.4s infinite}.progress-dots i:nth-child(2){animation-delay:.2s}.progress-dots i:nth-child(3){animation-delay:.4s}
+@keyframes progress-dot{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.progress-dots i{animation:none;opacity:1}}
+.material-rail-empty{min-height:0;padding:24px 16px;gap:8px}.material-rail-empty h3{margin:4px 0 0;font-size:14px;line-height:20px;font-weight:600}.material-rail-empty p{margin:0;max-width:260px;color:var(--g-color-text-secondary);font-size:13px;line-height:18px}
+.material-rail-empty .project-folder{width:44px;height:44px}
+button.material-rail-empty{width:100%;font:inherit;color:inherit;background:none;cursor:pointer}
+@media(hover:hover){button.material-rail-empty:hover{border-color:var(--g-color-line-generic-hover,var(--g-color-text-hint));background:var(--g-color-base-simple-hover)}}
+button.material-rail-empty:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+.material-rail-empty-action{margin-top:4px;font-size:13px;line-height:18px;font-weight:600;color:var(--g-color-text-primary)}
+@media(hover:hover){.material-rail-text>a:hover{text-decoration:underline}}
+.material-rail-text>a:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+.material-rail-meta{color:var(--g-color-text-secondary);font-size:12px;line-height:16px}
 :where(.digest-all,.digest-list a,.similar-list a,.finding-study-link,.finding-cell a):focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:2px}
 .evidence-quote:focus-visible{outline:2px solid var(--g-color-text-primary);outline-offset:2px}
 @media(hover:hover){.digest-all:hover{color:var(--g-color-text-primary);text-decoration:underline}.digest-list a:hover .digest-title,.similar-list a:hover,.finding-study-link:hover{text-decoration:underline}.evidence-quote:hover{background:var(--g-color-base-generic-hover)}}
@@ -675,7 +721,7 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 
 /* Dark surfaces measured in Yandex AI Studio; semantic Gravity tokens propagate to overlays. */
 .g-root_theme_dark{--g-color-base-background:#2a2d2e;--g-color-base-float:#424147;--g-color-base-generic-ultralight:#313037;--g-color-base-simple-hover-solid:#424147;--g-color-text-info-heavy:var(--g-color-private-blue-700-solid);--g-color-text-positive-heavy:var(--g-color-private-green-650-solid);--mn-color-shell:#1d1d1d}
-.g-root_theme_dark .app-shell,.g-root_theme_dark .digest-list a:not(:hover){background:var(--mn-color-shell)}
+.g-root_theme_dark .app-shell{background:var(--mn-color-shell)}
 @media(hover:hover){.rail-collapsed .sidebar .nav-item:not([aria-current=page]):hover,.rail-collapsed .sidebar .account:hover{background:var(--g-color-base-simple-hover);color:var(--g-color-text-primary)}.rail-collapsed .sidebar .nav-item[aria-current=page]:hover{background:var(--g-color-base-generic-medium-hover)}}
 
 /* Brand color and white action content explicitly chosen by Gleb. */
@@ -970,8 +1016,9 @@ html[data-theme=dark] .project-actions-popup,html[data-theme=dark] .project-acti
 /* Copilot reference: centered question, compact composer, examples below. */
 /* 768 px column + the shared 40 px page gutters. */
 .research-chat-page{max-width:848px}
-/* The breadcrumb row shares the page gutter so both start on one left edge. */
-@media(min-width:960px){.content-shell>.topbar{padding-inline:40px}}
+/* Top bar as in Figma «Обзор проекта»: 24 px before the crumbs, 8 px after the 32 px action buttons. */
+@media(min-width:960px){.content-shell>.topbar{padding:0 8px 0 24px}}
+.topbar-actions .g-button{--_--height:32px;--_--border-radius:var(--g-border-radius-m);width:32px;min-width:32px;padding:0;justify-content:center}
 .research-chat.is-new{padding-bottom:4vh}
 .research-chat.is-new .chat-welcome{text-align:center;margin-bottom:32px}
 .research-chat h1{font-size:28px;line-height:36px;font-weight:550;letter-spacing:-.025em}

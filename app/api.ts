@@ -3,6 +3,8 @@ let activeWorkspace:string|null=null;
 export const setApiWorkspace=(id:string|null)=>{activeWorkspace=id;setRouteWorkspace(id)};
 export const projectFile=(id:string)=>'/api/files/'+encodeURIComponent(id)+(activeWorkspace?'?workspace='+encodeURIComponent(activeWorkspace):'');
 /** Same file, served as an attachment so the browser saves it instead of opening it. */
+/** Every file of the active project in one ZIP. */
+export const projectArchive=()=>'/api/files/archive'+(activeWorkspace?'?workspace='+encodeURIComponent(activeWorkspace):'');
 export const projectFileDownload=(id:string)=>projectFile(id)+(activeWorkspace?'&':'?')+'download=1';
 export class ApiError extends Error{status:number;code?:string;constructor(message:string,status:number,code?:string){super(message);this.status=status;this.code=code}}
 export async function api<T=any>(path:string,body?:unknown,method:string=body===undefined?'GET':'POST',useWorkspace=true):Promise<T>{

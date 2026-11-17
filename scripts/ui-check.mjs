@@ -51,15 +51,13 @@ try{
     await page.setViewportSize({width,height:844});
     await goto('/projects/main');
     const compact=width<960;
-    const tab=page.locator('.project-tabs').getByRole('link',{name:compact?'Документы':'Материалы',exact:true});
+    const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
-    if(compact){
-     const back=await page.getByRole('link',{name:'К проектам'}).boundingBox();
-     const title=await page.locator('.project-overview h1').boundingBox();
-     assert.equal(back.width,48);
-     assert.equal(back.height,48);
-     assert.equal(title.x-back.x-back.width,4);
-    }
+    // Sections sit under the title; the overview has no back arrow and the top bar has no section tabs.
+    assert.equal(await page.getByRole('link',{name:'К проектам'}).count(),0);
+    assert.equal(await page.locator('.topbar .project-tabs').count(),0);
+    const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
+    assert.ok(tabs.y>=title.y+title.height);
     await tab.click();
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
@@ -93,9 +91,18 @@ try{
   });
   await run(theme+': reports first in both material tables',async()=>{
    for(const path of ['/projects/main','/projects/main/research']){
-    await page.setViewportSize({width:1440,height:950});await goto(path);await page.locator('.study-table tbody tr').first().waitFor();
-    const links=page.locator('.study-table .table-study');assert.match(await links.first().getAttribute('href'),/studies\/report$/);assert.match(await links.nth(1).getAttribute('href'),/studies\/sample$/);
-    assert.equal(await page.locator('.study-table tbody tr').first().locator('td').nth(1).innerText(),'Отчёт');assert.equal(await page.locator('.study-table .table-study .g-label').count(),0);
+    await page.setViewportSize({width:1440,height:950});await goto(path);
+    if(path.endsWith('/research')){await page.locator('.study-table tbody tr').first().waitFor();
+     const links=page.locator('.study-table .table-study');assert.match(await links.first().getAttribute('href'),/studies\/report$/);assert.match(await links.nth(1).getAttribute('href'),/studies\/sample$/);
+     assert.equal(await page.locator('.study-table tbody tr').first().locator('td').nth(1).innerText(),'Отчёт');assert.equal(await page.locator('.study-table .table-study .g-label').count(),0);
+    }else{
+     // Overview: materials column next to «Кратко» and findings, report first, every ready file downloadable, one ZIP for all.
+     const rows=page.locator('.material-rail>li');await rows.first().waitFor();
+     assert.match(await rows.first().locator('.material-rail-text a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-rail-text a').getAttribute('href'),/studies\/sample$/);
+     assert.equal(await page.locator('.material-rail .table-download').count(),await rows.count());
+     assert.match(await page.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
+     const main=await page.locator('.overview-main').boundingBox(),rail=await page.locator('.overview-materials').boundingBox();assert.ok(rail.x>=main.x+main.width);
+    }
     for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
     await screenshot(path.endsWith('/research')?'reports-research':'reports-overview');
    }

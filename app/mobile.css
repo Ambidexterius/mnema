@@ -47,8 +47,8 @@
  .project-overview>.page-heading .page-title-row{gap:4px}
  .section-heading{margin:24px 0 12px;gap:8px}.section-heading h2{font-size:18px;line-height:28px}.findings-digest{margin-bottom:24px}
  .findings-digest>.section-heading{margin-bottom:0}.digest-all{min-height:48px}
- .digest-list{gap:8px}.digest-list>li{padding:0;border:0}
- .app-shell .findings-digest .digest-list>li>a{padding:12px 16px;border-radius:var(--g-border-radius-l)}.digest-title{font-size:16px;line-height:24px;font-weight:400}.digest-list .finding-meta{margin-top:8px;gap:8px;min-height:20px}
+ .digest-list>li{padding:0}
+ .app-shell .findings-digest .digest-list>li>a{padding:12px 0}.digest-title{font-size:16px;line-height:24px;font-weight:400}.digest-list .finding-meta{margin-top:8px;gap:8px;min-height:20px}
  .study-layer{padding:0}.study-sheet{width:100%;max-height:100dvh;border-radius:0}.study-sheet-bar{padding:env(safe-area-inset-top) 8px 0 12px;min-height:56px;gap:8px;flex:none}
  .study-sheet-bar>.g-button{min-width:48px;min-height:48px}.study-sheet-scroll{padding:20px 16px calc(24px + env(safe-area-inset-bottom));scroll-padding-block-start:16px}
  .study-title-row{display:grid;grid-template-columns:minmax(0,1fr) 48px;align-items:start;gap:12px;margin-bottom:16px}.study-title-row h1{font-size:20px;line-height:1.35}.study-sheet .g-button,.study-sheet .speaker-chip{min-width:48px;min-height:48px}.study-title-actions{width:48px;margin:0}.mobile-hide{display:none!important}
