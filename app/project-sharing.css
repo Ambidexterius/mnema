@@ -67,8 +67,8 @@
 @media(max-width:959px){.access-full{display:none}.access-short{display:inline}.project-access-status{margin-inline-end:4px}}
 @media(max-width:640px){.project-share-action{display:none}.topbar-actions .project-share-trigger.g-button{width:48px;padding:0}.topbar-actions .project-share-trigger.g-button::before,.topbar-actions .project-share-trigger.g-button::after{inset-inline:6px}.project-access-status{gap:4px}}
 @media(max-width:359px){
- .topbar:has(.project-access-status) .mobile-path:has(>span:only-child){display:none}
- .topbar .mobile-path:has(>span:only-child)+.topbar-actions{flex:1}
- .topbar .mobile-path:has(>span:only-child)+.topbar-actions .project-access-status{margin-inline-end:auto}
- .topbar .mobile-path:has(>a)+.topbar-actions .access-short{display:none}
+ .topbar:has(.project-access-status) .mobile-path-parent{display:none}
+ .topbar .mobile-path-parent+.topbar-actions{flex:1}
+ .topbar .mobile-path-parent+.topbar-actions .project-access-status{margin-inline-end:auto}
+ .topbar .mobile-path:not(.mobile-path-parent):has(>a)+.topbar-actions .access-short{display:none}
 }

@@ -36,7 +36,6 @@
   padding-left:max(var(--mobile-gutter),env(safe-area-inset-left));
   padding-right:max(var(--mobile-gutter),env(safe-area-inset-right));
  }
- .material-filters>.g-segmented-radio-group{width:100%}
  :is(.material-filters,.mobile-document-mode) .g-segmented-radio-group__option{
   display:grid;place-items:center;min-width:44px;min-height:36px;height:auto;
   font:var(--g-text-body-2-font);

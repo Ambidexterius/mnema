@@ -60,7 +60,87 @@ try{
   });
   for(const width of [320,390,768,1024,1440])await run(theme+': projects responsive '+width,async()=>{
    await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-   if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-folder-stage').getBoundingClientRect(),grid=document.querySelector('.projects-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
+   if(width<640){const geometry=await page.locator('.projects-heading').evaluate(e=>{const h=e.querySelector('h1').getBoundingClientRect(),b=e.querySelector('button').getBoundingClientRect(),card=document.querySelector('.project-catalog-card').getBoundingClientRect(),grid=document.querySelector('.project-catalog-grid').getBoundingClientRect();return{headingY:h.y+h.height/2,buttonY:b.y+b.height/2,card:card.width,grid:grid.width}});assert.ok(Math.abs(geometry.headingY-geometry.buttonY)<2);assert.ok(Math.abs(geometry.card-geometry.grid)<1);if(width===390)await screenshot('projects-mobile')}
+  });
+  await run(theme+': project catalog sorting and view switch',async()=>{
+   await goto('/projects');
+   const views=page.getByRole('radiogroup',{name:'Вид проектов'});
+   const grid=views.getByRole('radio',{name:'Сетка'});
+   const table=views.getByRole('radio',{name:'Таблица'});
+   const sort=page.getByRole('combobox',{name:'Сортировка'});
+   assert.equal(await page.getByRole('searchbox',{name:'Поиск проектов'}).count(),0);
+   assert.equal(await sort.innerText(),'Сначала новые');
+   await grid.focus();
+   await page.keyboard.press('ArrowRight');
+   assert.ok(await table.evaluate(element=>element===document.activeElement));
+   assert.ok(await table.isChecked());
+   await page.getByRole('table',{name:'Проекты'}).waitFor();
+   assert.equal(await page.locator('.project-catalog-table-open').first().innerText(),'Длинное название для проверки переноса текста на телефоне');
+   await sort.click();
+   await page.getByRole('option',{name:'Сначала старые',exact:true}).click();
+   assert.equal(await page.locator('.project-catalog-table-open').first().innerText(),'Тест интерфейса');
+   await grid.check();
+   assert.equal(await page.locator('.project-catalog-title').first().innerText(),'Тест интерфейса');
+   await table.check();
+   await page.setViewportSize({width:320,height:844});
+   assert.ok(await page.locator('.project-catalog-table .g-table').evaluate(element=>element.scrollWidth<=element.clientWidth+1));
+   await page.getByRole('button',{name:'Тест интерфейса',exact:true}).click();
+   await page.getByRole('link',{name:'Назад к проектам',exact:true}).click();
+   await table.waitFor();
+   assert.ok(await table.isChecked());
+   assert.equal(await sort.innerText(),'Сначала старые');
+   await sort.click();
+   await page.getByRole('option',{name:'Сначала новые',exact:true}).click();
+   await grid.click();
+  });
+  await run(theme+': shared quiet styling across all five tables',async()=>{
+   await page.setViewportSize({width:1440,height:950});
+   for(const [path,name,shot] of [
+    ['/projects','Проекты','catalog'],
+    ['/projects/main/research','Материалы','materials'],
+    ['/projects/main/findings','Находки проекта','project-findings'],
+    ['/all-findings','Все находки','all-findings'],
+    ['/users','Пользователи','users'],
+   ]){
+    await goto(path);
+    if(shot==='catalog')await page.getByRole('radio',{name:'Таблица'}).click();
+    const table=page.getByRole('table',{name,exact:true});
+    await table.waitFor();
+    if(shot==='users'){
+     await table.getByRole('columnheader',{name:'Доступ',exact:true}).waitFor();
+     await table.getByRole('columnheader',{name:'Админ',exact:true}).waitFor();
+    }
+    const metrics=await table.evaluate(element=>{
+     const wrapper=element.closest('.table-scroll');
+     const header=element.querySelector('thead th');
+     const style=getComputedStyle(header),shell=getComputedStyle(wrapper);
+     return {border:shell.borderTopWidth,radius:shell.borderRadius,weight:style.fontWeight,
+      size:style.fontSize,lineHeight:style.lineHeight,edge:style.paddingInlineStart,
+      background:getComputedStyle(element.tHead).backgroundColor};
+    });
+    assert.deepEqual(metrics,{border:'0px',radius:'0px',weight:'400',size:'12px',lineHeight:'16px',edge:'0px',background:'rgba(0, 0, 0, 0)'},shot);
+    const metric=table.locator('tbody .table-number').first();
+    if(await metric.count())assert.deepEqual(await metric.evaluate(cell=>[getComputedStyle(cell).textAlign,getComputedStyle(cell).fontVariantNumeric]),['end','tabular-nums']);
+    if(shot==='project-findings'||shot==='all-findings'){
+     const labels=await table.locator('.g-label').filter({hasText:/^Проверено$/}).evaluateAll(items=>items.map(item=>item.classList.contains('g-label_theme_success')));
+     assert.ok(labels.length&&labels.every(Boolean));
+    }
+    const linkSelector={
+     catalog:'.project-catalog-table-open',materials:'.table-study strong',
+     'project-findings':'.finding-cell a','all-findings':'.catalog-link',
+    }[shot];
+    if(linkSelector){
+     const link=table.locator(linkSelector).first();
+     await link.hover();
+     assert.deepEqual(await link.evaluate(element=>[
+      getComputedStyle(element).color,getComputedStyle(element).textDecorationLine,
+     ]),[theme==='light'?'rgb(185, 23, 58)':'rgb(255, 128, 156)','none']);
+    }
+    await page.mouse.move(1,1);
+    await screenshot('uniform-table-'+shot);
+   }
+   await goto('/projects');
+   await page.getByRole('radio',{name:'Сетка'}).click();
   });
   await run(theme+': mobile project navigation and desktop table',async()=>{
    for(const width of [320,390,768,1024,1440]){
@@ -87,6 +167,13 @@ try{
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await tab.getAttribute('aria-selected'),'true');
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
+    const toolbar=await page.locator('.material-filters').evaluate(element=>{
+     const strip=element.querySelector('.material-filter-strip').getBoundingClientRect();
+     const button=element.querySelector(':scope > .g-button').getBoundingClientRect();
+     const tabs=document.querySelector('.page-heading .project-tabs').getBoundingClientRect();
+     return {stripTop:strip.top,stripRight:strip.right,buttonTop:button.top,buttonLeft:button.left,tabsBottom:tabs.bottom};
+    });
+    assert.ok(toolbar.stripTop>=toolbar.tabsBottom&&Math.abs(toolbar.buttonTop-toolbar.stripTop)<2&&toolbar.buttonLeft>=toolbar.stripRight);
     // Every project section keeps the project name as its only H1; the tab names the section.
     for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await back.getAttribute('href'),'/projects')}
     assert.match(await page.title(),/^(Материалы|Документы) · Тест интерфейса — Мнемодак$/);
@@ -201,7 +288,19 @@ try{
    await screenshot('mnemoduck-chat');
   });
   await run(theme+': sectioned chat answer: lead, captions, item leads and cards',async()=>{
-   await page.setViewportSize({width:1440,height:950});await goto('/chat');const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});await composer.fill('Какие проблемы у хозяев с ответом гостям?');await composer.press('Enter');
+   await page.setViewportSize({width:1440,height:950});await goto('/chat');
+   const composer=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});
+   const topbar=page.locator('.content-shell > .topbar'),chatTitle=topbar.locator('.hub-topbar-title');
+   const height=(await topbar.boundingBox()).height;
+   const question='Какие проблемы у хозяев с ответом гостям?';
+   assert.equal(await chatTitle.count(),0);
+   await composer.fill(question);
+   assert.equal(await chatTitle.count(),0);
+   await composer.press('Enter');
+   await chatTitle.waitFor();
+   assert.equal(await chatTitle.innerText(),question);
+   assert.equal((await topbar.boundingBox()).height,height);
+   await page.waitForFunction(title=>document.title===title+' — Мнемодак',question);
    const answer=page.locator('.answer_sectioned').last();await answer.locator('.answer-card_open').waitFor();
    assert.match(await answer.locator('.answer-lead').innerText(),/^Главное\s+Хозяева не успевают/);assert.equal(await answer.locator(':scope > ul li strong').first().innerText(),'Уведомления теряются.');assert.equal(await answer.locator('h3').first().evaluate(e=>getComputedStyle(e).fontSize),'13px');
    assert.equal(await answer.locator('.answer-card_ok h3').innerText(),'Выводы');assert.equal(await answer.locator('.answer-card').count(),2);const metric=answer.locator('.answer-metrics li');assert.equal(await metric.count(),2);assert.equal(await metric.first().locator('.answer-metric-label').innerText(),'Отмечают задержку');assert.equal(await metric.first().locator('.answer-metric-value').innerText(),'7 из 12 хозяев');assert.equal(await metric.nth(1).locator('.answer-metric-label').innerText(),'Опоздание');assert.equal(await answer.innerText().then(t=>t.includes('**')),false);
@@ -276,7 +375,21 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    }finally{fixture.app.db.prepare('DELETE FROM mnema_idea_comments WHERE idea_id IN (?,?)').run(fresh,old);fixture.app.db.prepare('DELETE FROM mnema_ideas WHERE id IN (?,?)').run(fresh,old)}
   });
   await run(theme+': findings and material context',async()=>{
-   await goto('/all-findings');await page.locator('.finding-open').first().click();await page.locator('.finding-page').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');assert.equal(await page.locator('.topbar .lucide-lightbulb').count(),0);
+   for(const width of [320,1440]){
+    await page.setViewportSize({width,height:900});
+    for(const catalog of ['/projects','/all-findings']){
+     await goto(catalog);
+     assert.equal(await page.locator('.topbar nav[aria-label="Путь"]').count(),0);
+     if(width===320)assert.ok(await page.getByRole('button',{name:'Открыть меню',exact:true}).isVisible());
+     else assert.equal(await page.locator('.content-shell > .topbar').getAttribute('aria-hidden'),'true');
+    }
+   }
+   const rootToolbarHeight=(await page.locator('.content-shell > .topbar').boundingBox()).height;
+   await page.locator('.finding-open').first().click();await page.locator('.finding-page').waitFor();
+   assert.equal((await page.locator('.content-shell > .topbar').boundingBox()).height,rootToolbarHeight);await page.waitForFunction(()=>document.activeElement?.id==='main');const findingsCrumbs=page.locator('.topbar nav[aria-label="Путь"]');
+   assert.equal(await findingsCrumbs.locator('.lucide-lightbulb').getAttribute('aria-hidden'),'true');
+   assert.equal(await findingsCrumbs.getByRole('link',{name:'Находки',exact:true}).getAttribute('href'),'/all-findings');
+   assert.equal(await findingsCrumbs.locator('[aria-current="page"]').innerText(),'Нет ответа до оплаты');
    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:950});await page.waitForTimeout(80);await checkBackPosition(page.getByRole('link',{name:'Назад к находкам',exact:true}),page.locator('.finding-page h1'));assert.equal(await page.locator('.finding-page .page-back').count(),1);await screenshot('finding-back-inline-'+width)}await page.setViewportSize({width:1440,height:950});
    assert.equal(await page.locator('.finding-side>.finding-project-link').count(),0);assert.equal(await page.locator('.finding-block:has(#finding-study-title) .finding-project-link').count(),1);
    await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.locator('.catalog-table').waitFor();assert.equal(new URL(page.url()).pathname,'/all-findings');await screenshot('findings');

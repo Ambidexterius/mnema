@@ -35,5 +35,9 @@ export function useResearchChats({demo,userId,route,go,notify,state,accessKey}:{
   }catch(e){if(requestEpoch===epoch.current){setError(e.message);if(e.status===409){setMessages([]);loaded.current=null}await refresh().catch(()=>{})}return false}finally{pendingChat.current=null;busy.current=false;setTyping(false)}
  }
  async function remove(id:string){try{if(!demo)await api('/api/chats/'+encodeURIComponent(id),undefined,'DELETE',false);else localStorage.setItem(demoKey,JSON.stringify(JSON.parse(localStorage.getItem(demoKey)||'[]').filter(c=>c.id!==id)));await refresh();if(pinned===id)pin(null);if(routeId===id)go('chat');notify('Чат удалён.')}catch(e){notify(e.message)}}
- return {chats,messages,setMessages,typing,error,loading,ask,remove,activeId:routeId,pin,latestReplyId:loaded.current===activeId?latestReplyId:null,newChat:()=>go('chat'),refresh};
+ const savedTitle=routeId?chats.find(chat=>chat.id===routeId)?.title:undefined;
+ const activeTitle=savedTitle==='Новый чат'
+  ? (loaded.current===routeId?messages.find(message=>message.role==='user')?.text.slice(0,80):undefined)
+  : savedTitle;
+ return {chats,messages,setMessages,typing,error,loading,ask,remove,activeId:routeId,activeTitle,pin,latestReplyId:loaded.current===activeId?latestReplyId:null,newChat:()=>go('chat'),refresh};
 }
