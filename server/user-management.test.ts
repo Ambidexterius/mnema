@@ -8,7 +8,7 @@ import {createMnemaServer} from './server.ts';
 
 async function fixture(port:number,corporateRegistration=false){
  const dir=await mkdtemp(join(tmpdir(),'mnema-management-')),setup=randomBytes(32).toString('hex'),base='http://127.0.0.1:'+port;
- const options={dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,corporateRegistration,sendInvitationMail:async()=>{},sendRegistrationMail:async()=>{},registrationCode:()=> '685791' };
+ const options={production:false,dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,corporateRegistration,sendInvitationMail:async()=>{},sendRegistrationMail:async()=>{},registrationCode:()=> '685791' };
  let app=await createMnemaServer(options);const listen=()=>new Promise<void>(r=>app.server.listen(port,'127.0.0.1',r));await listen();
  const stop=async()=>{app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close()};
  const req=async(path:string,cookie='',body?:any,workspace='',method=body?'POST':'GET')=>{const res=await fetch(base+path,{method,headers:{Cookie:cookie,Connection:'close','Content-Type':'application/json','X-Mnema-Request':'1',...(workspace?{'X-Mnema-Workspace':workspace}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:res.status,data:await res.json(),cookie:res.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')}};
