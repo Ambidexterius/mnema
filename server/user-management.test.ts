@@ -11,7 +11,7 @@ async function fixture(port:number,corporateRegistration=false){
  const options={production:false,dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,corporateRegistration,sendInvitationMail:async()=>{},sendRegistrationMail:async()=>{},registrationCode:()=> '685791' };
  let app=await createMnemaServer(options);const listen=()=>new Promise<void>(r=>app.server.listen(port,'127.0.0.1',r));await listen();
  const stop=async()=>{app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close()};
- const req=async(path:string,cookie='',body?:any,workspace='',method=body?'POST':'GET')=>{const res=await fetch(base+path,{method,headers:{Cookie:cookie,Connection:'close','Content-Type':'application/json','X-Mnema-Request':'1',...(workspace?{'X-Mnema-Workspace':workspace}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:res.status,data:await res.json(),cookie:res.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')}};
+ const req=async(path:string,cookie='',body?:any,workspace='',method=body?'POST':'GET')=>{const res=await fetch(base+path,{method,headers:{...(cookie?{Cookie:cookie}:{}),Origin:base,Connection:'close','Content-Type':'application/json','X-Mnema-Request':'1',...(workspace?{'X-Mnema-Workspace':workspace}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:res.status,data:await res.json(),cookie:res.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')}};
  const owner=await req('/api/register','',{email:'admin@example.test',password:'fixture-password-only',setupToken:setup});assert.equal(owner.status,200);
  const add=async(email:string,role='view',scope?:string,workspace='main')=>{const invited=await req('/api/invitations',owner.cookie,{name:email.split('@')[0],email,role,...(scope?{scope}:{})},workspace);assert.equal(invited.status,201,JSON.stringify(invited.data));const user=await req('/api/register','',{email,password:'fixture-password-only',inviteToken:new URL(invited.data.inviteURL).searchParams.get('invite')});assert.equal(user.status,200);return user};
  return {get app(){return app},req,owner:owner.cookie,add,restart:async()=>{await stop();app=await createMnemaServer(options);await listen()},close:async()=>{await stop();await rm(dir,{recursive:true,force:true})}};
@@ -86,7 +86,8 @@ test('only admins remove other accounts and unused invitations without removing 
   const removed=await req(target,owner,undefined,'','DELETE');
   assert.equal(removed.status,200);assert.equal(removed.data.users.some(u=>u.id===id||u.email==='removed@sutochno.ru'),false);
   assert.equal((await req('/api/state',reader.cookie)).status,401);
-  assert.equal((await req('/api/auth/sign-in/email','',{email:'removed@sutochno.ru',password:'fixture-password-only'})).status,401);
+  const signIn=await req('/api/auth/sign-in/email','',{email:'removed@sutochno.ru',password:'fixture-password-only'});
+  assert.equal(signIn.status,401,JSON.stringify(signIn.data));
   assert.equal(f.app.db.prepare('SELECT count(*) AS count FROM session WHERE userId=?').get(id).count,0);
   assert.equal(f.app.db.prepare('SELECT count(*) AS count FROM mnema_removed_emails').get().count,1);
   assert.equal(f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data,project);
