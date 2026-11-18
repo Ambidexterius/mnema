@@ -38,7 +38,7 @@ import AuthPage from './AuthPage.tsx';
 import RegistrationPage from './RegistrationPage.tsx';
 import {api,setApiWorkspace,projectFile,projectFileDownload,projectArchive} from './api.ts';
 import React, {createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {configure, Accordion, Modal, Avatar, Button, Card, Checkbox, Dialog, DropdownMenu, Popup, Label, Hotkey, Loader, Progress, SegmentedRadioGroup, Select, Switch, Table, TextArea, TextInput, ThemeProvider, Tooltip} from '@gravity-ui/uikit';
+import {configure, Accordion, Modal, Avatar, Button, Card, Checkbox, Dialog, DropdownMenu, Popup, Label, Hotkey, Loader, Progress, SegmentedRadioGroup, Select, Switch, Tab, TabList, Table, TextArea, TextInput, ThemeProvider, Tooltip} from '@gravity-ui/uikit';
 import {Megaphone, Link as LinkIcon, ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, Box, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, Files, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, Newspaper, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RotateCcw, Search, ShieldCheck, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
 import type {LucideIcon} from 'lucide-react';
 import type {Finding, Study, Segment, ChatSource, WorkspaceUser} from './types.ts';
@@ -89,8 +89,22 @@ function PageHeading({overline,title,children,action,back,tabs}:{overline?:strin
  return <div className="page-heading"><div>{overline?<div className="overline">{overline}</div>:null}<div className="page-title-row">{navigation?<Tooltip content={navigation.label}><a className="page-back" href={navigation.href} aria-label={navigation.label}><ArrowLeft size={20} aria-hidden="true"/></a></Tooltip>:null}<h1>{title}</h1></div>{tabs?<ProjectTabs/>:null}{children?<p>{children}</p>:null}</div>{action}</div>;
 }
 /** Sections of a project, under the page title: overview, findings, materials with counts. */
-function ProjectTabs(){const {state,route}=useApp();const mobile=useCompactLayout();const path=route.split('?')[0],current=path.startsWith('study/')?'library':path.startsWith('finding/')?'findings':path;const findings=state.findings.filter(f=>f.status!=='rejected').length;
- return <nav className="project-tabs" aria-label="Разделы проекта">{([['home','Обзор',null],['findings','Находки',findings],['library',mobile?'Документы':'Материалы',state.studies.length]] as [string,string,number|null][]).map(([id,label,n])=><a key={id} href={appHref(id)} aria-current={current===id?'page':undefined}>{label}{n?<span className="tab-count">{n}</span>:null}</a>)}</nav>}
+function ProjectTabs(){
+ const {state,route}=useApp();
+ const mobile=useCompactLayout();
+ const path=route.split('?')[0];
+ const current=path.startsWith('study/')?'library':path.startsWith('finding/')?'findings':path;
+ const findings=state.findings.filter(f=>f.status!=='rejected').length;
+ const tabs=[
+  {id:'home',label:'Обзор'},
+  {id:'findings',label:'Находки',count:findings},
+  {id:'library',label:mobile?'Документы':'Материалы',count:state.studies.length},
+ ];
+ return <TabList className="project-tabs" aria-label="Разделы проекта" value={current} size={mobile?'l':'m'} contentOverflow="scroll">
+  {tabs.map(({id,label,count})=><Tab key={id} value={id} href={appHref(id)} counter={count||undefined}
+   onKeyDown={e=>{if(e.key===' '){e.preventDefault();e.currentTarget.click()}}}>{label}</Tab>)}
+ </TabList>;
+}
 function ProjectBreadcrumbs({project,studyTitle}:{project?:string;studyTitle?:string}) {
  const compact=useCompactLayout();if(compact){if(!studyTitle)return <nav className="mobile-path" aria-label="Путь"><span>Проекты</span></nav>;const back=history.state?.returnTo||appHref('library'),label=readRoute(new URL(back,location.href)).route.startsWith('finding/')?'Находка':'Документы';return <nav className="mobile-path" aria-label="Путь"><a href={back} aria-label={label==='Находка'?'Назад к находке':'Назад к документам'}><ArrowLeft size={24} aria-hidden="true"/><span>{label}</span></a></nav>;}
  return <nav className="breadcrumbs" aria-label="Путь">

@@ -67,7 +67,7 @@ try{
     await page.setViewportSize({width,height:844});
     await goto('/projects/main');
     const compact=width<960;
-    const tab=page.locator('.page-heading .project-tabs').getByRole('link',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
+    const tab=page.locator('.page-heading .project-tabs').getByRole('tab',{name:new RegExp('^'+(compact?'Документы':'Материалы'))});
     await tab.waitFor();
     // Back is an icon beside H1; no separate navigation row above the heading.
     assert.equal(await page.getByRole('link',{name:'К проектам',exact:true}).count(),0);
@@ -75,8 +75,17 @@ try{
     const title=await page.locator('.project-overview h1').boundingBox(),tabs=await page.locator('.page-heading .project-tabs').boundingBox();
     const back=page.getByRole('link',{name:'Назад к проектам',exact:true});assert.equal(await back.getAttribute('href'),'/projects');assert.equal(await page.locator('.page-heading .page-title-row>.page-back').count(),1);assert.equal(await page.locator('.project-back').count(),0);await checkBackPosition(back,page.locator('.project-overview h1'));
     assert.ok(tabs.y>=title.y+title.height);
-    await tab.click();
+    const tabList=page.getByRole('tablist',{name:'Разделы проекта'});
+    const overviewTab=tabList.getByRole('tab',{name:'Обзор',selected:true});
+    assert.equal(await overviewTab.count(),1);
+    assert.match(await tab.innerText(),/2$/);
+    assert.ok(await tabList.evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+    await overviewTab.focus();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await tab.evaluate(el=>el===document.activeElement),true);
+    await page.keyboard.press('Space');
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
+    assert.equal(await tab.getAttribute('aria-selected'),'true');
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
     // Every project section keeps the project name as its only H1; the tab names the section.
     for(const path of ['/projects/main','/projects/main/findings','/projects/main/research']){await goto(path);await page.locator('.page-heading .project-tabs').waitFor();assert.deepEqual(await page.locator('h1').allInnerTexts(),['Тест интерфейса']);assert.equal(await back.getAttribute('href'),'/projects')}
@@ -84,8 +93,14 @@ try{
     await goto('/projects/main');await back.click();await page.waitForURL(fixture.base+'/projects');
     await page.getByRole('button',{name:'Открыть проект «Тест интерфейса»',exact:true}).click();await page.locator('.project-overview').waitFor();await page.waitForFunction(()=>document.activeElement?.id==='main');await back.focus();await back.press('Enter');await page.waitForURL(fixture.base+'/projects');
     await goto('/projects/main');await tab.click();await page.waitForURL(fixture.base+'/projects/main/research');
-    const findingsTab=page.locator('.project-tabs').getByRole('link',{name:/^Находки/});
-    await findingsTab.click();await page.waitForURL(fixture.base+'/projects/main/findings');
+    const findingsTab=page.locator('.project-tabs').getByRole('tab',{name:/^Находки/});
+    await page.waitForFunction(()=>document.activeElement?.id==='main');
+    await tab.focus();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await findingsTab.evaluate(el=>el===document.activeElement),true);
+    await page.keyboard.press('Enter');
+    await page.waitForURL(fixture.base+'/projects/main/findings');
+    await tabList.getByRole('tab',{name:/^Находки/,selected:true}).waitFor();
     await page.goBack();await page.waitForURL(fixture.base+'/projects/main/research');await tab.waitFor();
     await findingsTab.click();await page.waitForURL(fixture.base+'/projects/main/findings');
     assert.equal(await back.getAttribute('href'),'/projects');await screenshot('project-back-'+width);

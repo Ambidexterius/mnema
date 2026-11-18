@@ -202,13 +202,9 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .topbar{gap:24px;min-height:44px;padding:0 24px;border-bottom:0;background:var(--g-color-base-background)}
 .breadcrumbs{font-size:13px;line-height:20px;gap:8px;overflow:hidden}
 .breadcrumbs span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-tabs{display:flex;gap:4px;align-items:center;flex-shrink:0}
-.project-tabs a{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--g-border-radius-l);min-height:36px;color:var(--g-color-text-secondary);font-size:13px;white-space:nowrap}
-.project-tabs a[aria-current=page]{color:var(--g-color-text-primary);background:var(--g-color-base-selection)}
-.project-tabs a:hover{background:var(--g-color-base-generic-hover)}
-.page-heading .project-tabs{margin-top:16px}
-.tab-count{margin-left:6px;color:var(--g-color-text-hint);font-variant-numeric:tabular-nums}
-.project-tabs a[aria-current=page] .tab-count{color:inherit;opacity:.7}
+.project-tabs{margin-top:16px}
+.project-tabs .g-tab{flex-shrink:0}
+.project-tabs .g-tab__counter{font-variant-numeric:tabular-nums}
 .topbar-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
 .topbar-actions .project-menu-trigger{opacity:1}
 /* Desktop: the content is a card 8 px above the window edge; the fade under the question dock stops at the card. */
@@ -266,13 +262,13 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 .project-card>span:not(.project-folder){font-size:12px;color:var(--g-color-text-secondary)}
 .project-loading{min-height:50dvh;display:grid;place-items:center;color:var(--g-color-text-secondary)}
 .study-card{box-shadow:none;overflow:hidden}
-.g-button__text svg,.nav-item>svg,.project-tabs svg,.meta>svg,.account-menu-item>svg{display:block;flex:none;align-self:center}
+.g-button__text svg,.nav-item>svg,.meta>svg,.account-menu-item>svg{display:block;flex:none;align-self:center}
 .g-button__text{gap:8px}
 .g-text-input__additional-content{display:flex;align-items:center}
 .g-segmented-radio-group__option-text{display:inline-flex;align-items:center;justify-content:center;gap:8px}
 @media(min-width:960px){.app-shell{grid-template-columns:300px minmax(0,1fr)}.rail-collapsed{grid-template-columns:72px minmax(0,1fr)}.rail-collapsed .project-list-label{display:none}.rail-collapsed .project-navigation{padding-top:16px}.rail-collapsed .project-list{margin-top:16px}}
-@media(max-width:959px){.project-tabs{order:3;width:100%;overflow-x:auto}.topbar{flex-wrap:wrap;gap:8px 16px;padding:0 16px}.topbar>.breadcrumbs{flex:1}.project-tabs a{flex:1;justify-content:center;min-height:44px;padding:8px}.page{padding:24px}.project-navigation .nav-item{min-height:44px}.mobile-nav .project-navigation{flex:1;max-height:55dvh}}
-@media(max-width:639px){.page{padding:16px 16px 48px}.page-heading{gap:16px}.page-heading>div{flex-basis:100%}.page-heading h1{font-size:24px;line-height:32px}.project-tabs{gap:0}.project-tabs a{font-size:12px;gap:6px}.project-tabs a>svg{display:none}.composer-footer{flex-wrap:wrap}.composer-footer .scope{width:100%;max-width:100%}.composer-footer .g-select{flex:1;max-width:none}.project-empty{padding:24px 16px}.project-card{min-height:176px}.sidebar-head .brand{padding-right:40px}.g-button_size_s{min-height:36px}.project-question .composer .g-text-area__control{font-size:16px}}
+@media(max-width:959px){.topbar{flex-wrap:wrap;gap:8px 16px;padding:0 16px}.topbar>.breadcrumbs{flex:1}.page{padding:24px}.project-navigation .nav-item{min-height:44px}.mobile-nav .project-navigation{flex:1;max-height:55dvh}}
+@media(max-width:639px){.page{padding:16px 16px 48px}.page-heading{gap:16px}.page-heading>div{flex-basis:100%}.page-heading h1{font-size:24px;line-height:32px}.composer-footer{flex-wrap:wrap}.composer-footer .scope{width:100%;max-width:100%}.composer-footer .g-select{flex:1;max-width:none}.project-empty{padding:24px 16px}.project-card{min-height:176px}.sidebar-head .brand{padding-right:40px}.g-button_size_s{min-height:36px}.project-question .composer .g-text-area__control{font-size:16px}}
 .evidence-coverage{font-size:12px;line-height:20px;color:var(--g-color-text-secondary);padding:12px 0;border-top:1px solid var(--g-color-line-generic)}
 .upload-summary-note{font-size:12px;line-height:20px;color:var(--g-color-text-secondary);margin:12px 0 20px}
 .project-page-actions{display:flex;gap:8px;flex-wrap:wrap}.import-intro{font-size:14px;line-height:24px;margin-bottom:24px}.import-manifest{line-height:24px;margin:16px 0}.import-manifest p{margin-top:8px;color:var(--g-color-text-secondary)}.import-manifest ul{list-style:none;padding:0;margin:16px 0}.import-manifest li{padding:12px 0;border-bottom:1px solid var(--g-color-line-generic);overflow-wrap:anywhere}.import-manifest li small{display:block;color:var(--g-color-text-secondary)}.import-progress{display:grid;gap:12px;line-height:24px}.import-progress small{color:var(--g-color-text-secondary)}
