@@ -12,12 +12,15 @@ test('inline feedback adds only known interface metadata and preserves earlier i
     const feedback={page:'research',element:'heading',category:'accessibility'};
     assert.throws(()=>ideas.create(person,{text:'Закрытый проект',feedback:{...feedback,page:'/projects/secret'}}),/Выберите/);
     assert.throws(()=>ideas.create(person,{text:'Категория',feedback:{...feedback,category:'toString'}}),/Выберите/);
+    const legacy={page:'research',element:'page',location:{path:'/projects'}};
+    assert.throws(()=>ideas.create(person,{text:'Отзыв о странице',feedback:legacy},()=>true),{status:400});
+    db.prepare('UPDATE mnema_ideas SET feedback=? WHERE id=?').run(JSON.stringify(legacy),'old');
     const {id}=ideas.create(person,{text:'Улучшить заголовок',feedback:{...feedback,selection:'Закрытые данные'}});
     ideas.edit(person,id,{text:'Уточнить заголовок'});
-    const list=createIdeas(db,{baseURL:'https://mnemo.test'}).list(person);
+    const list=createIdeas(db,{baseURL:'https://mnemo.test'}).list(person,()=>true);
     assert.equal(list.length,2);
     assert.deepEqual(list.find(item=>item.id===id)?.feedback,feedback);
-    assert.equal(list.find(item=>item.id==='old')?.feedback,undefined);
+    assert.deepEqual(list.find(item=>item.id==='old')?.feedback,legacy);
   }finally{db.close()}
 });
 

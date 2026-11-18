@@ -349,21 +349,24 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    if(theme==='light')for(const selector of ['.settings-sheet','.settings-main','.settings-header','.settings-body'])assert.equal(await page.locator(selector).evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
    await screenshot('ratings');
   });
-  await run(theme+': What’s new explains feedback on an element or the whole page',async()=>{
+  await run(theme+': What’s new explains feedback on an element',async()=>{
    await goto('/projects');
    await page.getByRole('button',{name:/^Профиль:/}).click();
    await page.getByRole('menuitem',{name:'Что нового',exact:true}).click();
    const news=page.getByRole('dialog',{name:'Что нового',exact:true});
-   await news.getByRole('heading',{name:'Обратная связь по элементу или странице',exact:true}).waitFor();
-   assert.match(await news.innerText(),/Выберите элемент интерфейса или\s+всю страницу/);
+   await news.getByRole('heading',{name:'Обратная связь по элементу интерфейса',exact:true}).waitFor();
+   assert.match(await news.innerText(),/Выберите элемент интерфейса, напишите комментарий/);
    await news.press('Escape');await news.waitFor({state:'hidden'});
   });
   await run(theme+': select an element on a 320px screen',async()=>{
    await page.setViewportSize({width:320,height:760});await goto('/projects');
    const menu=page.getByRole('button',{name:'Открыть меню',exact:true});await menu.click();
    await page.getByRole('dialog',{name:'Основная навигация'}).getByRole('button',{name:'Оставить отзыв',exact:true}).click();
+   await page.locator('#main').dispatchEvent('click');
+   assert.equal(await page.locator('.feedback-composer').count(),0);
    const heading=page.getByRole('heading',{name:'Проект',exact:true});await heading.click();
    const form=page.getByRole('dialog',{name:'Отзыв об элементе',exact:true});await form.waitFor();
+   assert.equal(await form.getByText('Вся страница',{exact:true}).count(),0);
    const box=await form.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=321);
    for(const [surface, fill] of [['.feedback-mode','rgb(23, 24, 26)'],['.feedback-composer-popup','rgb(255, 255, 255)']]){
     const style=await page.locator(surface).evaluate(element=>{const style=getComputedStyle(element);return [style.borderRadius,style.backgroundColor]});
@@ -377,10 +380,9 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    assert.equal(await form.getByRole('button',{name:'Отправить отзыв',exact:true}).locator('.lucide-arrow-right').count(),1);
    await screenshot('feedback-mobile');
    await page.keyboard.press('Escape');await form.waitFor({state:'hidden'});
-   await heading.click();await form.getByRole('button',{name:'Вся страница',exact:true}).click();
-   const pageForm=page.getByRole('dialog',{name:'Отзыв о странице',exact:true});
-   await pageForm.getByRole('textbox',{name:'Отзыв',exact:true}).fill('Отзыв о странице на телефоне ('+theme+')');
-   await pageForm.getByRole('button',{name:'Отправить отзыв',exact:true}).click();
+   await heading.click();
+   await form.getByRole('textbox',{name:'Отзыв',exact:true}).fill('Отзыв о заголовке на телефоне ('+theme+')');
+   await form.getByRole('button',{name:'Отправить отзыв',exact:true}).click();
    const published=page.getByRole('dialog',{name:'Идея опубликована',exact:true});
    await published.getByRole('button',{name:'Закрыть',exact:true}).last().click();
    await published.waitFor({state:'hidden'});
@@ -434,9 +436,9 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await row.locator('.ideas-meta .g-label').getByText('Текст и содержание',{exact:true}).waitFor();
    await row.getByText('Проекты → Создать',{exact:true}).waitFor();
    assert.equal(await row.getByText('Голосование',{exact:true}).count(),0);
-   const uncategorized=page.locator('.ideas-row').filter({hasText:'Отзыв о странице на телефоне ('+theme+')'});
+   const uncategorized=page.locator('.ideas-row').filter({hasText:'Отзыв о заголовке на телефоне ('+theme+')'});
    await uncategorized.waitFor();assert.equal(await uncategorized.locator('.ideas-meta .g-label').count(),0);
-   await uncategorized.getByText('Проекты → Вся страница',{exact:true}).waitFor();
+   await uncategorized.getByText('Проекты → Заголовок',{exact:true}).waitFor();
    await screenshot('feedback-portal');
    await row.locator('.idea-entry').click();
    const idea=page.locator('.idea-post');await page.getByRole('region',{name:'Элемент интерфейса',exact:true}).getByText('Проекты → Создать',{exact:true}).waitFor();

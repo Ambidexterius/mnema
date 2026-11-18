@@ -26,13 +26,11 @@ function feedbackTarget(event: Event) {
     const anchor = origin.closest(selector);
     if (anchor instanceof HTMLElement && anchor.getClientRects().length) return {anchor, element};
   }
-  const anchor = origin.closest<HTMLElement>('#main');
-  return anchor ? {anchor, element: 'page' as const} : null;
+  return null;
 }
 
 export function FeedbackMode({route, onClose, onIdeas}: {route: string; onClose: () => void; onIdeas: () => void}) {
   const [target, setTarget] = useState<ReturnType<typeof feedbackTarget>>(null);
-  const [wholePage, setWholePage] = useState(false);
   const [text, setText] = useState('');
   const [category, setCategory] = useState<FeedbackContext['category']>();
   const [busy, setBusy] = useState(false);
@@ -43,12 +41,10 @@ export function FeedbackMode({route, onClose, onIdeas}: {route: string; onClose:
   const screen = route.split(/[/?]/)[0];
   const page = screen === 'conversation' ? 'chat' : screen === 'all-findings' ? 'findings' : Object.hasOwn(feedbackPages, screen)
     ? screen as FeedbackContext['page'] : 'page';
-  const element = wholePage ? 'page' : target?.element;
 
   function clearTarget() {
     if (busy) return;
     setTarget(null);
-    setWholePage(false);
     setError('');
     toolbar.current?.focus({preventScroll: true});
   }
@@ -62,7 +58,7 @@ export function FeedbackMode({route, onClose, onIdeas}: {route: string; onClose:
     let hovered: HTMLElement | undefined;
     const positionOutline = () => {
       const layer = outline.current;
-      const anchor = wholePage ? undefined : target?.anchor || hovered;
+      const anchor = target?.anchor || hovered;
       if (!layer) return;
       if (!anchor?.isConnected) {layer.hidden = true; return;}
       const rect = anchor.getBoundingClientRect();
@@ -121,17 +117,17 @@ export function FeedbackMode({route, onClose, onIdeas}: {route: string; onClose:
       window.removeEventListener('scroll', positionOutline, true);
       window.removeEventListener('resize', positionOutline);
     };
-  }, [target, wholePage, sent, onClose]);
+  }, [target, sent, onClose]);
 
   async function send(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!target || !element || busy || text.trim().length < 3) return;
+    if (!target || busy || text.trim().length < 3) return;
     setBusy(true);
     setError('');
     try {
       const path = window.location.pathname;
-      const feedback: FeedbackContext = {page, element, category};
-      if (isFeedbackPath(path)) feedback.location = element === 'page' ? {path} : {path, ...await captureFeedbackAnchor(target.anchor)};
+      const feedback: FeedbackContext = {page, element: target.element, category};
+      if (isFeedbackPath(path)) feedback.location = {path, ...await captureFeedbackAnchor(target.anchor)};
       await api('/api/ideas', {text, feedback}, 'POST', false);
       setSent(true);
     } catch (e) {
@@ -159,13 +155,10 @@ export function FeedbackMode({route, onClose, onIdeas}: {route: string; onClose:
       <Popup open anchorElement={target.anchor} className="feedback-composer-popup" placement={['bottom-start', 'top-start', 'right-start', 'left-start']}
         offset={8} zIndex={100} disableOutsideClick disableFocusOut returnFocus={false}
         onOpenChange={open => {if (!open) clearTarget();}}>
-        <form className="feedback-composer" role="dialog" aria-label={element === 'page' ? 'Отзыв о странице' : 'Отзыв об элементе'} data-feedback-ui onSubmit={send}>
+        <form className="feedback-composer" role="dialog" aria-label="Отзыв об элементе" data-feedback-ui onSubmit={send}>
           <div className="feedback-composer-head">
-            <span><ScanLine size={16} aria-hidden="true"/>{element === 'page' ? feedbackElements.page : target.label || feedbackElements[target.element]}</span>
-            <div className="feedback-composer-target-actions">
-              {element !== 'page' && <Button view="flat" size="m" disabled={busy} onClick={()=>setWholePage(true)}>Вся страница</Button>}
-              <Button view="flat" size="l" aria-label="Выбрать другой элемент" disabled={busy} onClick={clearTarget}><X size={16}/></Button>
-            </div>
+            <span><ScanLine size={16} aria-hidden="true"/>{target.label || feedbackElements[target.element]}</span>
+            <Button view="flat" size="l" aria-label="Выбрать другой элемент" disabled={busy} onClick={clearTarget}><X size={16}/></Button>
           </div>
           <TextArea value={text} onUpdate={setText} minRows={2} maxRows={5} disabled={busy} autoFocus
             placeholder="Что можно улучшить?" controlProps={{'aria-label': 'Отзыв', maxLength: 2000}}/>

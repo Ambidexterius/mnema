@@ -45,7 +45,6 @@
 .feedback-composer-head {margin-bottom:4px}
 .feedback-composer-head > span {display:flex;min-width:0;gap:8px;align-items:center;color:var(--g-color-text-secondary)}
 .feedback-composer-head > span svg {flex:none;color:var(--g-color-text-brand)}
-.feedback-composer-target-actions {display:flex;align-items:center;flex:none}
 .feedback-composer-actions {margin-top:8px}
 .feedback-composer .g-text-area {width:100%}
 .feedback-composer .feedback-hint {font:var(--g-text-body-1-font);text-wrap:wrap}

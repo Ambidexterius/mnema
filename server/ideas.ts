@@ -60,7 +60,7 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
     let feedback='';
     if(input?.feedback!==undefined){
       const {page,element,category,location}=input.feedback??{};
-      if(typeof page!=='string'||!Object.hasOwn(feedbackPages,page)||typeof element!=='string'||!Object.hasOwn(feedbackElements,element)||
+      if(typeof page!=='string'||!Object.hasOwn(feedbackPages,page)||typeof element!=='string'||element==='page'||!Object.hasOwn(feedbackElements,element)||
         (category!==undefined&&(typeof category!=='string'||!Object.hasOwn(feedbackCategories,category))))reject(400,'Не удалось определить элемент. Выберите его ещё раз.');
       const safe=feedbackLocation(location);
       if(location!==undefined&&!safe)reject(400,'Не удалось определить элемент. Выберите его ещё раз.');
