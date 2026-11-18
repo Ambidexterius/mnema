@@ -481,9 +481,9 @@ function SettingsModal({tab,tabs,ctx}:{tab:string;tabs:[string,string,LucideIcon
  </Modal>;
 }
 function StudyModal({back,animateEntry}:{back:string;animateEntry:boolean}) {
- const {route,state,projectName}=useApp();
+ const {route,state}=useApp();
  const study=state.studies.find(s=>route==='study/'+s.id);
- const finding=state.findings.find(f=>back==='finding/'+f.id);
+ const [headerActions,setHeaderActions]=useState<HTMLDivElement|null>(null);
  const box=useRef<HTMLDivElement>(null);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const leaving=useRef(false);
@@ -546,12 +546,15 @@ function StudyModal({back,animateEntry}:{back:string;animateEntry:boolean}) {
  return <div className="study-layer" data-animate-entry={animateEntry||undefined} data-closing={closing||undefined} onMouseDown={e=>{if(e.button===0&&e.target===e.currentTarget)close()}}>
   <div className="study-backdrop" aria-hidden="true"/>
   <div ref={box} className="study-sheet" role="dialog" aria-modal="true" aria-label={study?.title||'Материал'} tabIndex={-1} onTransitionEnd={e=>{if(closing&&e.target===e.currentTarget&&e.propertyName==='opacity')leave()}}>
-   <div className="study-sheet-bar">{finding||history.state?.findingsRoot?<FindingsBreadcrumbs project={history.state?.findingsRoot?.startsWith('/all-findings')?undefined:projectName} finding={finding} studyTitle={study?.title||'Материал'}/>:<ProjectBreadcrumbs project={projectName} studyTitle={study?.title||'Материал'}/>}<IconButton icon={X} label="Закрыть материал" onClick={e=>close(e.detail===0)}/></div>
-   <div className="study-sheet-scroll"><Study key={route}/></div>
+   <header className="study-sheet-bar">
+    <h1>{study?.title||'Материал'}</h1>
+    <div className="study-sheet-actions"><div ref={setHeaderActions}/><IconButton icon={X} label="Закрыть материал" onClick={e=>close(e.detail===0)}/></div>
+   </header>
+   <div className="study-sheet-scroll"><Study key={route} headerActions={headerActions}/></div>
   </div>
  </div>;
 }
-function Study(){const ctx=useApp();const study=ctx.state.studies.find(s=>ctx.route==='study/'+s.id);if(!study)return <Empty title="Материал не найден" action={<Button href={appHref('library')}>Открыть исследования</Button>}>Выберите материал в исследованиях.</Empty>;const points=ctx.state.findings.filter(f=>f.studyId===study.id);return <StudyExperience key={study.id} ctx={ctx} study={study} reader={reader} demo={DEMO} findings={points.map(normalize)}/>}
+function Study({headerActions}: {headerActions?:HTMLDivElement|null}){const ctx=useApp();const study=ctx.state.studies.find(s=>ctx.route==='study/'+s.id);if(!study)return <Empty title="Материал не найден" action={<Button href={appHref('library')}>Открыть исследования</Button>}>Выберите материал в исследованиях.</Empty>;const points=ctx.state.findings.filter(f=>f.studyId===study.id);return <StudyExperience key={study.id} ctx={ctx} study={study} reader={reader} demo={DEMO} findings={points.map(normalize)} headerActions={headerActions}/>}
 function FindingMeta({f,showStatus=!reader,children}:{f:Finding;showStatus?:boolean;children?:React.ReactNode}){return <div className="finding-meta">{f.importSource?<Label size="s">Из Гипотениума</Label>:null}{showStatus?<Label size="s" theme={statusTheme(f)}>{statusLabel(f)}</Label>:null}<Label size="s" theme={importanceTheme(f.importance)}>{f.importance}</Label><Label size="s">{f.kind}</Label>{f.significant?<Label size="s" theme="utility">Статистически значимо</Label>:null}{f.basis==='raw'?<Label size="s" theme="warning">По сырым данным</Label>:null}{children}</div>}
 function History({f}:{f:Finding}){return f.history?.length?<ol className="history" aria-label="История проверки">{f.history.map((h,i)=><li key={i}><strong>{h.by}</strong> {actionLabel[h.action]||h.action} · {stamp(h.at)}</li>)}</ol>:null}
 export function FindingCard({f:raw,compact=false}:{f:Finding;compact?:boolean}){const {state,openPanel,reader}=useApp();const f=normalize(raw);const s=state.studies.find(s=>s.id===f.studyId);return <Card view="outlined" className="finding-card"><FindingMeta f={f} showStatus={!reader}/><h3><button className="text-action" onClick={()=>openPanel({studyId:f.studyId,segmentId:f.segmentId,findingId:f.id})}>{f.title}</button></h3>{compact?null:<p>{f.description}</p>}<div className="meta"><Folder size={13}/>{s?.title} · {s?.type}</div></Card>}

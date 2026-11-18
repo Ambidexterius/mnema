@@ -362,6 +362,55 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
    }finally{await context.close()}
   });
+  await run(theme+': material divider, header, and mobile tab icons',async()=>{
+   const state=readProject();
+   Object.assign(state.studies.find(item=>item.id==='sample'),{format:'Видео'});
+   saveProject(state);
+   for(const deviceWidth of (width===1440?[1024,1440]:[320,390,768])){
+    const context=await browser.newContext({viewport:{width:deviceWidth,height:900},hasTouch:deviceWidth<960,reducedMotion:'reduce'});
+    try{
+     await context.addCookies(fixture.cookies);
+     await context.addInitScript(theme=>localStorage.setItem('ai-hyposut.demo.v1',JSON.stringify({version:1,data:{theme}})),theme);
+     const page=await context.newPage();
+     await page.goto(fixture.base+'/projects/main/studies/sample');
+     const sheet=page.locator('.study-sheet');
+     const bar=sheet.locator('.study-sheet-bar');
+     await bar.getByRole('button',{name:'Удалить файл',exact:true}).waitFor();
+     assert.equal(await sheet.getByRole('heading',{level:1}).count(),1);
+     assert.equal(await bar.getByRole('link').count(),0);
+     assert.equal(await bar.locator('button svg').evaluateAll(icons=>icons.map(icon=>icon.getBoundingClientRect().width).join(',')),'16,18');
+     const divider=sheet.locator('.study-panel-divider');
+     if(deviceWidth>=960){
+      assert.equal(await sheet.evaluate(el=>getComputedStyle(el).borderRadius),'24px');
+      assert.equal(await divider.locator('span').evaluate(el=>getComputedStyle(el).opacity),'0');
+      assert(await divider.evaluate(el=>{
+       const rect=el.getBoundingClientRect();
+       const source=el.parentElement.querySelector('.study-source').getBoundingClientRect();
+       const panel=el.parentElement.querySelector('.study-summary').getBoundingClientRect();
+       return rect.left>=source.right-1&&rect.right<=panel.left+1;
+      }));
+      await divider.hover();
+      assert.equal(await divider.locator('span').evaluate(el=>getComputedStyle(el).opacity),'1');
+      assert.equal(await divider.evaluate(el=>getComputedStyle(el,'::before').borderInlineStartColor),theme==='dark'?'rgb(40, 40, 43)':'rgba(0, 0, 0, 0.15)');
+      await divider.click();
+      assert.equal(await divider.getAttribute('aria-expanded'),'false');
+      assert(await sheet.getByRole('tab',{name:'Хайлайты',exact:true}).isVisible());
+      await divider.press('Enter');
+      assert.equal(await divider.getAttribute('aria-expanded'),'true');
+     }else{
+      assert.equal(await divider.count(),0);
+      const icons=sheet.locator('.panel-rail button>svg');
+      assert.equal(await icons.count(),5);
+      assert(await icons.evaluateAll(items=>items.every(icon=>icon.getBoundingClientRect().width>0)));
+      await sheet.getByRole('tab',{name:'Хайлайты',exact:true}).tap();
+      await sheet.getByRole('tabpanel',{name:'Хайлайты',exact:true}).waitFor();
+      await sheet.getByRole('tab',{name:'Материал',exact:true}).tap();
+      await sheet.getByRole('heading',{name:'Расшифровка',exact:true}).waitFor();
+     }
+     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    }finally{await context.close()}
+   }
+  });
   await run(theme+': speaker confirmation, retry and saved participant limit',async()=>{
    const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
    await context.addCookies(fixture.cookies);
@@ -455,7 +504,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    const restored=()=>page.waitForFunction(()=>document.activeElement?.getAttribute('href')==='/projects/main/studies/sample');
    await trigger.press('Enter');await sheet.waitFor();await page.waitForFunction(()=>document.activeElement?.classList.contains('study-sheet'));
    await page.keyboard.press('Tab');assert.ok(await sheet.evaluate(el=>el.contains(document.activeElement)&&el!==document.activeElement));
-   await sheet.getByRole('button',{name:'Удалить исследование',exact:true}).press('Enter');
+   await sheet.getByRole('button',{name:'Удалить файл',exact:true}).press('Enter');
    const nested=page.getByRole('dialog',{name:'Удалить исследование',exact:true});await nested.waitFor();
    await page.waitForFunction(()=>document.activeElement?.closest('[role="dialog"][aria-label="Удалить исследование"]'));
    await page.keyboard.press('Escape');await nested.waitFor({state:'hidden'});assert.ok(await sheet.isVisible());
