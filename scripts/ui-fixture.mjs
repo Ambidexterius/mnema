@@ -15,6 +15,8 @@ export async function createUIFixture(port=4461,answer='Синтетически
  const response=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({email:'ui@example.test',name:'Проверка интерфейса',password:randomBytes(24).toString('hex'),setupToken:setup})});
  if(response.status!==200)throw Error('Cannot create UI fixture');
  const cookies=response.headers.getSetCookie().map(c=>{const pair=c.split(';')[0],i=pair.indexOf('=');return{name:pair.slice(0,i),value:pair.slice(i+1),url:base}}),cookie=cookies.map(c=>c.name+'='+c.value).join('; ');
+ const dismissed=await fetch(base+'/api/welcome/dismiss',{method:'POST',headers:{Cookie:cookie,'X-Mnema-Request':'1'}});
+ if(!dismissed.ok)throw Error('Cannot dismiss welcome for the returning UI fixture user');
  const user=app.db.prepare('SELECT id FROM user').get(),state=JSON.parse(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);
  const text='Синтетический пример. Участник не получил ответ до оплаты.';
  await writeFile(join(dir,'uploads','ui-file'),text);app.db.prepare('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run('ui-file','Интервью.txt','text/plain',Buffer.byteLength(text),'ready');

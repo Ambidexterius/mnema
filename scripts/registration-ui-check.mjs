@@ -11,6 +11,12 @@ if(!chrome)throw Error('Set CHROME_PATH to the Chrome/Chromium binary');
 const browser=await chromium.launch({executablePath:chrome,headless:true});
 await mkdir('artifacts/ui-registration',{recursive:true});const results=[],jsErrors=[];
 const png=await readFile(new URL('../server/fixtures/avatar.png',import.meta.url));
+const welcomeDialog=page=>page.getByRole('dialog',{name:'Добро пожаловать в Мнемодак',exact:true});
+async function closeWelcome(page){
+ const welcome=welcomeDialog(page);
+ await welcome.locator('.g-dialog-btn-close__btn').click();
+ await welcome.waitFor({state:'hidden'});
+}
 async function scenario(name,fn,{theme='light',clock,viewport={width:1440,height:980}}={}){
  // Better Auth shares its in-memory rate limiter across otherwise isolated fixtures.
  const dir=await mkdtemp(join(tmpdir(),'mnema-signup-browser-')),stand=await startRegistrationFixture({port:4494,dataDir:dir}),context=await browser.newContext({viewport,isMobile:viewport.width<640,hasTouch:viewport.width<640,extraHTTPHeaders:{'X-Forwarded-For':'192.0.2.'+(results.length+1)},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage();
@@ -40,11 +46,50 @@ try{
   await password();await page.getByRole('button',{name:'Начать работу',exact:true}).click();await page.getByRole('alert').filter({hasText:'Укажите имя'}).waitFor();await capture('profile-errors');await profile();
   for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:980});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const placement=await page.locator('.registration-photo').evaluate(e=>({photo:e.getBoundingClientRect().top,last:document.querySelector('.registration-last-name').getBoundingClientRect().bottom}));assert.ok(placement.photo>placement.last);if([320,1440].includes(width))await page.screenshot({path:'artifacts/ui-registration/profile-'+theme+'-'+width+'.png'})}
   await page.setViewportSize(viewport);const fileChooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Загрузить фото',exact:true}).click();await (await fileChooser).setFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото',exact:true}).waitFor();await capture('profile');
-  await page.getByRole('button',{name:'Начать работу',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.locator('.project-card').count(),3);await capture('projects');await openNavigation();assert.equal(await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).count(),1);
+  await page.getByRole('button',{name:'Начать работу',exact:true}).click();
+  const welcome=welcomeDialog(page),explore=welcome.getByRole('button',{name:'Открыть проекты',exact:true});
+  await welcome.waitFor();
+  await page.waitForFunction(()=>document.activeElement?.id==='welcome-heading');
+  await capture('welcome');
+  for(const key of ['Tab','Tab','Shift+Tab']){
+   await page.keyboard.press(key);assert.ok(await welcome.evaluate(node=>node.contains(document.activeElement)));
+  }
+  const bounds=await explore.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=screenWidth+1&&bounds.y+bounds.height<=viewport.height);
+  await explore.click();await welcome.waitFor({state:'hidden'});await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.locator('.project-card').count(),3);await capture('projects');await openNavigation();assert.equal(await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).count(),1);
   const avatar=page.locator('.account .g-avatar img');await avatar.waitFor();await avatar.evaluate(e=>e.decode());assert.ok(await avatar.evaluate(e=>e.complete&&e.naturalWidth>0));await page.reload();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await openNavigation();assert.equal(await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).count(),1);await page.goto(stand.base+'/signup');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await openNavigation();
   await page.getByRole('button',{name:'Профиль: Иван Петров',exact:true}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();await page.getByRole('button',{name:'Войти',exact:true}).waitFor();await page.getByRole('link',{name:'Создать аккаунт',exact:true}).click();await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();await page.getByRole('link',{name:'Войти',exact:true}).click();await page.waitForURL('**/login');await page.getByRole('heading',{name:'Вход в Мнемодак',exact:true}).waitFor();const logo=await page.evaluate(()=>{const mark=document.querySelector('.auth-symbol').getBoundingClientRect(),form=document.querySelector('.auth-form-heading').getBoundingClientRect();return {offset:mark.left+mark.width/2-(form.left+form.width/2),betaInTitle:Boolean(document.querySelector('.auth-title .auth-title-beta')),betaInLogo:Boolean(document.querySelector('.auth-symbol .beta-mark'))}});assert.ok(Math.abs(logo.offset)<0.5);assert.ok(logo.betaInTitle);assert.ok(!logo.betaInLogo);await page.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill('ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  },{theme,viewport});
  }
+
+ await scenario('team-project-link-returns-after-corporate-registration',async({page,stand,verify,password,profile})=>{
+  const project=stand.base+'/projects/booking';
+  await page.goto(project);
+  await page.getByRole('link',{name:'Создать аккаунт',exact:true}).click();
+  await page.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill('project.link@sutochno.ru');
+  await page.getByRole('button',{name:'Получить код',exact:true}).click();
+  await verify();await password();await profile();
+  await page.getByRole('button',{name:'Начать работу',exact:true}).click();
+  await page.waitForURL(project);
+  const welcome=welcomeDialog(page);
+  await welcome.waitFor();
+  await page.reload();await welcome.waitFor();
+  const dismissPath='**/api/welcome/dismiss';
+  await page.route(dismissPath,route=>route.fulfill({status:503,json:{error:'Synthetic save failure'}}));
+  await welcome.locator('.g-dialog-btn-close__btn').click();
+  await welcome.getByRole('alert').filter({hasText:'Не удалось сохранить'}).waitFor();
+  await page.unroute(dismissPath);
+  await closeWelcome(page);
+  await page.getByRole('heading',{name:'Бронирование · локальный пример',exact:true}).waitFor();
+  const secondDevice=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  try{
+   const second=await secondDevice.newPage();await second.goto(project);
+   await second.getByRole('textbox',{name:'Рабочая почта',exact:true}).fill('project.link@sutochno.ru');
+   await second.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');
+   await second.getByRole('button',{name:'Войти',exact:true}).click();
+   await second.getByRole('heading',{name:'Бронирование · локальный пример',exact:true}).waitFor();
+   assert.equal(await welcomeDialog(second).count(),0);
+  }finally{await secondDevice.close()}
+ });
 
  await scenario('email-error-and-responsive',async({page,stand})=>{
   await page.goto(stand.base+'/signup');const email=page.getByRole('textbox',{name:'Рабочая почта',exact:true});await email.fill('person@gmail.com');await page.getByRole('button',{name:'Получить код'}).click();const error=page.getByRole('alert').filter({hasText:'Используйте рабочую почту @sutochno.ru'});await error.waitFor();const bounds=await error.boundingBox(),input=await email.boundingBox();assert.ok(bounds.y>=input.y+input.height);assert.equal(stand.messages.length,0);
@@ -77,11 +122,11 @@ try{
  await scenario('otp-tab-does-not-trap',async({page,begin})=>{await begin();const cells=page.locator('.registration-otp input');await cells.first().focus();for(let i=0;i<6;i++)await page.keyboard.press('Tab');assert.equal(await page.locator('.registration-otp').evaluate(e=>e.contains(document.activeElement)),false,'Tab must leave an empty OTP group')});
 
  await scenario('refresh-back-and-optional-photo',async({page,begin,verify,password,profile})=>{
-  await begin();await verify();await password();await profile();await page.reload();await page.getByRole('heading',{name:'Придумайте пароль'}).waitFor();await page.getByRole('status').filter({hasText:'Почта подтверждена'}).waitFor();await password();assert.equal(await page.getByRole('textbox',{name:'Имя',exact:true}).inputValue(),'Иван');assert.equal(await page.getByRole('textbox',{name:'Фамилия',exact:true}).inputValue(),'Петров');await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await begin();await verify();await password();await profile();await page.reload();await page.getByRole('heading',{name:'Придумайте пароль'}).waitFor();await page.getByRole('status').filter({hasText:'Почта подтверждена'}).waitFor();await password();assert.equal(await page.getByRole('textbox',{name:'Имя',exact:true}).inputValue(),'Иван');assert.equal(await page.getByRole('textbox',{name:'Фамилия',exact:true}).inputValue(),'Петров');await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  });
 
  await scenario('photo-invalid-and-too-large',async({page,begin,verify,password,profile})=>{
-  await begin();await verify();await password();await profile();const input=page.getByLabel('Выбрать фотографию',{exact:true});await input.setInputFiles({name:'broken.png',mimeType:'image/png',buffer:Buffer.from('not an image')});await page.getByRole('alert').filter({hasText:'Не удалось открыть фото'}).waitFor();await input.setInputFiles({name:'oversize.png',mimeType:'image/png',buffer:Buffer.alloc(5000001)});await page.getByRole('alert').filter({hasText:'до 5 МБ'}).waitFor();await input.setInputFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото'}).waitFor();await page.getByRole('button',{name:'Удалить фото'}).click();assert.equal(await page.getByRole('button',{name:'Удалить фото'}).count(),0);await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await begin();await verify();await password();await profile();const input=page.getByLabel('Выбрать фотографию',{exact:true});await input.setInputFiles({name:'broken.png',mimeType:'image/png',buffer:Buffer.from('not an image')});await page.getByRole('alert').filter({hasText:'Не удалось открыть фото'}).waitFor();await input.setInputFiles({name:'oversize.png',mimeType:'image/png',buffer:Buffer.alloc(5000001)});await page.getByRole('alert').filter({hasText:'до 5 МБ'}).waitFor();await input.setInputFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото'}).waitFor();await page.getByRole('button',{name:'Удалить фото'}).click();assert.equal(await page.getByRole('button',{name:'Удалить фото'}).count(),0);await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  });
 
  await scenario('expired-code-and-resend',async({page,stand,begin,mailCode})=>{
@@ -102,26 +147,26 @@ try{
 
  await scenario('created-account-open-recovery',async({page,stand,begin,verify,password,profile})=>{
   await begin();await verify();await password();await profile();let once=true;await page.route('**/api/state',async route=>{if(once){once=false;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'synthetic state failure'})})}return route.continue()});
-  await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('alert').filter({hasText:'Аккаунт создан'}).waitFor();assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,1);await page.getByRole('button',{name:'Открыть проекты',exact:true}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('alert').filter({hasText:'Аккаунт создан'}).waitFor();assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,1);await page.getByRole('button',{name:'Открыть проекты',exact:true}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  });
 
  await scenario('offline-final-step-recovery',async({page,context,stand,begin,verify,password,profile})=>{
-  await begin();await verify();await password();await profile();await page.getByLabel('Выбрать фотографию',{exact:true}).setInputFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото'}).waitFor();await context.setOffline(true);await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('alert').filter({hasText:'Нет соединения с сервером'}).waitFor();assert.equal(await page.getByRole('textbox',{name:'Имя',exact:true}).inputValue(),'Иван');assert.ok(await page.getByRole('button',{name:'Удалить фото'}).isVisible());assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,0);await context.setOffline(false);await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await begin();await verify();await password();await profile();await page.getByLabel('Выбрать фотографию',{exact:true}).setInputFiles({name:'avatar.png',mimeType:'image/png',buffer:png});await page.getByRole('button',{name:'Удалить фото'}).waitFor();await context.setOffline(true);await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('alert').filter({hasText:'Нет соединения с сервером'}).waitFor();assert.equal(await page.getByRole('textbox',{name:'Имя',exact:true}).inputValue(),'Иван');assert.ok(await page.getByRole('button',{name:'Удалить фото'}).isVisible());assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,0);await context.setOffline(false);await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
  });
 
  await scenario('existing-account-no-duplicate',async({page,stand,begin,verify,password,profile,mailCode})=>{
-  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Профиль: Иван Петров'}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();stand.app.db.prepare('UPDATE mnema_registration SET resend_at=0').run();
+  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Профиль: Иван Петров'}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();stand.app.db.prepare('UPDATE mnema_registration SET resend_at=0').run();
   await begin();await page.locator('.registration-otp input').first().fill(mailCode());await page.getByRole('button',{name:'Подтвердить',exact:true}).click();await page.waitForURL('**/login?email=*');await page.getByRole('button',{name:'Войти',exact:true}).waitFor();assert.equal(await page.getByRole('textbox',{name:'Рабочая почта'}).inputValue(),'ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('incorrect-password');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('alert').filter({hasText:'Почта или пароль не подошли'}).waitFor();assert.equal(stand.app.db.prepare("SELECT count(*) AS n FROM user WHERE email='ivan.petrov@sutochno.ru'").get().n,1);
  });
 
  await scenario('expired-session-keeps-registration',async({page,begin,verify,password,profile})=>{
-  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
+  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();
   await page.route('**/api/state',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'synthetic expired session'})}));
   await page.getByRole('heading',{name:'Вход в Мнемодак',exact:true}).waitFor({timeout:10000});await page.getByRole('link',{name:'Создать аккаунт',exact:true}).click();await page.getByRole('heading',{name:'Создайте аккаунт',exact:true}).waitFor();
  });
 
  await scenario('revoked-account-login-message',async({page,stand,begin,verify,password,profile})=>{
-  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Профиль: Иван Петров'}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();stand.app.db.prepare("UPDATE mnema_access SET revoked=1 WHERE user_id=(SELECT id FROM user WHERE email='ivan.petrov@sutochno.ru')").run();
+  await begin();await verify();await password();await profile();await page.getByRole('button',{name:'Начать работу'}).click();await closeWelcome(page);await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Профиль: Иван Петров'}).click();await page.getByRole('menuitem',{name:'Выйти',exact:true}).click();stand.app.db.prepare("UPDATE mnema_access SET revoked=1 WHERE user_id=(SELECT id FROM user WHERE email='ivan.petrov@sutochno.ru')").run();
   await page.goto(stand.base+'/login');await page.getByRole('textbox',{name:'Рабочая почта'}).fill('ivan.petrov@sutochno.ru');await page.getByRole('textbox',{name:'Пароль',exact:true}).fill('abcdefgh');await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByRole('alert').filter({hasText:'Доступ к аккаунту закрыт'}).waitFor();assert.equal(await page.locator('.app-shell').count(),0);
  });
 }finally{

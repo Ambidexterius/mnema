@@ -31,6 +31,7 @@ test('corporate registration is verified, single-use, persistent and grants proj
  const stop=async()=>{app.notifications.close();app.server.closeAllConnections();await new Promise<void>(resolve=>app.server.close(()=>resolve()));app.storage.close();app.db.close()};
  try{
   assert.equal((await request('/api/register',{email:'owner@sutochno.ru',password:'owner-password-only',setupToken:setup},owner)).status,200);
+  assert.equal((await request('/api/session',undefined,owner)).body.user.welcomePending,true);
   for(const name of ['Чаты','Бронирование'])assert.equal((await request('/api/workspaces',{name},owner)).status,201);
   assert.equal((await request('/api/register',{email:'new@sutochno.ru',password:'secure-password-only',firstName:'Иван',lastName:'Петров'})).status,403);
   assert.equal((await request('/api/auth/sign-up/email',{email:'new@sutochno.ru',password:'secure-password-only',name:'Fake'})).status,404);
@@ -45,7 +46,10 @@ test('corporate registration is verified, single-use, persistent and grants proj
   assert.equal((await request('/api/registration/verify-code',{email:'new@sutochno.ru',code:valid})).status,200);
   assert.equal((await request('/api/registration/verify-code',{email:'new@sutochno.ru',code:valid})).status,409);
   assert.equal((await request('/api/workspaces')).status,401);
+  assert.equal((await request('/api/welcome/dismiss',{})).status,401);
+  app.db.exec('ALTER TABLE mnema_access DROP COLUMN welcome_pending');
   await stop();app=await createMnemaServer(options);await new Promise<void>(resolve=>app.server.listen(4492,'127.0.0.1',resolve));assert.equal((await request('/api/registration/status')).body.verified,true);
+  assert.equal((await request('/api/session',undefined,owner)).body.user.welcomePending,false);
   const signup={email:'new@sutochno.ru',password:'abcdefgh',firstName:'Иван',lastName:'Петров',admin:true,role:'admin'};
   assert.equal((await request('/api/register',{...signup,password:'abcdefg'})).status,400);
   assert.equal((await request('/api/register',{...signup,firstName:''})).body.code,'FIRST_NAME');
@@ -55,6 +59,10 @@ test('corporate registration is verified, single-use, persistent and grants proj
   const png=await readFile(new URL('./fixtures/avatar.jpg',import.meta.url));
   const saved=await request('/api/register',{...signup,photo:'data:image/jpeg;base64,'+png.toString('base64')});assert.equal(saved.status,200,JSON.stringify(saved.body));assert.equal(browser.has('mnema-registration'),false);assert(browser.size>0,'auth session cookie survived registration cookie deletion');
   const person=(await request('/api/session')).body.user;assert.equal(person.name,'Иван Петров');assert.equal(person.emailVerified,true);assert.equal(person.owner,false);assert.equal(person.manageUsers,false);assert.equal(person.workspaces.length,3);assert(person.workspaces.every(w=>w.role===(w.id==='main'?'full':'view')));assert.ok(person.image);
+  assert.equal(person.welcomePending,true);
+  assert.equal((await request('/api/welcome/dismiss',{},browser,{'X-Mnema-Request':'0'})).status,403);
+  for(let attempt=0;attempt<2;attempt++)assert.equal((await request('/api/welcome/dismiss',{userId:'another-account'})).status,200);
+  assert.equal((await request('/api/session')).body.user.welcomePending,false);
   assert.equal((await request('/api/users')).status,403);
   assert.equal((await request('/api/invitations',{name:'Other',email:'other@sutochno.ru',role:'full',scope:'all'})).status,403);
   const picture=await fetch(base+person.image,{headers:{Cookie:[...browser].map(([k,v])=>k+'='+v).join('; ')}});assert.equal(picture.status,200);assert.equal(picture.headers.get('content-type'),'image/png');assert.equal(picture.headers.get('cache-control'),'no-store');const bytes=Buffer.from(await picture.arrayBuffer()),chunks=[];for(let offset=8;offset<bytes.length;){const size=bytes.readUInt32BE(offset);chunks.push(bytes.toString('ascii',offset+4,offset+8));offset+=size+12}assert.ok(!chunks.includes('eXIf')&&!chunks.includes('tEXt'));assert.ok(!bytes.includes(Buffer.from('private-profile-metadata')));assert.equal((await fetch(base+person.image)).status,401);

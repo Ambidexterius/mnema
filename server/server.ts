@@ -38,7 +38,7 @@ import type {Finding} from '../app/types.ts';
 
 export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
-interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
+interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;welcomePending:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels=new Set(['deepseek','amvera-deepseek-v4','local-stub']);
 const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
@@ -138,6 +138,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const modelKeys=modelKeyStore(db,authSecret);
  const columns=(table:string)=>q('PRAGMA table_info('+table+')').all().map((c:any)=>c.name);
  if(!columns('mnema_access').includes('self_registered'))db.exec('ALTER TABLE mnema_access ADD COLUMN self_registered INTEGER NOT NULL DEFAULT 0');
+ if(!columns('mnema_access').includes('welcome_pending'))db.exec('ALTER TABLE mnema_access ADD COLUMN welcome_pending INTEGER NOT NULL DEFAULT 0');
  const signup=createRegistration(db,authSecret,production,options.sendRegistrationMail||(smtpConfigured()?sendSmtp:undefined),options.registrationCode);
  if(!columns('mnema_access').includes('all_projects'))db.exec('ALTER TABLE mnema_access ADD COLUMN all_projects INTEGER NOT NULL DEFAULT 0');
  if(!columns('mnema_invites').includes('workspace_id'))db.exec("ALTER TABLE mnema_invites ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
@@ -202,7 +203,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(sharing.validLink(wanted,share)){current=sharing.linkProject(wanted);sharedProject={id:current.id,name:current.name,role:'view' as const,admin:false,sharingMode:'link',shareVersion:current.nonce}}else if(explicit)fail(403,'Доступ к проекту закрыт. Обновите список проектов.');
   }
   const recordingProcessing=active.some(project=>projectCard(project).processingOwners.has(s.user.id));
-  return {...s.user,recordingProcessing,role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+  return {...s.user,recordingProcessing,welcomePending:Boolean(access.welcome_pending),role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
  // Every request lists the user's projects. Parsing each project's full transcripts here made
  // project switching and polling slow, so folder cards are cached per stored revision and role.
  const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number,processingOwners:Set<string>}}>();
@@ -255,7 +256,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const response=await auth.api.signUpEmail({body:{email,name,password:b.password},headers:fromNodeHeaders(req.headers),asResponse:true});
   if(response.ok){const u=q('SELECT id FROM user WHERE lower(email)=?').get(email);if(!u)fail(500,'Аккаунт не создан. Повторите попытку.');
    db.exec('BEGIN');try{
-    q('INSERT INTO mnema_access(user_id,role,admin,self_registered) VALUES(?,?,?,?)').run(u.id,role,admin?1:0,self?1:0);
+    q('INSERT INTO mnema_access(user_id,role,admin,self_registered,welcome_pending) VALUES(?,?,?,?,1)').run(u.id,role,admin?1:0,self?1:0);
     if(self||admin||invitation?.workspace_id==='*')grantAllProjects(u.id,role);else q('INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,?)').run(invitation?.workspace_id||'main',u.id,role,admin?1:0);
     if(admin)sharing.claimUnowned(u.id);
     if(invitation)q('UPDATE mnema_invites SET used=1 WHERE id=?').run(invitation.id);
@@ -463,6 +464,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(path==='/api/session'){const person=await session(req);if(person?.workspaceId)wsStore.enterWith(person.workspaceId);return json(res,200,{user:person,setupRequired:!ownerExists(),setupEnabled:Boolean(setupToken),registrationEnabled:Boolean(options.corporateRegistration&&ownerExists()),version:VERSION})}
    if(path.startsWith('/api/')){
     const person=await session(req);if(!person)fail(401,'Войдите в Мнемодак.');writingUsers.set(req,person);
+     if(path==='/api/welcome/dismiss'&&req.method==='POST'){
+      q('UPDATE mnema_access SET welcome_pending=0 WHERE user_id=? AND welcome_pending=1').run(person.id);
+      return json(res,200,{ok:true});
+     }
      if(path.startsWith('/api/profile/avatar/')&&req.method==='GET'){
       const id=path.slice('/api/profile/avatar/'.length);if(!/^[\w-]{1,80}$/.test(id))fail(404,'Фотография не найдена.');
       const shared=id===person.id||q('SELECT 1 FROM mnema_access WHERE user_id=? AND revoked=0').get(id)&&sharing.projects(id).some(project=>person.workspaces.some(own=>own.id===project.id));

@@ -1,0 +1,68 @@
+.welcome-dialog .g-dialog-header {
+  padding-block: var(--g-spacing-8) 0;
+}
+
+.welcome-heading {
+  display: grid;
+  justify-items: start;
+  gap: var(--g-spacing-4);
+  font: var(--g-text-header-2-font);
+  font-weight: 510;
+}
+
+.welcome-heading [tabindex="-1"]:focus {
+  outline: none;
+}
+
+.welcome-dialog .g-dialog-body {
+  padding-block: var(--g-spacing-2) 0;
+}
+
+.welcome-lead {
+  font: var(--g-text-body-2-font);
+}
+
+.welcome-lead,
+.welcome-features p {
+  color: var(--g-color-text-secondary);
+}
+
+.welcome-features {
+  display: grid;
+  gap: var(--g-spacing-4);
+  margin: var(--g-spacing-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-features li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--g-spacing-3);
+  font: var(--g-text-body-1-font);
+}
+
+.welcome-features strong {
+  font: var(--g-text-subheader-1-font);
+}
+
+.welcome-dialog .g-dialog-footer {
+  padding-block: var(--g-spacing-6) var(--g-spacing-8);
+}
+
+@media (max-width: 639px) {
+  .welcome-dialog {
+    --_--side-padding: var(--g-spacing-5);
+  }
+
+  .welcome-dialog .g-dialog-footer__bts-wrapper,
+  .welcome-dialog .g-dialog-footer__button {
+    width: 100%;
+  }
+
+  .welcome-dialog .g-dialog-btn-close__btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
