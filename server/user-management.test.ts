@@ -6,9 +6,9 @@ import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {createMnemaServer} from './server.ts';
 
-async function fixture(port:number){
+async function fixture(port:number,corporateRegistration=false){
  const dir=await mkdtemp(join(tmpdir(),'mnema-management-')),setup=randomBytes(32).toString('hex'),base='http://127.0.0.1:'+port;
- const options={dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,sendInvitationMail:async()=>{}};
+ const options={dataDir:dir,baseURL:base,authSecret:randomBytes(48).toString('hex'),setupToken:setup,corporateRegistration,sendInvitationMail:async()=>{},sendRegistrationMail:async()=>{},registrationCode:()=> '685791' };
  let app=await createMnemaServer(options);const listen=()=>new Promise<void>(r=>app.server.listen(port,'127.0.0.1',r));await listen();
  const stop=async()=>{app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close()};
  const req=async(path:string,cookie='',body?:any,workspace='',method=body?'POST':'GET')=>{const res=await fetch(base+path,{method,headers:{Cookie:cookie,Connection:'close','Content-Type':'application/json','X-Mnema-Request':'1',...(workspace?{'X-Mnema-Workspace':workspace}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:res.status,data:await res.json(),cookie:res.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')}};
@@ -65,5 +65,56 @@ test('one-time migration opens all projects for old active accounts and invitati
   const future=(await req('/api/workspaces',owner,{name:'Future',mode:'private'})).data.id;assert.deepEqual((await req('/api/session',legacy.cookie)).data.user.workspaces.map(w=>w.id).sort(),['main',other].sort());
   const scoped=await f.add('new-scoped@example.test','view','project',future);assert.equal((await req('/api/session',scoped.cookie)).data.user.workspaces.length,1);
   await f.restart();assert.equal((await req('/api/session',scoped.cookie)).data.user.workspaces.length,1);assert.equal((await req('/api/state',scoped.cookie,undefined,other)).status,403);
+ }finally{await f.close()}
+});
+
+test('only admins remove other accounts and unused invitations without removing project content',async()=>{
+ const f=await fixture(4258,true),{req,owner}=f;
+ try{
+  const full=await f.add('full@example.test','full'),reader=await f.add('removed@sutochno.ru');
+  const id=(await req('/api/session',reader.cookie)).data.user.id;
+  const ownerId=(await req('/api/session',owner)).data.user.id;
+  const target='/api/users/'+id;
+  assert.equal((await req(target,full.cookie,undefined,'','DELETE')).status,403);
+  assert.equal((await req('/api/users/'+ownerId,owner,undefined,'','DELETE')).status,403);
+  f.app.db.prepare("UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id='main'").run(id);
+  assert.equal((await req(target,owner,undefined,'','DELETE')).status,409);
+  f.app.db.prepare("UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id='main'").run(ownerId);
+  assert.equal((await req(target,owner,{status:'revoked'},'main','PATCH')).status,200);
+  assert.equal((await req('/api/session',reader.cookie)).data.user,null);
+  const project=f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data;
+  const removed=await req(target,owner,undefined,'','DELETE');
+  assert.equal(removed.status,200);assert.equal(removed.data.users.some(u=>u.id===id||u.email==='removed@sutochno.ru'),false);
+  assert.equal((await req('/api/state',reader.cookie)).status,401);
+  assert.equal((await req('/api/auth/sign-in/email','',{email:'removed@sutochno.ru',password:'fixture-password-only'})).status,401);
+  assert.equal(f.app.db.prepare('SELECT count(*) AS count FROM session WHERE userId=?').get(id).count,0);
+  assert.equal(f.app.db.prepare('SELECT count(*) AS count FROM mnema_removed_emails').get().count,1);
+  assert.equal(f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data,project);
+  assert.equal((await req(target,owner,undefined,'','DELETE')).status,200);
+
+  const pendingEmail='pending@example.test';
+  const makeInvite=()=>req('/api/invitations',owner,{email:pendingEmail,name:'Pending',role:'view'});
+  const old=await makeInvite();assert.equal(old.status,201);
+  const first=(await req('/api/users',owner)).data.users.find(u=>u.email===pendingEmail);
+  assert.equal((await req('/api/users/'+first.id,owner,{status:'revoked'},'main','PATCH')).status,200);
+  const newInvite=await makeInvite();assert.equal(newInvite.status,201);
+  const current=(await req('/api/users',owner)).data.users.find(u=>u.email===pendingEmail);
+  const result=await req('/api/users/'+current.id,owner,undefined,'','DELETE');
+  assert.equal(result.status,200);
+  assert.equal(result.data.users.some(u=>u.email===pendingEmail),false);
+  for(const invite of [old,newInvite]){
+   const inviteToken=new URL(invite.data.inviteURL).searchParams.get('invite');
+   assert.equal((await req('/api/register','',{email:pendingEmail,password:'fixture-password-only',inviteToken})).status,403);
+  }
+  const workEmail='removed@sutochno.ru';
+  const mail=await req('/api/registration/request-code','',{email:workEmail});
+  assert.equal(mail.status,200);
+  const verified=await req('/api/registration/verify-code',mail.cookie,{email:workEmail,code:'685791'});
+  assert.equal(verified.status,200);
+  const selfRegistration=await req('/api/register',verified.cookie,{email:workEmail,password:'new-fixture-password',firstName:'Test',lastName:'User'});
+  assert.equal(selfRegistration.status,403);
+  assert.match(selfRegistration.data.error,/новое приглашение/u);
+  assert.equal((await f.add('removed@sutochno.ru')).status,200,'a new invitation can bring a deleted user back as a new account');
+  assert.notEqual(f.app.db.prepare("SELECT id FROM user WHERE email='removed@sutochno.ru'").get().id,id);
  }finally{await f.close()}
 });

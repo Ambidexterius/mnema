@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {Button,SegmentedRadioGroup} from '@gravity-ui/uikit';
 import {ChevronRight,ThumbsDown,ThumbsUp} from 'lucide-react';
 import {api} from './api.ts';
+import EmptyState from './EmptyState.tsx';
 
 type Item={id:string;rating:'up'|'down';updated:number;userName:string;question:string;answer:string;model:string;kind:'generated'|'no-evidence';
  projects:{id:string;name:string}[];sources:{projectId:string;studyId:string;title:string}[]};
@@ -15,15 +16,14 @@ export default function AnswerFeedbackPage({real}:{real:boolean}){
  const count=(r:string)=>(items||[]).filter(i=>i.rating===r).length;
  const shown=(items||[]).filter(i=>filter==='all'||i.rating===filter);
  return <div className="feedback-settings">
-  <p className="settings-note">Проверяйте ответы, которые оценили коллеги. Это поможет найти ошибки в поиске, источниках и формулировках.</p>
+  <p className="settings-note settings-copy">Проверяйте ответы, которые оценили коллеги. Это поможет найти ошибки в поиске, источниках и формулировках.</p>
   <div className="settings-group-head">
    <SegmentedRadioGroup size="m" name="Оценки" value={filter} onUpdate={setFilter} options={[{value:'down',content:<><ThumbsDown size={14} aria-hidden="true"/><span className="feedback-filter-text">Неполезные</span> {count('down')}</>},{value:'up',content:<><ThumbsUp size={14} aria-hidden="true"/><span className="feedback-filter-text">Полезные</span> {count('up')}</>},{value:'all',content:'Все'}]}/>
    <Button view="flat-secondary" size="s" onClick={load} loading={loading}>Обновить</Button>
   </div>
   {error?<div className="processing-notice" role="alert"><p>{error}</p><Button onClick={load}>Повторить</Button></div>:null}
   {items===null&&!error?<p role="status">Загружаем оценки…</p>:null}
-  {items?<ul className="settings-list" aria-label="Оценённые ответы">
-   {!shown.length?<li className="setting-row setting-empty"><p>{filter==='down'?'Неполезных ответов пока нет.':filter==='up'?'Полезных ответов пока нет.':'Оценок пока нет. Они появятся, когда участники нажмут 👍 или 👎 под ответом.'}</p></li>:null}
+  {items&&shown.length?<ul className="settings-list" aria-label="Оценённые ответы">
    {shown.map(i=><li className="setting-row feedback-row" key={i.id}><details>
     <summary>
      <span className="setting-icon" data-status={i.rating==='up'?'on':'warn'} aria-hidden="true">{i.rating==='up'?<ThumbsUp size={16}/>:<ThumbsDown size={16}/>}</span>
@@ -38,6 +38,9 @@ export default function AnswerFeedbackPage({real}:{real:boolean}){
      <p className="setting-sub">Модель: {i.model||'не указана'}</p>
     </div>
    </details></li>)}
-  </ul>:null}
+  </ul>:items&&!loading&&!error?<EmptyState
+   icon={filter==='down'&&items.length?<ThumbsDown size={28}/>:<ThumbsUp size={28}/>}
+   title={!items.length?'Оценок пока нет':filter==='down'?'Нет неполезных ответов':'Нет полезных ответов'}
+   description={!items.length?'Здесь появятся ответы, которые оценят коллеги.':'Выберите «Все», чтобы посмотреть остальные оценки.'}/>:null}
  </div>;
 }

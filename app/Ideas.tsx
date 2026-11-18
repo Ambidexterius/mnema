@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {Avatar,Button,Dialog,DropdownMenu,Label,Modal,SegmentedRadioGroup,Select,TextArea,TextInput,Tooltip} from '@gravity-ui/uikit';
 import {ArrowLeft,Check,EyeOff,Lightbulb,MessageSquare,MoreHorizontal,Pencil,ScanLine,Search,ThumbsUp,Trash2,X} from 'lucide-react';
 import {api} from './api.ts';
+import EmptyState from './EmptyState.tsx';
 import ChatComposer from './ChatComposer.tsx';
 import {feedbackCategories,type FeedbackContext} from './feedback-context.ts';
 import {feedbackAnchorCaption} from './feedback-anchor.ts';
@@ -75,7 +76,10 @@ export function IdeasPanel({open,mine,onClose,onLocate}:{open:boolean;mine:boole
     {!words?<SegmentedRadioGroup className="ideas-tabs" size="l" name="Раздел идей" value={tab} onUpdate={setTab} options={TABS.map(([value,content])=>({value,content}))}/>:null}
     {ideas===null&&!error?<p role="status">Загружаем идеи…</p>:null}
     {ideas?<ul className="ideas-list" aria-label={words?'Результаты поиска':TABS.find(([id])=>id===tab)?.[1]}>
-     {!shown.length?<li className="ideas-empty"><span className="feedback-done-icon" aria-hidden="true">{words?<Search size={28}/>:<Lightbulb size={28}/>}</span><h3>{EMPTY[words?'search':tab][0]}</h3><p>{EMPTY[words?'search':tab][1]}</p>{tab==='open'||tab==='mine'||words?<Button view="outlined" size="l" onClick={()=>{setDraft(query.trim());setAdding(true)}}>Предложить идею</Button>:null}</li>:null}
+     {!shown.length?<li><EmptyState
+      icon={words?<Search size={28}/>:<Lightbulb size={28}/>}
+      title={EMPTY[words?'search':tab][0]} description={EMPTY[words?'search':tab][1]}
+      action={tab==='open'||tab==='mine'||words?<Button view="outlined" size="l" onClick={()=>{setDraft(query.trim());setAdding(true)}}>Предложить идею</Button>:null}/></li>:null}
      {shown.map(i=><li key={i.id} className="ideas-row">
       <button type="button" className="ideas-row-main idea-entry" onClick={()=>setOpenId(i.id)}><Entry author={i.author} created={i.created} badge={i.status!=='open'&&(tab==='mine'||words)?<Label size="xs" theme={THEME[i.status]}>{LABEL[i.status]}</Label>:null}>
        <span className="ideas-text">{i.text}</span>

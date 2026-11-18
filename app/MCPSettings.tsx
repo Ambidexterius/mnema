@@ -1,10 +1,11 @@
 import {appHref} from './routes.ts';
 import React,{useEffect,useState} from 'react';
-import {Button,Checkbox,Dialog,DropdownMenu,TextInput} from '@gravity-ui/uikit';
+import {Alert,Button,Checkbox,Dialog,DropdownMenu,TextInput} from '@gravity-ui/uikit';
 import {Cable,Check,Copy,Folder,MoreHorizontal,Plus,Search,ShieldCheck} from 'lucide-react';
 import {api} from './api.ts';
 import {oauthQuery} from './oauth-query.ts';
 import BrandMark,{BetaMark} from './BrandMark.tsx';
+import EmptyState from './EmptyState.tsx';
 
 type Project={id:string;name:string;role:'view'|'full'};
 const when=(value:number)=>new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',year:'numeric'}).format(value).replace(/\s*г\.$/,'');
@@ -27,27 +28,45 @@ export default function MCPSettings({ctx}:{ctx:any}){
  const closeToken=()=>{if(!busy){setSecret(null);setDialog(false)}};
  const create=async()=>{setFormError('');if(!ctx.real){setFormError('В демо токены не создаются. Откройте рабочий Мнемодак.');return}if(!name.trim()||!selected.length){setFormError('Назовите подключение и выберите проекты.');return}setBusy(true);try{setSecret(await call('/api/mcp/tokens',{name:name.trim(),projects:selected}));await load()}catch(e){setFormError(e.message)}finally{setBusy(false)}};
  return <section className="mcp-settings" aria-label="Подключение по MCP">
-  <div className="page-heading"><div><div className="overline">Настройки</div><h1>MCP</h1><p>Подключите исследования к ИИ-ассистенту или боту.</p></div></div>
+  <p className="settings-copy">Подключите исследования к ИИ-ассистенту или боту.</p>
+  <aside aria-labelledby="mcp-read-only-title">
+   <Alert theme="info" className="mcp-read-only" icon={<ShieldCheck size={18} aria-hidden="true"/>}
+    title={<h2 id="mcp-read-only-title">Только чтение</h2>}
+    message="Ассистент читает материалы в выбранных проектах с учётом ваших прав. Доступ можно отозвать в любой момент. Проверяйте ответы ассистента по источникам."/>
+  </aside>
   {error?<div className="processing-notice" role="alert"><p>{error}</p><Button onClick={load}>Повторить</Button></div>:null}
-  {loading&&!data?<p role="status">Загружаем настройки MCP…</p>:null}
+  {loading&&!data?<p className="settings-copy" role="status">Загружаем настройки MCP…</p>:null}
   {data?<>
-   <h2 className="settings-group-label">Подключение</h2>
-   <div className="settings-list"><div className="setting-row"><div className="setting-icon" aria-hidden="true"><Cable size={16}/></div><div className="setting-main"><h3>Адрес MCP-сервера</h3><p><code className="mcp-endpoint">{data.endpoint}</code></p></div><div className="setting-actions"><Button view="outlined" size="m" onClick={()=>copy(data.endpoint,ctx.notify,'Адрес')}><Copy size={14} aria-hidden="true"/>Скопировать</Button></div></div></div>
-   <ol className="mcp-steps"><li>Добавьте MCP-сервер в подключениях ассистента: Claude, ChatGPT или Codex.</li><li>Вставьте адрес и войдите в Мнемодак.</li><li>Выберите проекты и подтвердите доступ на чтение.</li></ol>
-   <div className="settings-group-head"><h2 className="settings-group-label" id="mcp-access-title">{team?'Кто подключён':'Ваши подключения'}{people.length?<span className="setting-count">{people.length}</span>:null}</h2><Button view="flat-secondary" size="s" onClick={load} loading={loading}>Обновить</Button></div>
-   <ul className="settings-list" aria-labelledby="mcp-access-title">
-    {!people.length?<li className="setting-row setting-empty"><p>{team?'Пока никто не подключал ассистентов к Мнемодаку.':'Подключений пока нет. Они появятся после подтверждения доступа ассистенту или создания токена.'}</p></li>:null}
-    {people.map(g=>{const active=Boolean(g.last_used&&Date.now()-g.last_used<7*864e5);const who=g.user_id===ctx.user?.id?'Вы':g.user_name||g.user_email||'Участник';return <li className="setting-row" key={g.id}>
-     <div className="setting-icon setting-initial" data-status={active?'on':'off'} aria-hidden="true">{(g.user_name||ctx.user?.name||who)[0].toUpperCase()}</div>
-     <div className="setting-main"><h3>{who}<span className="setting-meta">{g.name}</span></h3><p>{g.projects.map(p=>p.name).join(', ')}</p><p className="setting-sub">{g.last_used?(active?'Активно · ':'')+'Использовался '+when(g.last_used):'Ещё не использовался'} · {g.kind==='token'?'Токен до '+when(g.expires):g.origin||'OAuth'}</p></div>
-     {mine.has(g.id)?<div className="setting-actions"><DropdownMenu popupProps={{placement:['bottom-end','top-end']}} renderSwitcher={props=><Button {...props} view="flat" size="m" aria-label={'Действия: '+g.name}><MoreHorizontal size={16} aria-hidden="true"/></Button>} items={[{text:'Отозвать доступ',theme:'danger',action:()=>setRevoke(g)}]}/></div>:null}
-    </li>})}
-    <li className="setting-row setting-add-row"><button type="button" className="setting-add" onClick={openToken} disabled={!data.projects.length}><span className="setting-icon" aria-hidden="true"><Plus size={16}/></span><span className="setting-main"><strong>Токен для бота</strong><span>Для своего клиента с заголовком Authorization, на год</span></span></button></li>
-   </ul>
-   <p className="settings-note">Чату без поддержки MCP, например Mattermost, нужен бот или мост с MCP-клиентом.</p>
-   <h2 className="settings-group-label" id="mcp-capabilities-title">Что получит ассистент</h2>
-   <ul className="settings-list" aria-labelledby="mcp-capabilities-title">{([[Folder,'Выбранные проекты и их материалы'],[Search,'Поиск и чтение конкретных фрагментов'],[Check,'Находки со статусами и ссылками на источники']] as const).map(([Icon,text])=><li className="setting-row" key={text}><div className="setting-icon" aria-hidden="true"><Icon size={16}/></div><div className="setting-main"><h3>{text}</h3></div></li>)}</ul>
-   <p className="settings-note"><ShieldCheck size={14} aria-hidden="true"/>Только чтение. Права Мнемодака продолжают действовать, доступ можно отозвать в любой момент. Ответ формулирует ассистент: проверяйте выводы по источникам.</p>
+   <section aria-labelledby="mcp-connection-title">
+    <h2 className="settings-group-label" id="mcp-connection-title">Подключение</h2>
+    <div className="settings-list"><div className="setting-row mcp-endpoint-row">
+     <div className="setting-icon" aria-hidden="true"><Cable size={16}/></div>
+     <div className="setting-main"><h3>Адрес MCP-сервера</h3><p><code className="mcp-endpoint">{data.endpoint}</code></p></div>
+     <div className="setting-actions"><Button view="outlined" size="m" onClick={()=>copy(data.endpoint,ctx.notify,'Адрес')}><Copy size={14} aria-hidden="true"/>Скопировать</Button></div>
+    </div></div>
+    <ol className="mcp-steps">
+     <li>Откройте настройки подключений в Claude, ChatGPT или Codex.</li>
+     <li>Добавьте MCP-сервер, вставьте адрес и войдите в Мнемодак.</li>
+     <li>Выберите проекты и подтвердите доступ.</li>
+    </ol>
+   </section>
+   <section aria-labelledby="mcp-access-title">
+    <div className="settings-group-head"><h2 className="settings-group-label" id="mcp-access-title">{team?'Кто подключён':'Ваши подключения'}{people.length?<span className="setting-count">{people.length}</span>:null}</h2><Button view="flat-secondary" size="s" onClick={load} loading={loading}>Обновить</Button></div>
+    {!people.length?<EmptyState icon={<Cable size={28}/>} title="Подключений пока нет" description="Подключения появятся после подтверждения доступа ассистенту или создания токена."/>:null}
+    <ul className="settings-list" aria-labelledby="mcp-access-title">
+     {people.map(g=>{const active=Boolean(g.last_used&&Date.now()-g.last_used<7*864e5);const who=g.user_id===ctx.user?.id?'Вы':g.user_name||g.user_email||'Участник';return <li className="setting-row" key={g.id}>
+      <div className="setting-icon setting-initial" data-status={active?'on':'off'} aria-hidden="true">{(g.user_name||ctx.user?.name||who)[0].toUpperCase()}</div>
+      <div className="setting-main"><h3>{who}<span className="setting-meta">{g.name}</span></h3><p>{g.projects.map(p=>p.name).join(', ')}</p><p className="setting-sub">{g.last_used?(active?'Активно · ':'')+'Использовался '+when(g.last_used):'Ещё не использовался'} · {g.kind==='token'?'Токен до '+when(g.expires):g.origin||'OAuth'}</p></div>
+      {mine.has(g.id)?<div className="setting-actions"><DropdownMenu popupProps={{placement:['bottom-end','top-end']}} renderSwitcher={props=><Button {...props} view="flat" size="m" aria-label={'Действия: '+g.name}><MoreHorizontal size={16} aria-hidden="true"/></Button>} items={[{text:'Отозвать доступ',theme:'danger',action:()=>setRevoke(g)}]}/></div>:null}
+     </li>})}
+     <li className="setting-row setting-add-row"><button type="button" className="setting-add" onClick={openToken} disabled={!data.projects.length}><span className="setting-icon" aria-hidden="true"><Plus size={16}/></span><span className="setting-main"><strong>Токен для бота</strong><span>Для своего клиента с заголовком Authorization. Действует год.</span></span></button></li>
+    </ul>
+    <p className="settings-copy mcp-note">Для чата без поддержки MCP, например Mattermost, нужен бот или мост с MCP-клиентом.</p>
+   </section>
+   <section aria-labelledby="mcp-capabilities-title">
+    <h2 className="settings-group-label" id="mcp-capabilities-title">Что получит ассистент</h2>
+    <ul className="settings-list">{([[Folder,'Выбранные проекты и их материалы'],[Search,'Поиск и чтение фрагментов'],[Check,'Находки со статусами и ссылками на источники']] as const).map(([Icon,text])=><li className="setting-row" key={text}><div className="setting-icon" aria-hidden="true"><Icon size={16}/></div><div className="setting-main"><h3>{text}</h3></div></li>)}</ul>
+   </section>
   </>:null}
   <Dialog open={dialog} onClose={closeToken} size="m" className="mcp-token-dialog" aria-label={secret?'Токен MCP создан':'Токен для бота'}><Dialog.Header caption={secret?'Токен MCP создан':'Токен для бота'}/><Dialog.Body>
    {secret?<div className="mcp-secret"><p>Сохраните токен. Повторно получить его значение нельзя. Он действует до {when(secret.expires)}.</p><TextInput type="password" readOnly value={secret.token} controlProps={{'aria-label':'Созданный токен MCP'}}/><Button view="outlined" onClick={()=>copy(secret.token,ctx.notify,'Токен')}><Copy size={16}/>Скопировать токен</Button></div>:<><TextInput label="Название подключения" value={name} onUpdate={setName} controlProps={{'aria-label':'Название подключения MCP',maxLength:60}} placeholder="Например, бот Mattermost"/><p className="mcp-picker-label">Доступные проекты</p><ProjectChoices projects={data?.projects||[]} selected={selected} onChange={setSelected}/><p className="muted">Разрешается только чтение выбранных проектов. Токен действует год.</p></>}

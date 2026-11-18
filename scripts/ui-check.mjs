@@ -108,7 +108,8 @@ try{
     await table.waitFor();
     if(shot==='users'){
      await table.getByRole('columnheader',{name:'Доступ',exact:true}).waitFor();
-     await table.getByRole('columnheader',{name:'Админ',exact:true}).waitFor();
+     assert.equal(await table.getByRole('columnheader',{name:'Админ',exact:true}).count(),0);
+     await table.locator('.user-status').getByText('Администратор',{exact:true}).waitFor();
     }
     const metrics=await table.evaluate(element=>{
      const wrapper=element.closest('.table-scroll');
@@ -353,6 +354,13 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.locator('.feedback-settings .g-segmented-radio-group__option').nth(1).click();const selected=await page.locator('.feedback-settings .g-segmented-radio-group__option_checked').evaluate(e=>getComputedStyle(e,'::after').backgroundColor);assert.equal(selected,theme==='light'?'rgba(238, 32, 77, 0.12)':'rgba(238, 32, 77, 0.18)');
    if(theme==='light')for(const selector of ['.settings-sheet','.settings-main','.settings-header','.settings-body'])assert.equal(await page.locator(selector).evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
    await screenshot('ratings');
+   await page.getByRole('link',{name:'MCP',exact:true}).click();
+   const mcp=page.getByRole('region',{name:'Подключение по MCP'});
+   await mcp.getByRole('complementary',{name:'Только чтение'}).waitFor();
+   await mcp.getByRole('heading',{name:'Подключений пока нет',exact:true}).waitFor();
+   assert.deepEqual(await mcp.locator('.settings-group-label').evaluateAll(headings=>headings.map(h=>Math.round(h.getBoundingClientRect().left-document.querySelector('.settings-header h2').getBoundingClientRect().left))),[0,0,0]);
+   assert.deepEqual(await page.locator('.settings-nav a').evaluateAll(links=>links.slice(-2).map(link=>link.getAttribute('aria-label'))),['Оценки ответов','Пользователи']);
+   await screenshot('mcp-settings');
   });
   await run(theme+': What’s new explains feedback on an element',async()=>{
    await goto('/projects');
@@ -460,7 +468,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
   });
   await run(theme+': ideas hierarchy, search and form error',async()=>{
    await page.locator('.ideas-sheet').waitFor();assert.equal(await page.locator('.ideas-sheet .g-button_view_action').count(),0);
-   const search=page.getByLabel('Поиск по идеям',{exact:true});await search.fill('Нет такой идеи');await search.blur();assert.equal(await page.locator('.ideas-empty p').evaluate(e=>getComputedStyle(e).fontSize),'14px');assert.equal(await page.locator('.ideas-search').evaluate(e=>getComputedStyle(e).getPropertyValue('--g-text-input-border-color').trim()),theme==='light'?'#0000001a':'#232426');await screenshot('ideas');
+   const search=page.getByLabel('Поиск по идеям',{exact:true});await search.fill('Нет такой идеи');await search.blur();assert.equal(await page.locator('.ideas-list .empty-state p').evaluate(e=>getComputedStyle(e).fontSize),'14px');assert.equal(await page.locator('.ideas-search').evaluate(e=>getComputedStyle(e).getPropertyValue('--g-text-input-border-color').trim()),theme==='light'?'#0000001a':'#232426');await screenshot('ideas');
    await page.getByRole('button',{name:'Предложить идею',exact:true}).last().click();await page.getByLabel('Описание идеи',{exact:true}).fill('Тестовая идея');
    await page.route('**/api/ideas',r=>r.request().method()==='POST'?r.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Тест: не удалось сохранить'})}):r.continue());
    const dialog=page.locator('.g-dialog').last();assert.equal(await dialog.locator('.g-button_view_action').count(),1);await dialog.getByText('Отправить',{exact:true}).click();await dialog.getByRole('alert').waitFor();assert.match(await dialog.innerText(),/Тест: не удалось сохранить/);await screenshot('idea-error');await page.unroute('**/api/ideas');await dialog.getByText('Отмена',{exact:true}).click();

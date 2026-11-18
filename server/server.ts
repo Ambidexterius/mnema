@@ -23,7 +23,7 @@ import {extractFindings,dedupeWithModel} from './finding-extraction.ts';
 import {quoteSegment} from '../app/highlight-text.ts';
 import http from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
-import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
+import {createHash,createHmac,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {mkdir,readFile,writeFile,rename,unlink,stat,lstat,appendFile,truncate,rm} from 'node:fs/promises';
 import {createReadStream,createWriteStream,readFileSync,readdirSync} from 'node:fs';
@@ -141,6 +141,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],disabledPaths:['/token'],plugins:mcpPlugins(baseURL,db),emailAndPassword:{enabled:true,minPasswordLength:8,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production,...(options.authCookiePrefix?{cookiePrefix:options.authCookiePrefix}:{})},rateLimit:{enabled:true,window:60,max:20}});
  await (await getMigrations(auth.options)).runMigrations();
  db.exec(`CREATE TABLE IF NOT EXISTS mnema_access(user_id TEXT PRIMARY KEY,role TEXT NOT NULL CHECK(role IN ('view','full')),admin INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS mnema_removed_emails(email_hash TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS mnema_workspace(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,data TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS mnema_invites(id TEXT PRIMARY KEY,token_hash TEXT UNIQUE NOT NULL,email TEXT NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL,expires INTEGER NOT NULL,used INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS mnema_uploads(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,status TEXT NOT NULL);
@@ -303,6 +304,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const transfer=async(res,response)=>{const headers={};for(const [k,v] of response.headers)if(k!=='set-cookie')headers[k]=v;const cookies=response.headers.getSetCookie();const earlier=res.getHeader('Set-Cookie');if(cookies.length||earlier)headers['set-cookie']=[...(Array.isArray(earlier)?earlier:earlier?[earlier]:[]),...cookies];res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))};
  const limits=new Map();
  const limit=(key,max=30)=>{const now=Date.now();const l=limits.get(key);if(!l||now-l.time>60000){limits.set(key,{time:now,n:1});return}if(++l.n>max)fail(429,'Слишком много запросов. Подождите минуту.');if(limits.size>10000)for(const [k,v]of limits)if(now-v.time>60000)limits.delete(k)};
+ const hmacRemovedEmail=(email:string)=>createHmac('sha256',authSecret).update('removed-user:'+email.toLowerCase()).digest('hex');
  let registration=Promise.resolve();
  const withRegistration=fn=>{const result=registration.then(fn,fn);registration=result.catch(()=>{});return result};
  const register=async(req,res)=>{
@@ -311,7 +313,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const email=self?corporateEmail(b.email):text(b.email,150).toLowerCase(),providedName=text(b.name,70);if(!/^\S+@\S+\.\S+$/.test(email))fail(400,'Введите рабочую почту, например name@company.ru.');
   let invitation=null,admin=false,role='view',profile=null,photo=null;
   if(!ownerExists()){if(!setupToken||!safeEqual(hash(text(b.setupToken,256)),hash(setupToken)))fail(403,'Для первого входа нужен ключ настройки владельца.');admin=true;role='full'}
-  else if(self){signup.verified(req,email);profile=signup.profile(b);photo=await signup.photo(b.photo);signup.verified(req,email);if(q('SELECT 1 FROM user WHERE lower(email)=?').get(email))fail(409,'У вас уже есть аккаунт. Войдите со своим паролем.',{publicCode:'ACCOUNT_EXISTS'});role='full'}
+  else if(self){signup.verified(req,email);if(q('SELECT 1 FROM mnema_removed_emails WHERE email_hash=?').get(hmacRemovedEmail(email)))fail(403,'Попросите администратора прислать новое приглашение.');profile=signup.profile(b);photo=await signup.photo(b.photo);signup.verified(req,email);if(q('SELECT 1 FROM user WHERE lower(email)=?').get(email))fail(409,'У вас уже есть аккаунт. Войдите со своим паролем.',{publicCode:'ACCOUNT_EXISTS'});role='full'}
   else{invitation=q('SELECT * FROM mnema_invites WHERE token_hash=? AND used=0 AND revoked=0 AND expires>?').get(hash(text(b.inviteToken,256)),Date.now());if(!invitation||invitation.email!==email)fail(403,'Приглашение недействительно или выдано на другую почту. Проверьте рабочую почту или попросите новое приглашение у управляющего.');role=invitation.role}
   const name=profile?profile.firstName+' '+profile.lastName:text(invitation?.name||providedName||email.split('@')[0],70);
   const response=await auth.api.signUpEmail({body:{email,name,password:b.password},headers:fromNodeHeaders(req.headers),asResponse:true});
@@ -601,6 +603,33 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       return json(res,200,await ideas.moderate(person,id,b));
      }}
      if(path==='/api/users'&&req.method==='GET'){if(!person.manageUsers)fail(403,'Список пользователей доступен участникам с полным доступом.');return json(res,200,{users:userDirectory(person)})}
+     if(/^\/api\/users\/[^/]+$/.test(path)&&req.method==='DELETE')return await withRegistration(async()=>{
+      const latest=await session(req);
+      if(!latest?.owner)fail(403,'Удалять пользователей может только администратор.');
+      const id=path.split('/').at(-1);
+      if(id===latest.id)fail(403,'Свой аккаунт удалить нельзя.');
+      const account=q('SELECT u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=?').get(id);
+      const invite=account?null:q('SELECT email,workspace_id FROM mnema_invites WHERE id=? AND used=0').get(id);
+      if(!account&&!invite)return json(res,200,{users:userDirectory(latest)});
+      if(account&&q('SELECT 1 FROM mnema_project_sharing WHERE owner_id=?').get(id))fail(409,'Этот пользователь владеет проектом. Его аккаунт пока нельзя удалить.');
+      if(invite&&invite.workspace_id!=='*'&&!latest.workspaces.some(w=>w.id===invite.workspace_id))fail(404,'Приглашение не найдено.');
+      db.exec('BEGIN IMMEDIATE');try{
+       if(account){
+        q('INSERT OR IGNORE INTO mnema_removed_emails VALUES(?)').run(hmacRemovedEmail(account.email));
+        q('DELETE FROM mnema_invites WHERE lower(email)=?').run(account.email.toLowerCase());
+        q('DELETE FROM mnema_registration WHERE email=?').run(account.email.toLowerCase());
+        q('DELETE FROM mnema_members WHERE user_id=?').run(id);
+        q('DELETE FROM mnema_access WHERE user_id=?').run(id);
+        q('DELETE FROM mnema_chats WHERE user_id=?').run(id);
+        q('DELETE FROM user WHERE id=?').run(id);
+       }else{
+        // Remove superseded links, but keep any invitation created after this one.
+        q('DELETE FROM mnema_invites WHERE email=? AND workspace_id=? AND used=0 AND rowid<=(SELECT rowid FROM mnema_invites WHERE id=?)').run(invite.email,invite.workspace_id,id);
+       }
+       db.exec('COMMIT');
+      }catch(error){db.exec('ROLLBACK');throw error}
+      return json(res,200,{users:userDirectory(latest)});
+     });
      if(path==='/api/mcp/settings'&&req.method==='GET')return json(res,200,mcpService.settings(person));
      if(path==='/api/mcp/consent/context'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);const b=await body(req);return json(res,200,await mcpService.consentContext(person,String(b.query||''),fromNodeHeaders(req.headers)))}
      if(path==='/api/mcp/consent'&&req.method==='POST'){limit('mcp-consent:'+person.id,30);return json(res,200,await mcpService.consent(person,await body(req),fromNodeHeaders(req.headers)))}
@@ -799,6 +828,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      }else{
       const invite=q('SELECT * FROM mnema_invites WHERE id=? AND used=0').get(id);if(!invite)fail(404,'Участник не найден.');
       if(b.admin!==undefined)fail(400,'Назначить администратора можно после регистрации.');
+      if(b.status==='active'&&invite.expires<=Date.now())fail(409,'Срок приглашения истёк. Создайте новое приглашение.');
       if(invite.workspace_id==='*'?!latest.manageUsers:!sharing.canManage(invite.workspace_id,latest.id))fail(403,'Управление приглашением недоступно.');
       q('UPDATE mnema_invites SET role=?,revoked=? WHERE id=?').run(b.role||invite.role,b.status===undefined?invite.revoked:b.status==='revoked'?1:0,id);
      }
