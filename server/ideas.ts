@@ -1,17 +1,27 @@
 import {randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import type {CompletionMail} from './completion-mail.ts';
+import {feedbackCategories,feedbackElements,feedbackPages,isFeedbackPath,type FeedbackContext,type FeedbackLocation} from '../app/feedback-context.ts';
 
 export type IdeaStatus = 'open'|'progress'|'done'|'declined';
 const STATUSES:IdeaStatus[] = ['open','progress','done','declined'];
 const NOTIFY:Record<string,string> = {done:'Идея реализована',declined:'Идея отклонена'};
 type Person = {id:string;owner:boolean};
+type CanOpenLocation = (location:FeedbackLocation)=>boolean;
 
 function reject(status:number,message:string):never {
   throw Object.assign(new Error(message),{status});
 }
 const clean=(v:unknown,max:number)=>typeof v==='string'?v.trim().slice(0,max):'';
 const escape=(v:unknown)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]!);
+function feedbackLocation(value:unknown):FeedbackLocation|undefined{
+  if(!value||typeof value!=='object')return;
+  const {path,anchor,label}=value as Record<string,unknown>;
+  if(!isFeedbackPath(path))return;
+  if(anchor!==undefined&&(typeof anchor!=='string'||!anchor.length||anchor.length>512||/[^\w:-]/.test(anchor)))return;
+  if(label!==undefined&&(typeof label!=='string'||label.length>120||/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label)))return;
+  return {path,...(typeof anchor==='string'?{anchor}:{}),...(typeof label==='string'&&label.trim()?{label:label.trim()}:{})};
+}
 
 // Ideas board: every signed-in user writes, votes and comments; only the owner changes status or hides.
 // Author and voters get one email when an idea first reaches «done» or «declined».
@@ -23,27 +33,46 @@ export function createIdeas(db:DatabaseSync,{baseURL,send}:{baseURL:string;send?
   CREATE TABLE IF NOT EXISTS mnema_idea_votes(idea_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(idea_id,user_id));
   CREATE TABLE IF NOT EXISTS mnema_idea_comments(id TEXT PRIMARY KEY, idea_id TEXT NOT NULL, user_id TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS mnema_interface_ratings(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rating TEXT NOT NULL CHECK(rating IN ('up','down')), created INTEGER NOT NULL)`);
+  if(!db.prepare('PRAGMA table_info(mnema_ideas)').all().some(column=>column.name==='feedback'))db.exec("ALTER TABLE mnema_ideas ADD COLUMN feedback TEXT NOT NULL DEFAULT ''");
   const q=(sql:string)=>db.prepare(sql) as any;
   const find=(person:Person,id:unknown)=>{
     const idea=q('SELECT * FROM mnema_ideas WHERE id=?').get(String(id));
     if(!idea||(idea.hidden&&!person.owner))reject(404,'Идея не найдена.');
     return idea;
   };
-  function list(person:Person) {
-    return (q(`SELECT i.id,i.text,i.status,i.reason,i.hidden,i.created,i.user_id,u.name AS author,
+  function list(person:Person,canOpenLocation?:CanOpenLocation) {
+    return (q(`SELECT i.id,i.text,i.status,i.reason,i.hidden,i.created,i.user_id,i.feedback,u.name AS author,
       (SELECT count(*) FROM mnema_idea_votes v WHERE v.idea_id=i.id) AS votes,
       EXISTS(SELECT 1 FROM mnema_idea_votes v WHERE v.idea_id=i.id AND v.user_id=?) AS voted,
       (SELECT count(*) FROM mnema_idea_comments c WHERE c.idea_id=i.id) AS comments
       FROM mnema_ideas i LEFT JOIN user u ON u.id=i.user_id WHERE i.hidden=0 OR ? ORDER BY votes DESC,i.created DESC`).all(person.id,person.owner?1:0) as any[])
-      .map(r=>({id:String(r.id),text:String(r.text),status:r.status as IdeaStatus,reason:String(r.reason),hidden:Boolean(r.hidden),created:Number(r.created),
-        author:r.author?String(r.author):'Пользователь удалён',mine:r.user_id===person.id,votes:Number(r.votes),voted:Boolean(r.voted),comments:Number(r.comments)}));
+      .map(r=>{
+        const {location,...context}=r.feedback?JSON.parse(r.feedback) as FeedbackContext:{};
+        const safe=feedbackLocation(location);
+        return {id:String(r.id),text:String(r.text),status:r.status as IdeaStatus,reason:String(r.reason),hidden:Boolean(r.hidden),created:Number(r.created),
+          author:r.author?String(r.author):'Пользователь удалён',mine:r.user_id===person.id,votes:Number(r.votes),voted:Boolean(r.voted),comments:Number(r.comments),
+          ...(r.feedback?{feedback:{...context,...(safe&&canOpenLocation?.(safe)?{location:safe}:{})}}:{})};
+      });
   }
-  function create(person:Person,input:any) {
+  function create(person:Person,input:any,canOpenLocation?:CanOpenLocation) {
     const text=clean(input?.text,2000);
     if(text.length<3)reject(400,'Опишите идею.');
+    let feedback='';
+    if(input?.feedback!==undefined){
+      const {page,element,category,location}=input.feedback??{};
+      if(typeof page!=='string'||!Object.hasOwn(feedbackPages,page)||typeof element!=='string'||!Object.hasOwn(feedbackElements,element)||
+        (category!==undefined&&(typeof category!=='string'||!Object.hasOwn(feedbackCategories,category))))reject(400,'Не удалось определить элемент. Выберите его ещё раз.');
+      const safe=feedbackLocation(location);
+      if(location!==undefined&&!safe)reject(400,'Не удалось определить элемент. Выберите его ещё раз.');
+      feedback=JSON.stringify({page,element,category,...(safe&&canOpenLocation?.(safe)?{location:safe}:{})});
+    }
     const id=randomUUID(),now=Date.now();
-    q('INSERT INTO mnema_ideas(id,user_id,text,created,updated) VALUES(?,?,?,?,?)').run(id,person.id,text,now,now);
-    q('INSERT INTO mnema_idea_votes VALUES(?,?)').run(id,person.id);
+    db.exec('BEGIN');
+    try{
+      q('INSERT INTO mnema_ideas(id,user_id,text,created,updated,feedback) VALUES(?,?,?,?,?,?)').run(id,person.id,text,now,now,feedback);
+      q('INSERT INTO mnema_idea_votes VALUES(?,?)').run(id,person.id);
+      db.exec('COMMIT');
+    }catch(e){db.exec('ROLLBACK');throw e}
     void notifyOwners(person,text);
     return {id};
   }

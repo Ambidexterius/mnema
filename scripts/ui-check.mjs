@@ -321,7 +321,11 @@ try{
      assert.match(await page.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
      const main=await page.locator('.overview-main').boundingBox(),rail=await page.locator('.overview-materials').boundingBox();assert.ok(rail.x>=main.x+main.width);
     }
-    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))}
+    for(const width of [320,390,768,1024,1440]){
+     await page.setViewportSize({width,height:844});await page.waitForTimeout(80);
+     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+     if(!path.endsWith('/research'))assert.equal(await page.locator('.overview-materials').evaluate(element=>getComputedStyle(element).position),width>=1024?'sticky':'static');
+    }
     await screenshot(path.endsWith('/research')?'reports-research':'reports-overview');
    }
    await goto('/projects');
@@ -345,13 +349,111 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    if(theme==='light')for(const selector of ['.settings-sheet','.settings-main','.settings-header','.settings-body'])assert.equal(await page.locator(selector).evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
    await screenshot('ratings');
   });
-  await run(theme+': feedback wording and centered ghost action',async()=>{
-   await goto('/projects');await page.getByRole('button',{name:'Обратная связь',exact:true}).click();await page.getByText('Как оцениваете сервис?',{exact:true}).waitFor();
-   const ghost=page.getByRole('button',{name:'Открыть портал идей',exact:true});assert.ok((await ghost.getAttribute('class')).includes('view_flat'));const pos=await ghost.evaluate(e=>{const b=e.getBoundingClientRect(),d=e.closest('.g-dialog').getBoundingClientRect();return Math.abs(b.left+b.width/2-d.left-d.width/2)});assert.ok(pos<2);await screenshot('feedback');await ghost.click();
+  await run(theme+': What’s new explains feedback on an element or the whole page',async()=>{
+   await goto('/projects');
+   await page.getByRole('button',{name:/^Профиль:/}).click();
+   await page.getByRole('menuitem',{name:'Что нового',exact:true}).click();
+   const news=page.getByRole('dialog',{name:'Что нового',exact:true});
+   await news.getByRole('heading',{name:'Обратная связь по элементу или странице',exact:true}).waitFor();
+   assert.match(await news.innerText(),/Выберите элемент интерфейса или\s+всю страницу/);
+   await news.press('Escape');await news.waitFor({state:'hidden'});
+  });
+  await run(theme+': select an element on a 320px screen',async()=>{
+   await page.setViewportSize({width:320,height:760});await goto('/projects');
+   const menu=page.getByRole('button',{name:'Открыть меню',exact:true});await menu.click();
+   await page.getByRole('dialog',{name:'Основная навигация'}).getByRole('button',{name:'Оставить отзыв',exact:true}).click();
+   const heading=page.getByRole('heading',{name:'Проект',exact:true});await heading.click();
+   const form=page.getByRole('dialog',{name:'Отзыв об элементе',exact:true});await form.waitFor();
+   const box=await form.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=321);
+   for(const [surface, fill] of [['.feedback-mode','rgb(23, 24, 26)'],['.feedback-composer-popup','rgb(255, 255, 255)']]){
+    const style=await page.locator(surface).evaluate(element=>{const style=getComputedStyle(element);return [style.borderRadius,style.backgroundColor]});
+    assert.deepEqual(style,['24px',fill]);
+   }
+   assert.equal(await page.locator('.feedback-composer-popup').evaluate(element=>getComputedStyle(element).getPropertyValue('--g-popup-border-width')),'0px');
+   const hint=form.getByText('Коллеги увидят отзыв в портале идей',{exact:true});
+   assert.equal(await hint.evaluate(element=>{const range=document.createRange();range.selectNodeContents(element);return range.getClientRects().length}),1);
+   assert.ok(contrast(await hint.evaluate(element=>getComputedStyle(element).color),'rgb(255, 255, 255)')>=4.5);
+   assert.ok(contrast(await page.locator('.feedback-mode p').evaluate(element=>getComputedStyle(element).color),'rgb(23, 24, 26)')>=4.5);
+   assert.equal(await form.getByRole('button',{name:'Отправить отзыв',exact:true}).locator('.lucide-arrow-right').count(),1);
+   await screenshot('feedback-mobile');
+   await page.keyboard.press('Escape');await form.waitFor({state:'hidden'});
+   await heading.click();await form.getByRole('button',{name:'Вся страница',exact:true}).click();
+   const pageForm=page.getByRole('dialog',{name:'Отзыв о странице',exact:true});
+   await pageForm.getByRole('textbox',{name:'Отзыв',exact:true}).fill('Отзыв о странице на телефоне ('+theme+')');
+   await pageForm.getByRole('button',{name:'Отправить отзыв',exact:true}).click();
+   const published=page.getByRole('dialog',{name:'Идея опубликована',exact:true});
+   await published.getByRole('button',{name:'Закрыть',exact:true}).last().click();
+   await published.waitFor({state:'hidden'});
+   await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Открыть меню');
+   await page.setViewportSize({width:1440,height:950});
+  });
+  await run(theme+': select an interface element, retry feedback and publish it as an idea',async()=>{
+   await goto('/projects');
+   const trigger=page.getByRole('button',{name:'Оставить отзыв',exact:true});
+   const toolbar=page.getByRole('complementary',{name:'Обратная связь',exact:true});
+   await trigger.click();await toolbar.waitFor();
+   const myIdeas=toolbar.getByRole('button',{name:'Мои идеи',exact:true});
+   assert.match(await myIdeas.getAttribute('class'),/view_outlined/);
+   assert.ok(await myIdeas.evaluate(button=>{const toolbar=button.closest('.feedback-mode'),style=getComputedStyle(toolbar);return Math.abs(button.offsetWidth-(toolbar.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)))<=1}));
+   assert.equal(await toolbar.getByRole('button',{name:'О странице',exact:true}).count(),0);
+   await page.keyboard.press('Escape');await toolbar.waitFor({state:'hidden'});
+   await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Оставить отзыв');
+   await trigger.click();
+   const create=page.getByRole('button',{name:'Создать',exact:true});
+   await create.focus();await page.keyboard.press('Enter');
+   const form=page.getByRole('dialog',{name:'Отзыв об элементе',exact:true});
+   const outline=page.locator('.feedback-outline');
+   await form.waitFor();assert.equal(await outline.getAttribute('data-selected'),'true');
+   assert.equal(await page.getByRole('dialog',{name:'Новый проект',exact:true}).count(),0);
+   await form.getByRole('button',{name:'Выбрать другой элемент'}).click();
+   const heading=page.getByRole('heading',{name:'Проект',exact:true});
+   await heading.hover();await outline.waitFor();
+   const hoverFill=await outline.evaluate(element=>getComputedStyle(element).backgroundColor);
+   assert.ok(await outline.evaluate(element=>parseFloat(getComputedStyle(element).borderRadius)>0));
+   const [headingBox,outlineBox]=await Promise.all([heading.boundingBox(),outline.boundingBox()]);
+   assert.ok(Math.abs(headingBox.x-outlineBox.x)<=2.1&&Math.abs(headingBox.width-outlineBox.width)<=4.1);
+   await screenshot('feedback-hover');
+   await create.click();await form.waitFor();
+   assert.equal(await outline.getAttribute('data-selected'),'true');
+   assert.notEqual(await outline.evaluate(element=>getComputedStyle(element).backgroundColor),hoverFill);
+   const send=form.getByRole('button',{name:'Отправить отзыв',exact:true});
+   assert.equal(await send.isEnabled(),false);
+   const message='Уточнить, что создаёт кнопка ('+theme+')';
+   const field=form.getByRole('textbox',{name:'Отзыв',exact:true});
+   await field.fill(message);
+   await form.getByRole('combobox',{name:'Категория отзыва (необязательно)'}).click();
+   await page.getByRole('option',{name:'Текст и содержание',exact:true}).click();
+   await screenshot('feedback');
+   await page.route('**/api/ideas',r=>r.request().method()==='POST'?r.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Тест: не удалось отправить'})}):r.continue());
+   await send.click();await form.getByRole('alert').waitFor();assert.equal(await field.inputValue(),message);
+   await page.unroute('**/api/ideas');await send.click();
+   const published=page.getByRole('dialog',{name:'Идея опубликована',exact:true});
+   await published.waitFor();await screenshot('feedback-published');
+   await published.getByRole('button',{name:'Открыть портал идей',exact:true}).click();
+   const row=page.locator('.ideas-row').filter({hasText:message});
+   await row.locator('.ideas-meta .g-label').getByText('Текст и содержание',{exact:true}).waitFor();
+   await row.getByText('Проекты → Создать',{exact:true}).waitFor();
+   assert.equal(await row.getByText('Голосование',{exact:true}).count(),0);
+   const uncategorized=page.locator('.ideas-row').filter({hasText:'Отзыв о странице на телефоне ('+theme+')'});
+   await uncategorized.waitFor();assert.equal(await uncategorized.locator('.ideas-meta .g-label').count(),0);
+   await uncategorized.getByText('Проекты → Вся страница',{exact:true}).waitFor();
+   await screenshot('feedback-portal');
+   await row.locator('.idea-entry').click();
+   const idea=page.locator('.idea-post');await page.getByRole('region',{name:'Элемент интерфейса',exact:true}).getByText('Проекты → Создать',{exact:true}).waitFor();
+   assert.ok(await idea.getByText('Текст и содержание',{exact:true}).isVisible());
+   assert.ok(await idea.getByRole('button',{name:'Действия с идеей'}).isVisible());
+   await goto('/chat#ideas');
+   await row.locator('.idea-entry').click();
+   await page.getByRole('button',{name:'Показать в интерфейсе',exact:true}).click();
+   await page.waitForURL(fixture.base+'/projects');
+   await page.locator('[data-feedback-located]').waitFor();
+   assert.equal(await create.getAttribute('data-feedback-located')===null,false);
+   await screenshot('feedback-located');
+   await trigger.click();await toolbar.getByRole('button',{name:'Мои идеи',exact:true}).click();
   });
   await run(theme+': ideas hierarchy, search and form error',async()=>{
-   await page.locator('.ideas-sheet').waitFor();assert.equal(await page.locator('.ideas-sheet .g-button_view_action').count(),0);assert.equal(await page.locator('.ideas-empty p').evaluate(e=>getComputedStyle(e).fontSize),'14px');
-   const search=page.getByLabel('Поиск по идеям',{exact:true});await search.fill('Нет такой идеи');await search.blur();assert.equal(await page.locator('.ideas-search').evaluate(e=>getComputedStyle(e).getPropertyValue('--g-text-input-border-color').trim()),theme==='light'?'#0000001a':'#232426');await screenshot('ideas');
+   await page.locator('.ideas-sheet').waitFor();assert.equal(await page.locator('.ideas-sheet .g-button_view_action').count(),0);
+   const search=page.getByLabel('Поиск по идеям',{exact:true});await search.fill('Нет такой идеи');await search.blur();assert.equal(await page.locator('.ideas-empty p').evaluate(e=>getComputedStyle(e).fontSize),'14px');assert.equal(await page.locator('.ideas-search').evaluate(e=>getComputedStyle(e).getPropertyValue('--g-text-input-border-color').trim()),theme==='light'?'#0000001a':'#232426');await screenshot('ideas');
    await page.getByRole('button',{name:'Предложить идею',exact:true}).last().click();await page.getByLabel('Описание идеи',{exact:true}).fill('Тестовая идея');
    await page.route('**/api/ideas',r=>r.request().method()==='POST'?r.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Тест: не удалось сохранить'})}):r.continue());
    const dialog=page.locator('.g-dialog').last();assert.equal(await dialog.locator('.g-button_view_action').count(),1);await dialog.getByText('Отправить',{exact:true}).click();await dialog.getByRole('alert').waitFor();assert.match(await dialog.innerText(),/Тест: не удалось сохранить/);await screenshot('idea-error');await page.unroute('**/api/ideas');await dialog.getByText('Отмена',{exact:true}).click();
@@ -361,7 +463,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    const user=fixture.app.db.prepare('SELECT id FROM user').get(),now=Date.now(),fresh='edit-'+theme,old='expired-'+theme;
    const insert=fixture.app.db.prepare('INSERT INTO mnema_ideas(id,user_id,text,created,updated) VALUES(?,?,?,?,?)');insert.run(fresh,user.id,'Свежая идея для редактирования',now,now);insert.run(old,user.id,'Идея старше суток',now-86400000,now-86400000);
    try{
-    await page.getByRole('button',{name:'Закрыть портал идей',exact:true}).click();await goto('/projects');await page.getByRole('button',{name:'Обратная связь',exact:true}).click();await page.getByRole('button',{name:'Открыть портал идей',exact:true}).click();await page.locator('.ideas-sheet').waitFor();
+    await page.getByRole('button',{name:'Закрыть портал идей',exact:true}).click();await goto('/projects');await page.getByRole('button',{name:'Оставить отзыв',exact:true}).click();await page.getByRole('button',{name:'Мои идеи',exact:true}).click();await page.locator('.ideas-sheet').waitFor();
     const row=page.locator('.ideas-row').filter({hasText:'Свежая идея для редактирования'});await act(row,'Редактировать');const editor=page.getByRole('dialog',{name:'Редактировать идею',exact:true});await editor.waitFor();
     await editor.getByRole('textbox',{name:'Описание идеи',exact:true}).fill('Уточнённая идея');await editor.getByRole('button',{name:'Отмена',exact:true}).click();await editor.waitFor({state:'hidden'});assert.equal(fixture.app.db.prepare('SELECT text FROM mnema_ideas WHERE id=?').get(fresh).text,'Свежая идея для редактирования');
     await act(row,'Редактировать');await editor.getByRole('textbox',{name:'Описание идеи',exact:true}).fill('Уточнённая идея');await editor.getByRole('button',{name:'Сохранить',exact:true}).click();await editor.waitFor({state:'hidden'});await page.getByText('Уточнённая идея',{exact:true}).waitFor();assert.equal(fixture.app.db.prepare('SELECT created FROM mnema_ideas WHERE id=?').get(fresh).created,now);
@@ -599,6 +701,59 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
   const touch=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});await touch.addCookies(fixture.cookies);const phone=await touch.newPage();await phone.goto(fixture.base+'/chat');const avatar=phone.locator('.chat-welcome .mascot');await avatar.waitFor();const rect=await avatar.boundingBox();await phone.touchscreen.tap(rect.x+rect.width/2,rect.y+rect.height/2);assert.notEqual(await avatar.locator('svg').getAttribute('data-state'),'love');assert.ok(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await phone.screenshot({path:resolve(out,'living-avatar-mobile.png')});await touch.close();
  });
  const motion=await browser.newContext({viewport:{width:1440,height:950},reducedMotion:'no-preference'});await motion.addCookies(fixture.cookies);await motion.addInitScript(()=>{window.__uiAnimations=[];const animate=Element.prototype.animate;Element.prototype.animate=function(frames,options){if(this.classList.contains('content-shell'))window.__uiAnimations.push(options.duration);return animate.call(this,frames,options)}});const page=await motion.newPage();await page.goto(fixture.base+'/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();await page.getByRole('button',{name:'Свернуть меню',exact:true}).click();await page.waitForFunction(()=>window.__uiAnimations.includes(160));await page.getByRole('button',{name:'Развернуть меню',exact:true}).click();await page.waitForTimeout(200);assert.equal(await page.getByRole('button',{name:'Свернуть меню',exact:true}).getAttribute('aria-expanded'),'true');checks.push('Pointer sidebar collapse is animated and interruptible');await motion.close();
+ await run('Theme wipe preserves the chat draft and supports a keyboard interruption and reduced motion',async()=>{
+  const context=await browser.newContext({viewport:{width:1440,height:900},colorScheme:'light',reducedMotion:'no-preference'});
+  await context.addCookies(fixture.cookies);
+  const page=await context.newPage();page.setDefaultTimeout(8000);page.on('pageerror',error=>errors.push(error.message));
+  const theme=page.locator('html');
+  const draft=page.getByRole('textbox',{name:'Вопрос по всем исследованиям',exact:true});
+  const dark=page.getByRole('radio',{name:'Тёмная',exact:true});
+  const light=page.getByRole('radio',{name:'Светлая',exact:true});
+  const settled=value=>page.waitForFunction(value=>document.documentElement.dataset.theme===value&&!document.documentElement.classList.contains('theme-wiping'),value);
+  const openProfile=()=>page.getByRole('button',{name:/^Профиль:/}).click();
+  try{
+   await page.goto(fixture.base+'/chat');await draft.fill('Черновик вопроса');await settled('light');await openProfile();
+   await dark.click();
+   await page.waitForFunction(()=>document.getAnimations().filter(animation=>animation.animationName==='mn-theme-reveal').length===2);
+   assert.equal(await theme.getAttribute('data-theme'),'dark');
+   const mid=await page.evaluate(()=>{
+    const transitions=document.getAnimations().filter(animation=>animation.animationName==='mn-theme-reveal');
+    for(const animation of transitions){animation.pause();animation.currentTime=420}
+    return transitions.map(animation=>animation.effect.getTiming().duration);
+   });
+   assert.deepEqual(mid,[1000,1000]);
+   await page.screenshot({path:resolve(out,'theme-wipe-midpoint.png')});
+   await light.press('Space');await settled('light');
+   assert.equal(await draft.inputValue(),'Черновик вопроса');
+   assert.equal(new URL(page.url()).pathname,'/chat');
+   await page.emulateMedia({reducedMotion:'reduce'});await dark.click();await settled('dark');
+   assert.equal(await page.evaluate(()=>document.getAnimations().some(animation=>animation.animationName==='mn-theme-reveal')),false);
+   await page.reload();await settled('dark');await openProfile();
+   await page.emulateMedia({reducedMotion:'no-preference'});
+   await page.evaluate(()=>Object.defineProperty(document,'startViewTransition',{value:undefined}));
+   await light.click();await settled('light');
+  }finally{await context.close()}
+ });
+ await run('Theme wipe works on the mobile sign-in screen and in the mobile profile',async()=>{
+  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,colorScheme:'light',reducedMotion:'no-preference'});
+  const phone=await context.newPage();phone.setDefaultTimeout(8000);phone.on('pageerror',error=>errors.push(error.message));
+  const checkTheme=async value=>{
+   await phone.waitForFunction(()=>document.getAnimations().some(animation=>animation.animationName==='mn-theme-reveal'));
+   await phone.waitForFunction(value=>document.documentElement.dataset.theme===value&&!document.documentElement.classList.contains('theme-wiping'),value);
+  };
+  try{
+   await phone.goto(fixture.base+'/login');
+   const email=phone.getByRole('textbox',{name:'Рабочая почта',exact:true});
+   await email.fill('demo@example.test');
+   await phone.getByRole('button',{name:'Включить тёмную тему',exact:true}).tap();
+   await checkTheme('dark');assert.equal(await email.inputValue(),'demo@example.test');
+   await context.addCookies(fixture.cookies);await phone.goto(fixture.base+'/projects');
+   await phone.getByRole('button',{name:'Открыть меню',exact:true}).tap();
+   await phone.getByRole('button',{name:/^Профиль:/}).tap();
+   await phone.getByRole('radio',{name:'Светлая',exact:true}).tap();await checkTheme('light');
+   assert.ok(await phone.getByRole('button',{name:'Оставить отзыв',exact:true}).isVisible());
+  }finally{await context.close()}
+ });
  await run('Material dialog motion follows input and Escape closes only the visible top dialog',async()=>{
   const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'no-preference'});
   await context.addCookies(fixture.cookies);

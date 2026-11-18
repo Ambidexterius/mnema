@@ -13,6 +13,7 @@ import {materialActivity} from '../app/material-activity.ts';
 import {collectGlobalResearch,chatEvidence} from './global-research.ts';
 import {createCompletionMailer,sendSmtp,smtpConfigured,type CompletionMail} from './completion-mail.ts';
 import {createIdeas} from './ideas.ts';
+import type {FeedbackLocation} from '../app/feedback-context.ts';
 import {sendInvitationEmail} from './invitation-mail.ts';
 import {sourceURL,importedSegments,importFindings} from './imports.ts';
 import {selectEvidence} from './retrieval.ts';
@@ -226,6 +227,28 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{},canManageSharing:sharing.canManage(currentWs(),person.id),sharingMode:q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(currentWs())?.mode},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory(person):sharing.canManage(currentWs(),person.id)?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const scopedPerson=(person:Person):Person=>person.sharedProject&&!person.workspaces.some(w=>w.id===person.sharedProject.id)?{...person,workspaces:[...person.workspaces,person.sharedProject]}:person;
+ const ideaLocationAccess=(person:Person)=>{
+  const viewer=scopedPerson(person);
+  const projects=new Map<string,{studies:Set<string>;findings:Set<string>}>();
+  return ({path}:FeedbackLocation)=>{
+   const [,section,id,tab,resourceId]=path.split('/');
+   if(section==='conversation'){
+    try{chats.get(viewer,id);return true}
+    catch(error){if(error.status===404||error.status===409)return false;throw error}
+   }
+   if(!id)return true;
+   const project=viewer.workspaces.find(workspace=>workspace.id===id);
+   if(!project)return false;
+   if(!resourceId)return true;
+   let visible=projects.get(id);
+   if(!visible){
+    const {state}=wsStore.run(id,()=>view({...viewer,workspaceId:id,role:project.role,admin:project.admin}));
+    visible={studies:new Set(state.studies.map(study=>study.id)),findings:new Set(state.findings.map(finding=>finding.id))};
+    projects.set(id,visible);
+   }
+   return (tab==='studies'?visible.studies:visible.findings).has(resourceId);
+  };
+ };
  const globalResearch=(person:Person)=>collectGlobalResearch(person,project=>wsStore.run(project.id,()=>view({...person,workspaceId:project.id,role:project.role,admin:project.admin}).state));
  const mcpService=createMcpService({db,auth,baseURL,version:VERSION,
   getPerson:id=>{const user=q('SELECT u.id,u.name,u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0').get(id);if(!user)return null;
@@ -482,8 +505,11 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       return json(res,200,feedback.rate(scopedPerson(current),input.token,input.rating));
      }
      if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list(person)})}
-     if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person),admin:person.owner});
-     if(path==='/api/ideas'&&req.method==='POST'){limit('ideas:'+person.id,20);return json(res,200,ideas.create(person,await body(req)))}
+     if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person,ideaLocationAccess(person)),admin:person.owner});
+     if(path==='/api/ideas'&&req.method==='POST'){
+      limit('ideas:'+person.id,20);const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');
+      return json(res,200,ideas.create(latest,b,ideaLocationAccess(latest)));
+     }
      if(/^\/api\/ideas\/[\w-]{1,64}$/.test(path)&&req.method==='PATCH'){limit('ideas:'+person.id,60);return json(res,200,ideas.edit(person,path.split('/').pop(),await body(req)))}
      if(/^\/api\/ideas\/[\w-]{1,64}$/.test(path)&&req.method==='DELETE'){limit('ideas:'+person.id,60);return json(res,200,ideas.remove(person,path.split('/').pop()))}
      if(path==='/api/interface-rating'&&req.method==='POST'){limit('rating:'+person.id,20);return json(res,200,ideas.rate(person,(await body(req)).rating))}

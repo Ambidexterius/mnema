@@ -565,6 +565,11 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .overview-main{display:flex;flex-direction:column;gap:40px;min-width:0}
 .overview-grid .findings-digest{margin:0}
 @media(max-width:1023px){.overview-grid{grid-template-columns:minmax(0,1fr)}}
+@media(min-width:1024px) and (min-height:240px){
+ .overview-materials{--materials-sticky-offset:calc(44px + var(--g-spacing-4));position:sticky;inset-block-start:var(--materials-sticky-offset);max-block-size:calc(100dvh - 16px - var(--materials-sticky-offset) - var(--g-spacing-4));display:flex;flex-direction:column}
+ .overview-materials>.section-heading{flex:none}
+ .overview-materials-body{min-block-size:0;overflow:auto}
+}
 .overview-grid .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-height:36px;margin:0 0 12px}
 .overview-grid .section-heading h2{display:flex;align-items:center;gap:8px}
 .section-count{color:var(--g-color-text-hint);font-weight:400}
@@ -1325,12 +1330,6 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .idea-comments{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .idea-page .shared-composer{margin-top:4px}
 .idea-comments p{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
-.feedback-rate{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.feedback-choice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:120px;padding:16px;border:1px solid var(--g-color-line-generic);border-radius:16px;background:var(--g-color-base-background);color:var(--g-color-text-primary);font:inherit;font-size:15px;cursor:pointer;transition:border-color 150ms,background-color 150ms,transform 150ms}
-.feedback-choice:hover{border-color:var(--g-color-line-brand);background:color-mix(in srgb,var(--g-color-base-brand) 10%,transparent)}
-.feedback-choice:active{transform:scale(.97)}
-.feedback-choice:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
-.feedback-choice svg{color:var(--g-color-base-brand)}
 .feedback-done{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 0 8px;text-align:center}
 .feedback-done h2{margin:8px 0 0;font-size:20px;line-height:28px}
 .feedback-done p{margin:0 0 16px;text-wrap:balance;color:var(--g-color-text-secondary)}
@@ -1376,7 +1375,6 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .feedback-settings>.settings-group-head{margin:0 0 8px}
 .settings-body .settings-list{margin-inline:0}
 .feedback-hint,.feedback-done p,.ideas-empty p{font-size:14px;line-height:22px}
-.feedback-portal-footer .g-dialog-footer__children{display:flex;justify-content:center;width:100%;margin:0}
 .ideas-search{--g-text-input-border-color:var(--g-color-line-generic);--g-text-input-border-color-hover:var(--g-color-line-generic-accent);--g-text-input-border-color-active:var(--g-color-line-focus);--g-text-input-focus-outline-color:var(--g-color-line-focus);--g-text-input-background-color:var(--g-color-base-background)}
 .ideas-header,.ideas-body{padding-inline:24px}
 .finding-side .finding-project-link{margin-top:4px}

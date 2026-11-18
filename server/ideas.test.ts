@@ -3,6 +3,54 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {createIdeas} from './ideas.ts';
 
+test('inline feedback adds only known interface metadata and preserves earlier ideas',()=>{
+  const db=new DatabaseSync(':memory:');
+  try{
+    db.exec("CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT); CREATE TABLE mnema_ideas(id TEXT PRIMARY KEY,user_id TEXT,text TEXT,status TEXT DEFAULT 'open',reason TEXT DEFAULT '',hidden INTEGER DEFAULT 0,notified TEXT DEFAULT '',created INTEGER,updated INTEGER); INSERT INTO mnema_ideas(id,user_id,text,created,updated) VALUES('old','a','Старая идея',0,0)");
+    const person={id:'a',owner:false};
+    const ideas=createIdeas(db,{baseURL:'https://mnemo.test'});
+    const feedback={page:'research',element:'heading',category:'accessibility'};
+    assert.throws(()=>ideas.create(person,{text:'Закрытый проект',feedback:{...feedback,page:'/projects/secret'}}),/Выберите/);
+    assert.throws(()=>ideas.create(person,{text:'Категория',feedback:{...feedback,category:'toString'}}),/Выберите/);
+    const {id}=ideas.create(person,{text:'Улучшить заголовок',feedback:{...feedback,selection:'Закрытые данные'}});
+    ideas.edit(person,id,{text:'Уточнить заголовок'});
+    const list=createIdeas(db,{baseURL:'https://mnemo.test'}).list(person);
+    assert.equal(list.length,2);
+    assert.deepEqual(list.find(item=>item.id===id)?.feedback,feedback);
+    assert.equal(list.find(item=>item.id==='old')?.feedback,undefined);
+  }finally{db.close()}
+});
+
+test('feedback location permits canonical paths and discards untrusted fields',()=>{
+  const db=new DatabaseSync(':memory:');
+  try{
+    db.exec('CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT)');
+    const person={id:'author',owner:false};
+    const ideas=createIdeas(db,{baseURL:'https://mnemo.test'});
+    const context={page:'research',element:'button',category:'content'};
+    const write=(location:unknown,canOpen=()=>true)=>ideas.create(person,{text:'Подписать кнопку',feedback:{...context,location}},canOpen);
+    for(const location of [
+      null, 'plain', {}, {path:'/chat\n'}, {path:'/projects?share=token'}, {path:'/chat#draft'},
+      {path:'https://mnemo.test/projects'}, {path:'//example.test/projects'}, {path:'/projects/./x'},
+      {path:'/projects/x/'}, {path:'/projects/x/study/y'}, {path:'/projects/x/studies/%2e%2e'},
+      {path:'/projects/x/settings'}, {path:'/conversation/x/messages'}, {path:'/projects/x\\stray'},
+      {path:'/projects',anchor:'button[name]'}, {path:'/projects',anchor:'id\n'},
+      {path:'/projects',anchor:'x'.repeat(513)}, {path:'/projects',anchor:null},
+      {path:'/projects',label:'x'.repeat(121)}, {path:'/projects',label:'Ссылка\u202E'},
+    ])assert.throws(()=>write(location),{status:400});
+    const anchor='ui-projects:create'.padEnd(512,'_');
+    const location={path:'/projects',anchor,label:' Кнопка «Создать» '};
+    const allowed=write({...location,share:'private-token'}).id;
+    const denied=write(location,()=>false).id;
+    const absent=write({path:'/projects/main/research'}).id;
+    const list=ideas.list(person,()=>true);
+    assert.deepEqual(list.find(item=>item.id===allowed)?.feedback,{...context,location:{path:'/projects',anchor,label:'Кнопка «Создать»'}});
+    assert.deepEqual(list.find(item=>item.id===denied)?.feedback,context);
+    assert.deepEqual(list.find(item=>item.id===absent)?.feedback,{...context,location:{path:'/projects/main/research'}});
+    assert.deepEqual(ideas.list(person,()=>false).map(item=>item.feedback),[context,context,context]);
+  }finally{db.close()}
+});
+
 test('ideas: anyone writes, votes and comments; owner moderates; final statuses mail author and voters once',async()=>{
   const db=new DatabaseSync(':memory:');
   try {
