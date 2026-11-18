@@ -25,7 +25,7 @@ import http from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {AsyncLocalStorage} from 'node:async_hooks';
-import {mkdir,readFile,writeFile,rename,unlink,stat,appendFile,truncate,rm} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,unlink,stat,lstat,appendFile,truncate,rm} from 'node:fs/promises';
 import {createReadStream,createWriteStream,readFileSync,readdirSync} from 'node:fs';
 import {pipeline} from 'node:stream/promises';
 import {Transform,Readable} from 'node:stream';
@@ -35,7 +35,35 @@ import {fileURLToPath} from 'node:url';
 import {betterAuth} from 'better-auth';
 import {fromNodeHeaders,toNodeHandler} from 'better-auth/node';
 import {getMigrations} from 'better-auth/db/migration';
-import type {Finding} from '../app/types.ts';
+import type {Finding,Study} from '../app/types.ts';
+
+function studiesForReader(studies:(Study&{importSource?:{catalog?:boolean}})[],findings:Finding[]){
+ const segmentsByStudy=new Map<string,Set<string>>();
+ for(const finding of findings){
+  if(finding.status!=='verified')continue;
+  const segments=segmentsByStudy.get(finding.studyId)||new Set<string>();
+  segments.add(finding.segmentId);segmentsByStudy.set(finding.studyId,segments);
+ }
+ return studies.flatMap(study=>{
+  if(!study.importSource?.catalog)return [study];
+  const visible=segmentsByStudy.get(study.id),segments=study.segments?.filter(segment=>visible?.has(segment.id))||[];
+  return segments.length?[{...study,segments}]:[];
+ });
+}
+
+function summarySourcesMatch(studies:Study[],sources:{studyId:string;segmentId:string;text:string}[]){
+ return Boolean(Array.isArray(sources)&&sources.length&&sources.every(source=>{
+  const study=studies.find(item=>item.id===source.studyId&&item.status==='ready');
+  const segment=study?.segments?.find(item=>item.id===source.segmentId);
+  return segment&&(segment.correctedText??segment.text)===source.text;
+ }));
+}
+
+function summaryFindingsRevision(findings:Finding[]){
+ return hash(JSON.stringify(findings.filter(finding=>finding.status==='verified').map(finding=>[
+  finding.id,finding.title,finding.kind,finding.importance,finding.origin,finding.studyId,finding.segmentId,finding.evidence
+ ])));
+}
 
 export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
@@ -128,7 +156,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
   person=scopedPerson(person);
   const references=reply.sources.map(source=>({
-   workspaceId:source.workspaceId||person.workspaceId,studyId:source.studyId,segmentId:source.segmentId||source.id
+   workspaceId:source.workspaceId||person.workspaceId,studyId:source.studyId,segmentId:source.segmentId||source.id,text:source.text
   }));
   const projectIds=scope==='project'?[person.workspaceId]:references.length
    ?references.map(ref=>ref.workspaceId):person.workspaces.map(project=>project.id);
@@ -209,7 +237,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  // project switching and polling slow, so folder cards are cached per stored revision and role.
  const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number,processingOwners:Set<string>}}>();
  const projectCard=(m:any)=>{const key=m.version+':'+m.data_length+':'+m.role;const cached=projectCards.get(m.id);if(cached?.key===key)return cached.card;
-  const state=JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);const visibleCatalog=new Set(state.findings.filter(f=>f.status==='verified').map(f=>f.segmentId));const files=state.studies.filter(study=>study.fileId&&(m.role==='full'||!study.importSource?.catalog||study.segments?.some(segment=>visibleCatalog.has(segment.id))));
+  const state=JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);
+  const files=(m.role==='full'?state.studies:studiesForReader(state.studies,state.findings)).filter(study=>study.fileId);
   const processingOwners=new Set<string>();
   for(const study of files)if(study.format==='Видео'&&study.uploadedById&&(study.status==='processing'||['queued','running'].includes(study.speakerInfo?.state)))processingOwners.add(study.uploadedById);
   const card={fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),studyCount:state.studies.length,processingOwners};
@@ -219,11 +248,20 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const findings=raw.findings.map(legacyFinding).filter(f=>full||f.status==='verified').map(f=>({...f,basis:reportOf(raw.studies.find(s=>s.id===f.studyId))==='ready'?'report':'raw'}));
   const pendingJobs=new Map(q("SELECT study_id,status FROM mnema_jobs WHERE workspace_id=? AND status IN ('queued','running') AND kind!='speakers'").all(currentWs()).map(job=>[job.study_id,job.status]));
   const uploadSizes=new Map(q("SELECT id,size FROM mnema_uploads WHERE status='ready'").all().map(file=>[file.id,file.size]));
-  const verifiedCatalogSegments=new Set(findings.map(f=>f.segmentId));const studies=raw.studies.filter(s=>full||!s.importSource?.catalog||s.segments.some(seg=>verifiedCatalogSegments.has(seg.id))).map(s=>({...s,fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.importSource?.catalog?{segments:s.segments.filter(seg=>verifiedCatalogSegments.has(seg.id))}:{}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
+  const studies=(full?raw.studies:studiesForReader(raw.studies,findings)).map(s=>({...s,fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
+  let highlights=raw.highlights;
+  if(!full&&highlights?.length){
+   const visible=new Map<string,Set<string>>(studies.map(study=>[study.id,new Set(study.segments?.map(segment=>segment.id))]));
+   highlights=highlights.filter(highlight=>visible.get(highlight.studyId)?.has(highlight.segmentId));
+  }
   // projectSummary is always present, so switching projects never keeps the previous project's summary on the client.
   const summary=raw.projectSummary;
-  const canReadSummary=full||summary?.sources.every(source=>studies.some(study=>study.id===source.studyId&&study.segments.some(segment=>segment.id===source.segmentId)));
-  const state={...raw,projectSummary:canReadSummary?summary||null:null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies};
+  // A legacy overview does not record the findings sent to the model before a mask.
+  const currentFindings=summary&&(Object.hasOwn(summary,'reviewedRevision')
+   ?summary.reviewedRevision===null||summary.reviewedRevision===summaryFindingsRevision(findings)
+   :!raw.studies.some(study=>study.redactionCount));
+  const canReadSummary=currentFindings&&summarySourcesMatch(full?studiesForReader(raw.studies,findings):studies,summary.sources);
+  const state={...raw,projectSummary:canReadSummary?summary:null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies,highlights};
   return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{},canManageSharing:sharing.canManage(currentWs(),person.id),sharingMode:q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(currentWs())?.mode},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory(person):sharing.canManage(currentWs(),person.id)?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const scopedPerson=(person:Person):Person=>person.sharedProject&&!person.workspaces.some(w=>w.id===person.sharedProject.id)?{...person,workspaces:[...person.workspaces,person.sharedProject]}:person;
@@ -376,7 +414,16 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const processingLog=(event,job,extra={})=>console.info('Processing',JSON.stringify({event,jobId:job.id,studyId:job.study_id,workspaceId:job.workspace_id,kind:job.kind,...extra}));
  const work=async(lane:'files'|'analysis')=>{if(lane==='files'?workerBusy:analysisBusy)return;const job=lane==='files'?q("SELECT * FROM mnema_jobs WHERE status='queued' ORDER BY CASE WHEN kind='document' THEN 0 ELSE 1 END,created LIMIT 1").get():null;if(!job){if(lane==='files')return;const task=nextSummary();if(!task)return;analysisBusy=true;try{await wsStore.run(task.workspaceId,async()=>{const study=getState().state.studies.find(s=>s.id===task.studyId);if(task.kind==='findings'){try{await processFindings(study)}catch(e){const code=e.code||(e.status===429?'limit':e.status>=500?'unavailable':'unknown');console.error('Findings failed',code,e.name,e.status||'');const error=code==='too_large'?'Материал слишком большой: разделите его на несколько файлов.':code==='limit'?'Лимит обращений к модели исчерпан. Обратитесь к владельцу проекта.':code==='unavailable'?'Модель не отвечает. Попробуйте позже — материал и находки сохранены.':code==='truncated'||code==='format'||code==='empty'?'Модель вернула неполный ответ. Попробуйте ещё раз.':String(e.message||'').startsWith('Расшифровка')||String(e.message||'').startsWith('Доступ')||String(e.message||'').startsWith('Модель выключена')?e.message:'Не удалось найти находки. Попробуйте ещё раз.';mutate(s=>{const t=s.studies.find(x=>x.id===task.studyId);if(t)t.findingsInfo={...t.findingsInfo,state:'error',progress:null,errorCode:code,error}})}return}try{await processSummary(study)}catch(e){const code=e.code||(e.status===429?'limit':e.status>=500?'unavailable':'unknown');console.error('Summary failed',code,e.name,e.status||'');const publicError=code==='too_large'?'Разделите материал на несколько файлов и создайте сводку для каждого.':code==='limit'?'Лимит обращений к модели исчерпан. Обратитесь к управляющему пространством.':code==='not_ready'?'Дождитесь расшифровки и попробуйте ещё раз.':code==='truncated'?'Модель вернула неполный ответ. Текст сохранён. Повторите анализ.':code==='unavailable'?'Сервис сводок не отвечает. Попробуйте позже. Материал и расшифровка сохранены.':'Материал и расшифровка сохранены. Попробуйте ещё раз.';mutate(s=>{const target=s.studies.find(x=>x.id===task.studyId);if(target)target.summaryInfo={...target.summaryInfo,state:'error',errorCode:code,error:publicError}})}})}finally{analysisBusy=false}return}const activeKey=jobKey(job.workspace_id||'main',job.study_id);if(deletingStudies.has(activeKey))return;workerBusy=true;const controller=new AbortController();let finishJob!:()=>void;const done=new Promise<void>(resolve=>{finishJob=resolve});activeCPU.set(activeKey,{controller,done});try{await wsStore.run(job.workspace_id||'main',async()=>{q("UPDATE mnema_jobs SET status='running' WHERE id=?").run(job.id);const started=Date.now();processingLog('started',job);const heartbeat=setInterval(()=>{const item=getState().state.studies.find(s=>s.id===job.study_id);processingLog('heartbeat',job,{elapsedSeconds:Math.floor((Date.now()-started)/1000),progressAgeSeconds:item?.processingUpdatedAt?Math.floor((Date.now()-item.processingUpdatedAt)/1000):null,progress:item?.progress||null})},30000);heartbeat.unref();try{const study=getState().state.studies.find(x=>x.id===job.study_id);if(!study)throw new Error('Материал удалён.');if(job.kind!=='speakers')mutate(s=>{const item=s.studies.find(x=>x.id===job.study_id);if(item)Object.assign(item,{processingStartedAt:started,processingUpdatedAt:started,progress:'Начинаем обработку'})});await processStudy(study,job.kind,join(dir,'processing',job.id),controller.signal);controller.signal.throwIfAborted();if(job.kind==='asr')completionMail.queue(job.id,currentWs(),study.id,study.uploadedById||q('SELECT user_id FROM mnema_upload_sessions WHERE id=?').get(study.fileId)?.user_id||'');q("UPDATE mnema_jobs SET status='done',error=NULL WHERE id=?").run(job.id);processingLog('completed',job,{elapsedSeconds:Math.floor((Date.now()-started)/1000)})}catch(e){if(controller.signal.aborted){q("UPDATE mnema_jobs SET status='cancelled',error=NULL WHERE id=?").run(job.id);processingLog('cancelled',job,{elapsedSeconds:Math.floor((Date.now()-started)/1000)});mutate(s=>{const item=s.studies.find(x=>x.id===job.study_id);if(item)Object.assign(item,{status:'error',progress:null,error:'Обработка остановлена.'})});return}processingLog('failed',job,{errorType:e.name,errorCode:e.code||null,signal:e.signal||null,killed:Boolean(e.killed),elapsedSeconds:Math.floor((Date.now()-started)/1000)});const message=text(e.message,500);q("UPDATE mnema_jobs SET status='error',error=? WHERE id=?").run(message,job.id);mutate(s=>{const item=s.studies.find(x=>x.id===job.study_id);if(item)Object.assign(item,{status:'error',error:message})})}finally{clearInterval(heartbeat);await rm(join(dir,'processing',job.id),{recursive:true,force:true})}})}finally{activeCPU.delete(activeKey);workerBusy=false;finishJob()}};
  const worker=setInterval(()=>{for(const lane of ['files','analysis'] as const)work(lane).catch(error=>console.error('Worker failed',lane,error.name,error.code||''))},1000);worker.unref();
- const enqueue=(study,kind)=>{if(deletingStudies.has(jobKey(currentWs(),study.id)))fail(409,'Материал удаляется. Дождитесь завершения.');if(q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND status IN ('queued','running')").get(study.id))fail(409,'Этот материал уже обрабатывается.');q('INSERT INTO mnema_jobs(id,study_id,status,kind,created,workspace_id) VALUES(?,?,?,?,?,?)').run(randomUUID(),study.id,'queued',kind,Date.now(),currentWs());mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(!item)return;if(kind==='speakers')item.speakerInfo={state:'queued',startedAt:Date.now()};else Object.assign(item,{status:'processing',step:1,processingStartedAt:undefined,processingUpdatedAt:Date.now(),progress:'В очереди на обработку',error:null})})};
+ const activeStudyJob=(studyId:string)=>q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status IN ('queued','running')").get(studyId,currentWs());
+ const queueStudy=(study,kind)=>{
+  if(deletingStudies.has(jobKey(currentWs(),study.id)))fail(409,'Материал удаляется. Дождитесь завершения.');
+  if(activeStudyJob(study.id))fail(409,'Этот материал уже обрабатывается.');
+  const now=Date.now();
+  q('INSERT INTO mnema_jobs(id,study_id,status,kind,created,workspace_id) VALUES(?,?,?,?,?,?)').run(randomUUID(),study.id,'queued',kind,now,currentWs());
+  if(kind==='speakers')study.speakerInfo={state:'queued',startedAt:now};
+  else Object.assign(study,{status:'processing',step:1,processingStartedAt:undefined,processingUpdatedAt:now,progress:'В очереди на обработку',error:null});
+ };
+ const enqueue=(study,kind)=>mutate(s=>queueStudy(s.studies.find(x=>x.id===study.id),kind));
  const uploadBusy=new Set();
  // Both upload routes claim a name before accepting bytes. The SQLite writer lock
  // covers the check and reservation, including requests from different users.
@@ -400,13 +447,23 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   q('DELETE FROM mnema_upload_sessions WHERE id=?').run(id);
   q("DELETE FROM mnema_uploads WHERE id=? AND status='uploading'").run(id);
  }
+ function hasUploadStudy(id:string,workspaceId:string) {
+  return Boolean(q("SELECT 1 FROM mnema_workspaces w, json_each(w.data,'$.studies') s WHERE w.id=? AND json_extract(s.value,'$.fileId')=?").get(workspaceId,id));
+ }
+ function discardUpload(id:string, status?:string) {
+  releasePendingUpload(id);
+  const paths=[id+'.part',...(status==='uploading'?[id]:[])];
+  return Promise.all(paths.map(path=>unlink(join(dir,'uploads',path)).catch(()=>{})));
+ }
  async function expireUploads() {
-  const expired = q('SELECT id FROM mnema_upload_sessions WHERE created<?').all(Date.now()-86400000);
-  const cleanup: Promise<void>[] = [];
-  for (const {id} of expired) {
+  const expired = q(`SELECT s.id,u.status,coalesce(json_extract(s.metadata,'$.workspaceId'),'main') AS workspaceId,
+   json_extract(s.metadata,'$.completedStudyId') AS completedStudyId
+   FROM mnema_upload_sessions s LEFT JOIN mnema_uploads u ON u.id=s.id WHERE s.created<?`).all(Date.now()-86400000);
+  const cleanup: ReturnType<typeof discardUpload>[] = [];
+  for (const {id,status,workspaceId,completedStudyId} of expired) {
    if (uploadBusy.has(id)) continue;
-   releasePendingUpload(id);
-   cleanup.push(unlink(join(dir,'uploads',id+'.part')).catch(()=>{}));
+   if(!completedStudyId&&hasUploadStudy(id,workspaceId))continue;
+   cleanup.push(discardUpload(id,status));
   }
   await Promise.all(cleanup);
  }
@@ -426,7 +483,28 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    throw error;
   }
  }
- const addStudy=(id,name,mime,meta,person)=>{const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);const study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:isDoc?0:meta.participants||0,status:isDoc&&!meta.deferProcessing?'processing':'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person?.name||'',uploadedById:person?.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:getState().state.modelId}:undefined};mutate(s=>s.studies.unshift(study));if(!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr))))enqueue(study,isDoc?'document':'asr');return study};
+ function finalizeUpload(id:string,name:string,mime:string,meta,person:Person,linkedStudyId?:string) {
+  const isDoc=/\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);
+  const autoProcess=!meta.deferProcessing&&(isDoc||(meta.autoProcess!==false&&(options.recordingProcessor||processingReadiness().asr)));
+  let createdStudyId:string;
+  mutate(state=>{
+   let study=state.studies.find(item=>item.fileId===id);
+   if((linkedStudyId&&study?.id!==linkedStudyId)||(study&&deletingStudies.has(jobKey(currentWs(),study.id)))||
+      !q('SELECT 1 FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=?').get(id))
+    fail(409,'Загрузка изменилась. Обновите страницу.');
+   if(!study){
+    study={id:randomUUID(),fileId:id,title:text(meta.title,140)||name,description:'',project:text(meta.project,80),type:['Интервью','Юзабилити-тест','Встреча','Отчёт'].includes(meta.type)?meta.type:'Интервью',format:isDoc?(/\.pdf$/i.test(name)?'PDF':/\.docx?$/i.test(name)?'Word':/\.xlsx?$/i.test(name)?(/\.xls$/i.test(name)?'XLS':'XLSX'):'TXT'):'Видео',date:new Date().toISOString().slice(0,10),duration:0,participants:isDoc?0:meta.participants||0,status:'uploaded',tags:[],color:'sage',findings:0,summary:[],segments:[],fileName:name,mime,addedBy:person.name,uploadedById:person.id,importSource:meta.importId?{provider:'external',fileId:meta.importId,sha256:meta.sha256}:undefined,autoSummary:meta.autoSummary===true?{requestedBy:person.id,modelId:state.modelId}:undefined};
+    state.studies.unshift(study);
+   }
+   // Old releases could commit the material before inserting its job.
+   if(autoProcess&&['uploaded','processing'].includes(study.status)&&!activeStudyJob(study.id))queueStudy(study,isDoc?'document':'asr');
+   createdStudyId=study.id;
+   q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
+   q('UPDATE mnema_upload_sessions SET received=(SELECT size FROM mnema_uploads WHERE id=?),metadata=?,created=? WHERE id=?')
+    .run(id,JSON.stringify({...meta,workspaceId:currentWs(),completedStudyId:createdStudyId}),Date.now(),id);
+  });
+  return createdStudyId!;
+ }
  const inviteToProject=async(person:Person,b:any)=>{
   const all=b.scope==='all'||b.scope===undefined&&person.manageUsers,workspace=all?'*':currentWs();
   if(all?!person.manageUsers:!sharing.canManage(currentWs(),person.id))fail(403,'Приглашать во все проекты может администратор или участник с полным доступом.');
@@ -742,32 +820,46 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      return json(res,201,{id,offset:0,chunkSize:512*1024});
     }
     if(/^\/api\/upload-sessions\/[^/]+(?:\/complete)?$/.test(path)){
-     if(person.role!=='full')fail(403,'Загрузка недоступна.');const id=path.split('/')[3],upload=q('SELECT s.*,u.name,u.mime,u.size FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=? AND s.user_id=?').get(id,person.id);if(!upload||((JSON.parse(upload.metadata).workspaceId||'main')!==currentWs()))fail(404,'Загрузка не найдена.');const completedStudyId=JSON.parse(upload.metadata).completedStudyId;const temporary=join(dir,'uploads',id+'.part');
+     if(person.role!=='full')fail(403,'Загрузка недоступна.');
+     const id=path.split('/')[3],upload=q('SELECT s.*,u.name,u.mime,u.size,u.status FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=? AND s.user_id=?').get(id,person.id);
+     const metadata=upload&&JSON.parse(upload.metadata);
+     if(!upload||(metadata.workspaceId||'main')!==currentWs())fail(404,'Загрузка не найдена.');
+     const {completedStudyId}=metadata,temporary=join(dir,'uploads',id+'.part'),destination=join(dir,'uploads',id);
      if(req.method==='GET')return json(res,200,{id,offset:upload.received,chunkSize:512*1024,completedStudyId});
      if(completedStudyId){if(req.method==='POST'&&path.endsWith('/complete'))return json(res,201,{...view(person),createdStudyId:completedStudyId});fail(409,'Файл уже сохранён. Откройте материал.')}
      if(uploadBusy.has(id))fail(409,'Часть файла ещё загружается.');uploadBusy.add(id);
      try{
-      if(req.method==='DELETE'){await unlink(temporary).catch(()=>{});releasePendingUpload(id);return json(res,200,{ok:true})}
+      if(req.method==='DELETE'){
+       if(hasUploadStudy(id,currentWs()))fail(409,'Файл уже связан с материалом. Завершите загрузку.');
+       await discardUpload(id,upload.status);
+       return json(res,200,{ok:true});
+      }
       if(req.method==='PUT'&&!path.endsWith('/complete')){
        const offset=Number(req.headers['x-upload-offset']),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||size<1||size>512*1024||offset+size>upload.size)fail(400,'Некорректная часть файла.');let length=0;const pieces=[];for await(const chunk of req){length+=chunk.length;if(length>size)fail(413,'Слишком большая часть файла.');pieces.push(chunk)}if(length!==size)fail(400,'Загрузка части прервана.');await recheckWrite(req);
        if(offset<upload.received&&offset+size<=upload.received)return json(res,200,{offset:upload.received});if(offset!==upload.received)fail(409,'Позиция загрузки изменилась.');await truncate(temporary,offset);await appendFile(temporary,Buffer.concat(pieces));q('UPDATE mnema_upload_sessions SET received=?,created=? WHERE id=?').run(offset+size,Date.now(),id);return json(res,200,{offset:offset+size});
       }
       if(req.method==='POST'&&path.endsWith('/complete')){
        await body(req);
-       if(upload.received!==upload.size||(await stat(temporary)).size!==upload.size)fail(409,'Дождитесь загрузки всех частей файла.');
-       const metadata=JSON.parse(upload.metadata);
+       if(upload.received!==upload.size)fail(409,'Дождитесь загрузки всех частей файла.');
+       const linkedStudyId=getState().state.studies.find(study=>study.fileId===id)?.id;
+       // A previous /complete can have renamed the file before SQLite committed.
+       const fileInfo=async(path:string)=>lstat(path).catch(error=>{if(error.code==='ENOENT')return null;throw error});
+       const moved=await fileInfo(destination);
+       const file=moved??await fileInfo(temporary);
+       if(!file?.isFile()||file.size!==upload.size)fail(409,'Дождитесь загрузки всех частей файла.');
        if(metadata.sha256){
         const digest=createHash('sha256');
-        for await(const bytes of createReadStream(temporary))digest.update(bytes);
+        for await(const bytes of createReadStream(moved?destination:temporary))digest.update(bytes);
         if(digest.digest('hex')!==metadata.sha256)fail(409,'Контрольная сумма не совпала. Загрузите исходник ещё раз.');
        }
-       checkUploadName(upload.name,id);
-       await recheckWrite(req);await rename(temporary,join(dir,'uploads',id));
-       try{await recheckWrite(req)}catch(error){await unlink(join(dir,'uploads',id)).catch(()=>{});releasePendingUpload(id);throw error}
-       const createdStudy=addStudy(id,upload.name,upload.mime,metadata,person);
-       q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
-       q('UPDATE mnema_upload_sessions SET metadata=? WHERE id=?').run(JSON.stringify({...metadata,completedStudyId:createdStudy.id}),id);
-       return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+       if(!linkedStudyId)checkUploadName(upload.name,id);
+       await recheckWrite(req);
+       if(!moved){
+        await rename(temporary,destination);
+        await recheckWrite(req);
+       }
+       const createdStudyId=finalizeUpload(id,upload.name,upload.mime,metadata,person,linkedStudyId);
+       return json(res,201,{...view(person),createdStudyId});
       }
       fail(405,'Метод недоступен.');
      }finally{uploadBusy.delete(id)}
@@ -776,22 +868,23 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(person.role!=='full')fail(403,'Добавление материалов недоступно.');const name=text(decodeURIComponent(req.headers['x-file-name']||''),200),size=Number(req.headers['content-length']);if(!Number.isSafeInteger(size)||size<1||size>2*1024**3)fail(413,'Файл должен быть непустым и не больше 2 ГБ.');if(!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))fail(400,'Поддерживаются TXT, PDF, DOC, DOCX, XLS, XLSX, MP4, WEBM, MP3, WAV, M4A и MOV.');
      await expireUploads();
      const mime=String(req.headers['content-type']||'application/octet-stream');
-     const id=reserveUpload(name,mime,size,person.id,{});
+     const metadata={title:url.searchParams.get('title'),type:url.searchParams.get('type'),project:url.searchParams.get('project')};
+     const id=reserveUpload(name,mime,size,person.id,metadata);
      const tmp=join(dir,'uploads',id+'.part'),dest=join(dir,'uploads',id);
      let received=0;
      uploadBusy.add(id);
      try{
       await pipeline(req,new Transform({transform(chunk,enc,cb){received+=chunk.length;if(received>size)cb(new Error('Превышен размер файла.'));else cb(null,chunk)}}),createWriteStream(tmp,{flags:'wx',mode:0o600}));
       if(received!==size)throw new Error('Загрузка прервана. Повторите её.');
-      await recheckWrite(req);await rename(tmp,dest);
-      try{await recheckWrite(req)}catch(error){await unlink(dest).catch(()=>{});throw error}
-      const createdStudy=addStudy(id,name,mime,{title:url.searchParams.get('title'),type:url.searchParams.get('type'),project:url.searchParams.get('project')},person);
-      q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
-      return json(res,201,{...view(person),createdStudyId:createdStudy.id});
+      await recheckWrite(req);
+      q('UPDATE mnema_upload_sessions SET received=? WHERE id=?').run(received,id);
+      await rename(tmp,dest);
+      await recheckWrite(req);
+      const createdStudyId=finalizeUpload(id,name,mime,metadata,person);
+      return json(res,201,{...view(person),createdStudyId});
      }finally{
       uploadBusy.delete(id);
-      releasePendingUpload(id);
-      await unlink(tmp).catch(()=>{});
+      await discardUpload(id,q('SELECT status FROM mnema_uploads WHERE id=?').get(id)?.status);
      }
     }
     if(/^\/api\/files\/[^/]+\/preview$/.test(path)&&req.method==='GET'){
@@ -935,11 +1028,18 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      const corpus=view({...person,role:'view'}).state;if(!corpus.studies.some(s=>s.status==='ready'))fail(409,'Дождитесь обработки материалов.');
      const question='Обзор проекта';
      const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,'all',corpus.findings);if(!sources.length)fail(409,'В материалах пока нет текста для сводки.');
-     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.'+(coverage.sampled?' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.':''),sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');return callModel(person,model,payload)});
+     const evidence=sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}});
+     const reviewedRevision=reviewedFindings.length?summaryFindingsRevision(corpus.findings):null;
+     const requireCurrentEvidence=(current:any)=>{
+      const findings=current.findings.map(legacyFinding);
+      const studies=studiesForReader(current.studies,findings);
+      if(!summarySourcesMatch(studies,evidence)||reviewedRevision&&reviewedRevision!==summaryFindingsRevision(findings))fail(409,'Источники сводки изменились. Создайте сводку заново.');
+     };
+     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.'+(coverage.sampled?' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.':''),sources:evidence.map(s=>({number:s.number,type:s.studyType,basis:s.basis,title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}))})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');requireCurrentEvidence(getState().state);return callModel(current,model,payload)});
      const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string'||!answer.trim())fail(502,'Модель вернула неожиданный ответ. Повторите попытку.');
      const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу.');
-     const summary={answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,at:Date.now(),materials:coverage.included,fragments:coverage.fragments,totalFragments:coverage.totalFragments};
-     mutate(s=>{s.projectSummary=summary});return json(res,200,view(latest));
+     const summary={answer,sources:evidence,reviewedRevision,model:(result.mnemaModel||model).name,at:Date.now(),materials:coverage.included,fragments:coverage.fragments,totalFragments:coverage.totalFragments};
+     mutate(s=>{requireCurrentEvidence(s);s.projectSummary=summary});return json(res,200,view(latest));
     }
     if(path==='/api/chat'&&req.method==='POST'){
      limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');const {state}=getState();const model=state.models.find(m=>m.id===(b.modelId||state.modelId)&&m.enabled);if(!model)fail(400,'Выберите включённую модель.');const key=modelKey(model);if(!key||!model.model)fail(503,'Модель ещё не подключена. Владелец должен указать её идентификатор и API-ключ.');

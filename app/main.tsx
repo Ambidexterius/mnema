@@ -296,7 +296,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  const contentRoute=studyOpen?returnRoute:pageRoute;if(!studyOpen)backdropRoute.current=pageRoute;
  const base=contentRoute.split('?')[0],view=base;
  const globalFindingFlow=history.state?.findingsRoot?.startsWith('/all-findings');
- const findingsView=globalFindingFlow||base==='all-findings'||base==='findings'||contentRoute.startsWith('finding/');
+ const findingsView=globalFindingFlow||base==='all-findings'||contentRoute.startsWith('finding/');
  const breadcrumbFinding=state.findings.find(f=>contentRoute==='finding/'+f.id);
  const rootCatalog=['research','projects','all-findings'].includes(base);
  const conversationView=base==='chat'||base.startsWith('conversation/');

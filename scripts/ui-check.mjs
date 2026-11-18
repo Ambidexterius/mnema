@@ -157,6 +157,9 @@ try{
     assert.ok(tabs.y>=title.y+title.height);
     const tabList=page.getByRole('tablist',{name:'Разделы проекта'});
     const overviewTab=tabList.getByRole('tab',{name:'Обзор',selected:true});
+    const crumbs=page.locator('.content-shell > .topbar nav[aria-label="Путь"]');
+    const overviewCrumbs=await crumbs.innerText();
+    if(!compact)assert.equal(await crumbs.locator('[aria-current="page"]').innerText(),'Тест интерфейса');
     assert.equal(await overviewTab.count(),1);
     assert.match(await tab.innerText(),/2$/);
     assert.ok(await tabList.evaluate(el=>el.scrollWidth<=el.clientWidth+1));
@@ -166,6 +169,7 @@ try{
     await page.keyboard.press('Space');
     await page.locator(compact?'.mobile-material-list':'.study-table').waitFor();
     assert.equal(await tab.getAttribute('aria-selected'),'true');
+    assert.equal(await crumbs.innerText(),overviewCrumbs);
     assert.equal(await page.getByRole('button',{name:'Добавить',exact:true}).count(),1);
     const toolbar=await page.locator('.material-filters').evaluate(element=>{
      const strip=element.querySelector('.material-filter-strip').getBoundingClientRect();
@@ -188,6 +192,7 @@ try{
     await page.keyboard.press('Enter');
     await page.waitForURL(fixture.base+'/projects/main/findings');
     await tabList.getByRole('tab',{name:/^Находки/,selected:true}).waitFor();
+    assert.equal(await crumbs.innerText(),overviewCrumbs);
     await page.goBack();await page.waitForURL(fixture.base+'/projects/main/research');await tab.waitFor();
     await findingsTab.click();await page.waitForURL(fixture.base+'/projects/main/findings');
     assert.equal(await back.getAttribute('href'),'/projects');await screenshot('project-back-'+width);
@@ -499,6 +504,10 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.locator('.catalog-table').waitFor();assert.equal(new URL(page.url()).pathname,'/all-findings');await screenshot('findings');
    const projectFindings='/projects/main/findings?kind='+encodeURIComponent('Проблема');
    await goto(projectFindings);await page.getByRole('link',{name:'Нет ответа до оплаты',exact:true}).click();await page.locator('.finding-page').waitFor();
+   assert.equal(await findingsCrumbs.getByRole('link',{name:'Тест интерфейса',exact:true}).getAttribute('href'),'/projects/main');
+   assert.equal(await findingsCrumbs.getByRole('link',{name:'Находки',exact:true}).getAttribute('href'),projectFindings);
+   assert.equal(await findingsCrumbs.locator('[aria-current="page"]').innerText(),'Нет ответа до оплаты');
+   await screenshot('project-finding-crumbs');
    await page.locator('.finding-study-link').click();await page.locator('.study-sheet').waitFor();await page.getByRole('button',{name:'Закрыть материал',exact:true}).click();await page.locator('.study-sheet').waitFor({state:'hidden'});
    await page.getByRole('link',{name:'Назад к находкам',exact:true}).click();await page.waitForURL(fixture.base+projectFindings);
    await page.getByRole('link',{name:'Назад к проектам',exact:true}).click();await page.waitForURL(fixture.base+'/projects');

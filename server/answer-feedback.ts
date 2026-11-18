@@ -3,7 +3,7 @@ import type {DatabaseSync} from 'node:sqlite';
 
 type Member = {id:string;role:string};
 type Person = {id:string;workspaces:Member[]};
-type Reference = {workspaceId:string;studyId:string;segmentId:string};
+type Reference = {workspaceId:string;studyId:string;segmentId:string;revision:string};
 type Example = {
   scope:'project'|'global';
   question:string;
@@ -26,20 +26,26 @@ export function createAnswerFeedback(db:DatabaseSync,secret:string,build:string,
     example TEXT NOT NULL, updated INTEGER NOT NULL
   )`);
   const sign=(content:string)=>createHmac('sha256',secret).update('answer-feedback:v1:').update(content).digest();
-  function issue(person:Person, example:Example) {
+  const revision=(text:string)=>createHmac('sha256',secret).update('answer-feedback:source:v1:').update(text).digest('base64url');
+  function issue(person:Person, {references:originals,...example}:Omit<Example,'references'>&{references:(Omit<Reference,'revision'>&{text:string})[]}) {
     const grants=[...new Set(example.projectIds)].map(id=>{
       const member=person.workspaces.find(w=>w.id===id);
       if(!member)reject(403,'Доступ к проекту изменился.');
       return {id,role:member.role};
     });
-    const receipt:Receipt={...example,grants,author:person.id,id:randomUUID(),issued:Date.now(),build};
+    const references=originals.map(({text,...ref})=>({...ref,revision:revision(text)}));
+    const receipt:Receipt={...example,references,grants,author:person.id,id:randomUUID(),issued:Date.now(),build};
+    if(!readableSources(person,receipt))reject(409,'Источники или доступ к ним изменились.');
     const content=Buffer.from(JSON.stringify(receipt)).toString('base64url');
     return content+'.'+sign(content).toString('base64url');
   }
   function readableSources(person:Person,example:Example,cache=new Map<string,any[]>()) {
     return example.references.every(ref=>{
+      // Older receipts cannot establish which text the model received.
+      if(!ref.revision)return false;
       if(!cache.has(ref.workspaceId)){const studies=readProject?readProject(person,ref.workspaceId):JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(ref.workspaceId)?.data||'{"studies":[]}')).studies;cache.set(ref.workspaceId,studies)}
-      return cache.get(ref.workspaceId)?.find(study=>study.id===ref.studyId)?.segments?.some(segment=>segment.id===ref.segmentId);
+      const segment=cache.get(ref.workspaceId)?.find(study=>study.id===ref.studyId)?.segments?.find(segment=>segment.id===ref.segmentId);
+      return Boolean(segment&&revision(segment.correctedText??segment.text)===ref.revision);
     });
   }
   function rate(person:Person,token:unknown,rating:unknown) {

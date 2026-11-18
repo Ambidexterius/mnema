@@ -12,7 +12,7 @@ test('rating is optional, bound to the author and every source project, and remo
     const api=createAnswerFeedback(db,'fixture signing secret','fixture-build');
     const owner={id:'u',workspaces:[{id:'a',role:'view'},{id:'b',role:'full'}]};
     const receipt=api.issue(owner,{scope:'global',kind:'generated',question:'Вопрос?',answer:'Ответ [1].',model:'Test',
-      projectIds:['a','b'],references:[{workspaceId:'a',studyId:'material',segmentId:'s'}]});
+      projectIds:['a','b'],references:[{workspaceId:'a',studyId:'material',segmentId:'s',text:'Visible source'}]});
     const rows=()=>db.prepare('SELECT rating,example FROM mnema_answer_feedback').all();
     assert.equal(rows().length,0);
     assert.throws(()=>api.rate({...owner,id:'other'},receipt,'up'));
@@ -43,5 +43,33 @@ test('feedback replay and review recheck currently visible source segments',()=>
  db.prepare('INSERT INTO mnema_workspaces VALUES(?,?,?)').run('project','Project',JSON.stringify({studies:[{id:'catalog',title:'Imported title',segments:[{id:'visible',text:'Synthetic source'}]}]}));
  let visible=true;const current=[{id:'catalog',title:'Imported title',segments:[{id:'visible',text:'Synthetic source'}]}];
  const api=createAnswerFeedback(db,'fixture-secret','fixture',()=>visible?current:[]),person={id:'author',workspaces:[{id:'project',role:'view'}]};
- try{const token=api.issue(person,{scope:'project',kind:'generated',question:'Question',answer:'Restricted answer',model:'Fixture',projectIds:['project'],references:[{workspaceId:'project',studyId:'catalog',segmentId:'visible'}]});api.rate(person,token,'up');assert.equal(api.list(person).length,1);visible=false;assert.deepEqual(api.list(person),[]);assert.throws(()=>api.rate(person,token,'down'),/Источники или доступ/);api.rate(person,token,null);assert.equal(db.prepare('SELECT count(*) AS n FROM mnema_answer_feedback').get().n,0,'the author can still remove their rating after access changes')}finally{db.close()}
+ try{const token=api.issue(person,{scope:'project',kind:'generated',question:'Question',answer:'Restricted answer',model:'Fixture',projectIds:['project'],references:[{workspaceId:'project',studyId:'catalog',segmentId:'visible',text:'Synthetic source'}]});api.rate(person,token,'up');assert.equal(api.list(person).length,1);visible=false;assert.deepEqual(api.list(person),[]);assert.throws(()=>api.rate(person,token,'down'),/Источники или доступ/);api.rate(person,token,null);assert.equal(db.prepare('SELECT count(*) AS n FROM mnema_answer_feedback').get().n,0,'the author can still remove their rating after access changes')}finally{db.close()}
+});
+
+test('feedback requires the current source text and retains unverifiable legacy rows',()=>{
+ const db=new DatabaseSync(':memory:');
+ try{
+  db.exec("CREATE TABLE mnema_workspaces(id TEXT PRIMARY KEY,name TEXT,data TEXT NOT NULL);CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT);INSERT INTO user VALUES('author','Author')");
+  const source={id:'segment',text:'Original fixture passage',correctedText:undefined as string|undefined};
+  const studies=[{id:'recording',title:'Recording',segments:[source]}];
+  db.prepare('INSERT INTO mnema_workspaces VALUES(?,?,?)').run('project','Project',JSON.stringify({studies}));
+  const api=createAnswerFeedback(db,'fixture-secret','fixture',()=>studies);
+  const person={id:'author',workspaces:[{id:'project',role:'full'}]};
+  const oldSource={workspaceId:'project',studyId:'recording',segmentId:'segment'};
+  const example={scope:'project',kind:'generated',question:'Question',answer:'Answer [1]',model:'Fixture',projectIds:['project']} as const;
+  const input={...example,projectIds:['project'],references:[{...oldSource,text:source.text}]};
+  const token=api.issue(person,input);
+  api.rate(person,token,'up');
+  db.prepare('INSERT INTO mnema_answer_feedback VALUES(?,?,?,?,?)').run('legacy','author','up',JSON.stringify({...example,grants:[{id:'project',role:'full'}],references:[oldSource]}),0);
+  assert.equal(api.list(person).length,1,'legacy answers without a source revision stay out of review');
+  source.correctedText='Updated fixture passage';
+  assert.deepEqual(api.list(person),[]);
+  assert.throws(()=>api.issue(person,input),{status:409},'cannot label an old model answer with the new text');
+  assert.throws(()=>api.rate(person,token,'down'),{status:409});
+  const current=api.issue(person,{...input,references:[{...oldSource,text:source.correctedText}]});
+  api.rate(person,current,'up');
+  assert.equal(api.list(person).length,1);
+  api.rate(person,token,null);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM mnema_answer_feedback WHERE answer_id='legacy'").get().n,1);
+ }finally{db.close()}
 });

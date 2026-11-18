@@ -11,9 +11,10 @@ await mkdir(join(dir,'public'));await writeFile(join(dir,'public','brand-mark.sv
 const setup=randomBytes(32).toString('hex');
 const testPort=Number(process.env.MNEMA_SERVER_TEST_PORT||4191),baseURL='http://127.0.0.1:'+testPort;
 let reply='OK',providerContext:any;
+let waitForProvider:(()=>Promise<void>)|undefined;
 let speakerFixture:((args:any)=>Promise<any>)|undefined;
 const completionMails:any[]=[];
-const app=await createMnemaServer({sendCompletionMail:async m=>{completionMails.push(m)},dataDir:dir,publicDir:join(dir,'public'),baseURL,authSecret:randomBytes(32).toString('hex'),setupToken:setup,recordingProcessor:async()=>({segments:[{id:'fixture-asr',time:0,end:11,speaker:'Запись',text:'Тестовый текст, не настоящее распознавание.'}],duration:11,model:'Fixture — не ASR',processingSeconds:0}),speakerProcessor:async(args)=>speakerFixture?speakerFixture(args):({speakers:Object.fromEntries(args.segments.map(s=>[s.id,'Спикер 1'])),count:1,engine:'Fixture — не диаризация',processingSeconds:0}),providerFetch:async(_url,options)=>{providerContext=JSON.parse(String(options.body));return Response.json({choices:[{message:{content:reply}}],usage:{total_tokens:42}})}});
+const app=await createMnemaServer({sendCompletionMail:async m=>{completionMails.push(m)},dataDir:dir,publicDir:join(dir,'public'),baseURL,authSecret:randomBytes(32).toString('hex'),setupToken:setup,recordingProcessor:async()=>({segments:[{id:'fixture-asr',time:0,end:11,speaker:'Запись',text:'Тестовый текст, не настоящее распознавание.'}],duration:11,model:'Fixture — не ASR',processingSeconds:0}),speakerProcessor:async(args)=>speakerFixture?speakerFixture(args):({speakers:Object.fromEntries(args.segments.map(s=>[s.id,'Спикер 1'])),count:1,engine:'Fixture — не диаризация',processingSeconds:0}),providerFetch:async(_url,options)=>{providerContext=JSON.parse(String(options.body));await waitForProvider?.();return Response.json({choices:[{message:{content:reply}}],usage:{total_tokens:42}})}});
 await new Promise<void>(r=>app.server.listen(testPort,'127.0.0.1',()=>r()));
 let ownerCookie='',viewerCookie='',invite;
 async function req(path:string,{body,method,cookie,headers={}}:{body?:any;method?:string;cookie?:string;headers?:Record<string,string>}={}):Promise<{response:Response;data:any}>{const response=await fetch(baseURL+path,{method:method||(body===undefined?'GET':'POST'),headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:baseURL,...(cookie?{Cookie:cookie}:{}),...headers},...(body!==undefined?{body:typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body)}:{})} as RequestInit);const data=await response.json();return{response,data}}
@@ -159,18 +160,36 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
  }finally{reply='OK';if(prior===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=prior}
 });
 test('project summary uses overview evidence, survives model errors and respects reader visibility',async()=>{
- const stored=app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data;
- const save=app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'");
+ const row=app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'");
+ const stored=row.get().data;
+ const save=app.db.prepare("UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'");
  const state=JSON.parse(String(stored)),oldKey=process.env.LLM_KEY_CUSTOM1;
  const source={id:'summary-segment',speaker:'Документ',time:5,page:2,text:'Пользователь сверяет даты заезда перед оплатой.'};
  const visible={...state.studies[0],id:'visible-catalog',status:'ready',title:'Интервью',segments:[source],importSource:{catalog:true}};
- state.studies=[visible,{...visible,id:'hidden-catalog',title:'Скрытый материал',segments:[{...source,id:'hidden',text:'PRIVATE_CATALOG'}]}];
+ state.studies=[visible,{...visible,id:'hidden-catalog',fileId:'hidden-catalog-file',fileName:'PRIVATE_CATALOG.txt',title:'Скрытый материал',segments:[{...source,text:'PRIVATE_CATALOG'}]}];
+ state.highlights=[{id:'visible-note',studyId:visible.id,segmentId:source.id,text:source.text},{id:'hidden-note',studyId:'hidden-catalog',segmentId:source.id,text:'PRIVATE_HIGHLIGHT'}];
  const finding={kind:'Инсайт',importance:'Средняя',segmentId:source.id,studyId:visible.id,origin:'ai'};
  state.findings=[{...finding,id:'verified',status:'verified',title:'Настройки проекта'},{...finding,id:'draft',status:'draft',title:'Черновик проекта PRIVATE_DRAFT'}];
  save.run(JSON.stringify(state));
  process.env.LLM_KEY_CUSTOM1='test-only-provider-key';
  const build=(cookie=ownerCookie)=>req('/api/project-summary',{cookie,body:{}});
+ const delayed=async(change:(current:any)=>void)=>{
+  let entered:()=>void,release:()=>void;
+  const started=new Promise<void>(resolve=>entered=resolve);
+  const gate=new Promise<void>(resolve=>release=resolve);
+  waitForProvider=()=>{entered();return gate};
+  const pending=build();
+  try{
+   await Promise.race([started,pending.then(result=>assert.fail('Model did not start: '+result.response.status))]);
+   const current=JSON.parse(String(row.get().data));change(current);save.run(JSON.stringify(current));
+  }finally{waitForProvider=undefined;release()}
+  return pending;
+ };
  try{
+  const reader=(await req('/api/state',{cookie:viewerCookie})).data;
+  assert.deepEqual(reader.state.studies.map(study=>study.id),[visible.id]);
+  assert.deepEqual(reader.state.highlights.map(note=>note.id),['visible-note']);
+  assert.doesNotMatch(JSON.stringify(reader.user.workspaces),/PRIVATE_CATALOG/);
   assert.equal((await build(viewerCookie)).response.status,403);
   reply='- Участник сверяет даты [1].';
   const response=await build();assert.equal(response.response.status,200,JSON.stringify(response.data));
@@ -184,8 +203,21 @@ test('project summary uses overview evidence, survives model errors and respects
   reply='';assert.equal((await build()).response.status,502);assert.deepEqual(await read(),summary);
   reply='- Даты проверяют до оплаты [1].';const retry=await build();
   assert.equal(retry.response.status,200);assert.equal((await read()).answer,reply);
-  const current=JSON.parse(String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data));
-  current.findings=[];save.run(JSON.stringify(current));
+  const published=row.get().data;
+  const legacy=JSON.parse(String(published));delete legacy.projectSummary.reviewedRevision;save.run(JSON.stringify(legacy));
+  assert.equal((await read()).answer,reply,'a matching legacy overview without redactions stays readable');
+  legacy.studies[0].redactionCount=1;save.run(JSON.stringify(legacy));
+  assert.equal(await read(),null,'a legacy overview cannot establish what context was sent before a mask');
+  const changed=JSON.parse(String(published));changed.studies[0].segments[0].correctedText='Обновлённый текст без прежней цитаты.';save.run(JSON.stringify(changed));
+  assert.equal(await read(),null,'a stored overview with an unchanged source ID still expires');
+  assert.equal((await req('/api/state',{cookie:ownerCookie})).data.state.projectSummary,null);
+  save.run(published);
+  assert.equal((await delayed(current=>{current.studies[0].segments[0].correctedText='Скрытый текст заменён.';current.projectSummary=null})).response.status,409);
+  assert.equal(await read(),null,'a response from before the edit cannot bring back the overview');
+  save.run(published);
+  assert.equal((await delayed(current=>{current.findings[0].title='Новый проверенный вывод'})).response.status,409,'reviewed findings are also sent to the model');
+  assert.equal(await read(),null);
+  const current=JSON.parse(String(published));current.findings=[];save.run(JSON.stringify(current));
   assert.equal(await read(),null);
  }finally{save.run(stored);reply='OK';if(oldKey===undefined)delete process.env.LLM_KEY_CUSTOM1;else process.env.LLM_KEY_CUSTOM1=oldKey}
 });
