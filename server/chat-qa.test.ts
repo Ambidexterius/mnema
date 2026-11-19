@@ -87,6 +87,14 @@ test('chat QA: team downgrade, closed uncited project, provider failures, races,
   r=await req('/api/chats/'+chat.id,{cookie});assert.equal(r.status,409);assert.match(r.data.error,/Источники|доступ/);
   const fresh=(await req('/api/chats',{cookie,body:{}})).data;assert.equal((await req('/api/chat/global',{cookie,body:{chatId:fresh.id,question:'Что изменилось во фрагменте?'}})).status,200);
 
+  // A project chat never borrows evidence from another project: it says nothing was found here.
+  const projectChat=(await req('/api/chats',{cookie:ownerCookie,body:{projectId:'main'}})).data;
+  r=await req('/api/chat/global',{cookie:ownerCookie,body:{chatId:projectChat.id,question:'Что говорят про налоги и документы?'}});
+  assert.equal(r.status,200,JSON.stringify(r.data));assert.deepEqual(r.data.sources,[]);assert.match(r.data.answer,/В этом проекте ничего не найдено/);
+  const globalChat=(await req('/api/chats',{cookie:ownerCookie,body:{}})).data;
+  r=await req('/api/chat/global',{cookie:ownerCookie,body:{chatId:globalChat.id,question:'Что говорят про налоги и документы?'}});
+  assert.equal(r.status,200);assert(r.data.sources.some((s:any)=>s.workspaceId===closed),'the global chat still searches every project');
+
   // Restart keeps chats.
   await stop();app=await start();
   assert.deepEqual((await req('/api/chats',{cookie})).data.chats.map((c:any)=>c.id),[fresh.id]);

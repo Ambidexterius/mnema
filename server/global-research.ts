@@ -18,6 +18,7 @@ export function globalEvidence(research:ReturnType<typeof collectGlobalResearch>
 }
 /** A project chat answers from its own project and widens to every project only when the project has no evidence. */
 export function chatEvidence(research:ReturnType<typeof collectGlobalResearch>,question:string,projectId?:string|null){
- if(projectId){const own=globalEvidence({...research,studies:research.studies.filter(s=>s.workspaceId===projectId),sourceHints:research.sourceHints.filter(f=>String(f.studyId).startsWith(projectId+':'))},question);if(own.sources.length)return own}
+ // A project chat answers only from its project, even when nothing matches; the global chat searches every project.
+ if(projectId)return globalEvidence({...research,studies:research.studies.filter(s=>s.workspaceId===projectId),sourceHints:research.sourceHints.filter(f=>String(f.studyId).startsWith(projectId+':'))},question);
  return globalEvidence(research,question);
 }

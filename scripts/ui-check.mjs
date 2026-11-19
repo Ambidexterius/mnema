@@ -593,6 +593,17 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
      assert.equal((await response).status(),200);
      assert.equal(await section.getByRole('alert').count(),0);
     }
+    // A question chip swaps the summary to its answer in place; «Общий обзор» swaps back without a new request.
+    const question=section.getByRole('button',{name:'Какие проблемы повторяются?'});
+    const answered=page.waitForResponse(r=>r.url().endsWith('/api/chat')&&r.request().method()==='POST');
+    await question.click();assert.equal((await answered).status(),200);
+    assert.equal(await question.getAttribute('aria-pressed'),'true');
+    await section.getByRole('button',{name:'Обновить ответ'}).waitFor();
+    await section.locator('.summary-text .footnote').first().waitFor();
+    await section.getByRole('button',{name:'Общий обзор'}).click();
+    assert.equal(await section.getByRole('button',{name:'Общий обзор'}).getAttribute('aria-pressed'),'true');
+    await section.getByRole('button',{name:'Обновить сводку'}).waitFor();
+    for(const chip of await section.locator('.summary-question').all()){const [box,text]=await Promise.all([chip.boundingBox(),chip.locator('.g-button__text').boundingBox()]);assert(text.y+text.height<=box.y+box.height+1,'chip text stays inside the chip')}
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
    }finally{await context.close()}
   });

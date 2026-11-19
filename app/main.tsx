@@ -43,7 +43,7 @@ import {api,setApiWorkspace,projectFile,projectFileDownload,projectArchive} from
 import React, {createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {flushSync} from 'react-dom';
 import {configure, Accordion, Modal, Avatar, Button, Card, Checkbox, Dialog, DropdownMenu, Popup, Label, Hotkey, Loader, Progress, SegmentedRadioGroup, Select, Switch, Tab, TabList, Table, TextArea, TextInput, ThemeProvider, Tooltip} from '@gravity-ui/uikit';
-import {Megaphone, Link as LinkIcon, ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, BrainCircuit, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, Files, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, Newspaper, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RotateCcw, Search, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
+import {Megaphone, RefreshCw, Link as LinkIcon, ArrowLeft, ArrowRight, Minimize2, Download, Bookmark, BrainCircuit, Check, ChevronRight, Clock, Copy, File, FileAudio, FileDown, FileSpreadsheet, Files, FileText, FileType, FileVideo, Folder, House, Cable, Info, Library, Lightbulb, LoaderCircle, Menu, MessageSquare, Mic, Moon, MoreHorizontal, Newspaper, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plug, Monitor, Settings, Trash2, UserPlus, ChevronsUpDown, Plus, Quote, RotateCcw, Search, Sparkles, Sun, ThumbsUp, Upload, Users, Video, LogOut, X} from 'lucide-react';
 import type {LucideIcon} from 'lucide-react';
 import type {Finding, Study, Segment, ChatSource, WorkspaceUser} from './types.ts';
 import '@gravity-ui/uikit/styles/styles.css';
@@ -406,7 +406,6 @@ function ProjectChatDock(){
   document.addEventListener('pointerdown',outside);document.addEventListener('keydown',esc);
   return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',esc)};
  },[open]);
- useEffect(()=>{const ask=(e:Event)=>{if(available)void submit((e as CustomEvent<string>).detail)};window.addEventListener('mnema:project-ask',ask);return()=>window.removeEventListener('mnema:project-ask',ask)});
  const question=projectQuestions[example],shown=open&&(messages.length>0||typing);
  const reopen=(target:EventTarget)=>{if((target as Element).tagName==='TEXTAREA'&&messages.length)setOpen(true)};
  const submit=async(text:string)=>{setDraft('');setOpen(true);if(!await askGlobal(text,projectId))setDraft(text)};
@@ -451,10 +450,12 @@ function Home(){const {state,projectName,reader,real,receive}=useApp();const rea
 const summaryQuestions=['Что исправить в первую очередь?','Какие проблемы повторяются?','Подготовь текст для презентации'];
 const summaryDate=new Intl.DateTimeFormat('ru',{day:'numeric',month:'short'});
 const isActive=(s:Study)=>['queued','running'].includes((s.activity||materialActivity(s)).state);
-/** «Кратко»: the saved project summary from the model, with citations; questions under it go to the project chat. */
+/** «Кратко»: the saved project summary from the model, with citations. A question chip swaps the block to its answer; «Общий обзор» swaps back. */
 function ProjectSummary(){
  const {state,reader,real,receive,panel,setPanel}=useApp();
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ // Answers to quick questions live in this block for the visit; they are not saved to the project.
+ const [view,setView]=useState<string|null>(null),[answers,setAnswers]=useState<Record<string,{answer:string;sources:ChatSource[]}>>({}),[asking,setAsking]=useState<string|null>(null),[askError,setAskError]=useState('');
  const compact=useCompactLayout();
  const summary=state.projectSummary,ready=state.studies.some(s=>s.status==='ready'&&s.segments?.length),pending=state.studies.filter(isActive);
  const model=state.models.find(m=>m.id===state.modelId);
@@ -467,18 +468,28 @@ function ProjectSummary(){
   catch(e){setError(e.status>=500?'Модель не смогла собрать сводку. Попробуйте позже.':e.message)}
   finally{setBusy(false)}
  };
- const ask=(question:string)=>window.dispatchEvent(new CustomEvent('mnema:project-ask',{detail:question}));
+ const ask=async(question:string,force=false)=>{
+  setView(question);setAskError('');
+  if(answers[question]&&!force||asking)return;
+  setAsking(question);
+  try{const r=await api('/api/chat',{question});setAnswers(a=>({...a,[question]:{answer:r.answer,sources:r.sources||[]}}))}
+  catch(e){setAskError(e.status>=500?'Модель не смогла ответить. Попробуйте позже.':e.message)}
+  finally{setAsking(null)}
+ };
+ // A new summary or another project starts from the overview again.
+ useEffect(()=>{setView(null);setAnswers({});setAskError('')},[summary?.at]);
+ const current=view?answers[view]:null,cite=(list,key)=>setPanel({sources:list,heading:sourcesHeading(list),key});
  return <section className="overview-summary" aria-labelledby="project-summary-title">
-  <div className="section-heading"><h2 id="project-summary-title"><Sparkles size={20} aria-hidden="true"/>Сводка проекта</h2>{summary?<span className="section-note">{'Сформировано '+summaryDate.format(summary.at).replace('.','')+' · по '+plural(summary.materials,'материалу','материалам','материалам')}</span>:null}</div>
+  <div className="section-heading"><h2 id="project-summary-title"><Sparkles size={20} aria-hidden="true"/>Сводка проекта</h2>{summary?<div className="summary-meta"><span className="section-note">{'Сформировано '+summaryDate.format(summary.at).replace('.','')+' · по '+plural(summary.materials,'материалу','материалам','материалам')}</span>{canBuild?<Tooltip content={error?'Повторить':view?'Обновить ответ':'Обновить сводку'}><Button className="summary-refresh" view="flat-secondary" size={compact?'l':'m'} loading={busy||Boolean(asking)} disabled={busy||Boolean(asking)} aria-label={error?'Повторить':view?'Обновить ответ':'Обновить сводку'} onClick={()=>view?ask(view,true):build()}><RefreshCw size={16} aria-hidden="true"/><span className="summary-refresh-label">{error?'Повторить':'Обновить'}</span></Button></Tooltip>:null}</div>:null}</div>
   <div className="summary-card">
    {pending.length?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>{pending.length===1?'«'+pending[0].title+'» обрабатывается.':plural(pending.length,'материал обрабатывается','материала обрабатываются','материалов обрабатывается')+'.'} {canBuild?'Обновите сводку после обработки.':null}</p>:null}
-   {summary?<div className="summary-text"><AnswerText id="project-summary" text={summary.answer} sources={summary.sources} onCite={(list,key)=>setPanel({sources:list,heading:sourcesHeading(list),key})} active={panel?.key}/></div>:!busy&&!error?<p className="summary-empty">{canBuild?'ИИ соберёт основные выводы по материалам проекта и добавит ссылки на источники.':ready?'Подключите модель в настройках проекта, чтобы создать сводку.':pending.length?'Сводку можно создать после обработки материалов.':'В материалах пока нет текста для сводки.'}</p>:null}
-   {summary?.fragments<summary?.totalFragments?<p className="summary-empty">Выборка: {summary.fragments} из {summary.totalFragments} фрагментов</p>:null}
+   {summary&&view?<div className="summary-text" aria-live="polite" aria-busy={asking===view}>{asking===view?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>Готовим ответ…</p>:askError?<div className="task-error" role="alert"><strong>Не удалось ответить</strong><p>{askError}</p></div>:current?<AnswerText id={'project-summary-'+summaryQuestions.indexOf(view)} text={current.answer} sources={current.sources} onCite={cite} active={panel?.key}/>:null}</div>:summary?<div className="summary-text" aria-live="polite"><AnswerText id="project-summary" text={summary.answer} sources={summary.sources} onCite={cite} active={panel?.key}/></div>:!busy&&!error?<p className="summary-empty">{canBuild?'ИИ соберёт основные выводы по материалам проекта и добавит ссылки на источники.':ready?'Подключите модель в настройках проекта, чтобы создать сводку.':pending.length?'Сводку можно создать после обработки материалов.':'В материалах пока нет текста для сводки.'}</p>:null}
    {busy?<p className="summary-pending" role="status"><LoaderCircle size={16} className="activity-spinner" aria-hidden="true"/>Создаём сводку…</p>:null}
    {error?<div className="task-error" role="alert"><strong>{summary?'Не удалось обновить сводку':'Не удалось создать сводку'}</strong><p>{error}</p></div>:null}
-   {summary||canBuild?<div className="summary-actions">
-    {canBuild?<Button view="outlined" size={compact?'l':'m'} loading={busy} disabled={busy} onClick={build}>{error?'Повторить':summary?'Обновить сводку':'Создать сводку'}</Button>:null}
-    {summary?<div className="summary-questions">{summaryQuestions.map(q=><Button key={q} view="outlined" size="m" pin="circle-circle" disabled={!state.models.some(m=>m.enabled)} onClick={()=>ask(q)}>{q}</Button>)}</div>:null}
+   {!summary&&canBuild?<div className="summary-actions"><Button view="outlined" size={compact?'l':'m'} loading={busy} disabled={busy} onClick={build}>{error?'Повторить':'Создать сводку'}</Button></div>:null}
+   {summary?<div className="summary-questions" role="group" aria-label="Что показать в сводке">
+    <Button className="summary-question" view={view?'normal':'outlined-action'} selected={!view} aria-pressed={!view} size={compact?'l':'m'} pin="circle-circle" onClick={()=>{setView(null);setAskError('')}}><Sparkles size={16} aria-hidden="true"/>Общий обзор</Button>
+    {summaryQuestions.map(q=><Button key={q} className="summary-question" view={view===q?'outlined-action':'normal'} selected={view===q} aria-pressed={view===q} size={compact?'l':'m'} pin="circle-circle" disabled={!state.models.some(m=>m.enabled)||Boolean(asking)&&asking!==q} onClick={()=>ask(q)}><MessageSquare size={16} aria-hidden="true"/>{q}</Button>)}
    </div>:null}
   </div>
  </section>;

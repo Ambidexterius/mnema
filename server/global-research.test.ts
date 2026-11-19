@@ -64,10 +64,10 @@ test('global reviewed titles keep project prefixes until their selected source n
  assert(!JSON.stringify(result.reviewedFindings).match(/DRAFT_SECRET|FOREIGN_LINK|HIDDEN_SOURCE/));assert(result.sources.every(source=>source.studyId==='shared'));
 });
 
-test('a project chat answers from its project and widens only when the project has no evidence',()=>{
+test('a project chat answers only from its project, even when the project has no evidence',()=>{
  const projects=[{id:'a',name:'Проект А',role:'full' as const,admin:true},{id:'b',name:'Проект Б',role:'full' as const,admin:true}];
  const research=collectGlobalResearch({workspaceId:'a',workspaces:projects},project=>({models:[],modelId:'',studies:[{id:'s',title:'Интервью',status:'ready',segments:[{id:'seg',time:0,text:project.id==='a'?'Оплата без ответа хозяина':'Оплата и депозит'}]}],findings:[]}));
  assert.deepEqual(chatEvidence(research,'оплата','a').sources.map(s=>s.workspaceId),['a']);
- assert.deepEqual(chatEvidence(research,'депозит','a').sources.map(s=>s.workspaceId),['b']);
+ assert.deepEqual(chatEvidence(research,'депозит','a').sources,[],'no silent search in other projects');
  assert.deepEqual(new Set(chatEvidence(research,'оплата',null).sources.map(s=>s.workspaceId)),new Set(['a','b']));
 });
