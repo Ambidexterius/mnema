@@ -1,3 +1,4 @@
+import {createProductNews} from './product-news.ts';
 import {createRegistration,corporateEmail} from './registration.ts';
 import {createProjectSharing} from './project-sharing.ts';
 import {createChatHistory} from './chat-history.ts';
@@ -67,7 +68,7 @@ function summaryFindingsRevision(findings:Finding[]){
 
 export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
-interface Person{id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;welcomePending:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
+interface Person{newsId?:string;id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;welcomePending:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels=new Set(['deepseek','amvera-deepseek-v4','local-stub']);
 const isBuiltin=(m:any)=>builtinModels.has(m.id)||Boolean(m.builtin);
@@ -154,6 +155,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const readableStudies=(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]};
  const chats=createChatHistory(db,readableStudies);
  const feedback=createAnswerFeedback(db,authSecret,BUILD_ID,readableStudies);
+ const news=createProductNews(db);
  const ideas=createIdeas(db,{baseURL,send:options.sendCompletionMail||(smtpConfigured()?sendSmtp:undefined)});
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
   person=scopedPerson(person);
@@ -237,7 +239,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    if(sharing.validLink(wanted,share)){current=sharing.linkProject(wanted);sharedProject={id:current.id,name:current.name,role:'view' as const,admin:false,sharingMode:'link',shareVersion:current.nonce}}else if(explicit)fail(403,'Доступ к проекту закрыт. Обновите список проектов.');
   }
   const recordingProcessing=active.some(project=>projectCard(project).processingOwners.has(s.user.id));
-  return {...s.user,recordingProcessing,welcomePending:Boolean(access.welcome_pending),role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
+  return {...s.user,newsId:news.latest(),recordingProcessing,welcomePending:Boolean(access.welcome_pending),role:current?.role||'view',admin:Boolean(current?.role==='full'),owner:Boolean(access.admin),manageUsers:Boolean(access.admin||!access.self_registered&&access.all_projects&&access.role==='full'),workspaceId:current?.id||null,...(sharedProject?{sharedProject}:{}),workspaces:active.map((m:any)=>{const card=projectCard(m);return {id:m.id,name:m.name,role:m.role,admin:Boolean(m.admin),sharingMode:m.mode,fileCount:card.fileCount,filePreviews:card.filePreviews,emptyDefault:m.id==='main'&&m.name==='Команда'&&card.studyCount===0&&m.member_count<=1}})}};
  // Every request lists the user's projects. Parsing each project's full transcripts here made
  // project switching and polling slow, so folder cards are cached per stored revision and role.
  const projectCards=new Map<string,{key:string,card:{fileCount:number,filePreviews:{name:string,format:string}[],studyCount:number,processingOwners:Set<string>}}>();
@@ -597,6 +599,14 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       return json(res,200,feedback.rate(scopedPerson(current),input.token,input.rating));
      }
      if(path==='/api/chat/feedback'&&req.method==='GET'){if(!(person.owner||person.manageUsers))fail(403,'Оценки ответов доступны администратору.');return json(res,200,{feedback:feedback.list(person)})}
+     if(path==='/api/news'&&req.method==='GET')return json(res,200,{posts:news.list()});
+     const editNews=req.method==='PATCH'&&path.match(/^\/api\/news\/([a-zA-Z0-9.-]+)$/);
+     if((path==='/api/news'&&req.method==='POST')||editNews){
+      if(!person.owner)fail(403,'Только администратор аккаунта может менять новости.');
+      const changes=await body(req);
+      if(editNews)news.edit(editNews[1],changes);else news.create(changes);
+      return json(res,editNews?200:201,{posts:news.list()});
+     }
      if(path==='/api/ideas'&&req.method==='GET')return json(res,200,{ideas:ideas.list(person,ideaLocationAccess(person)),admin:person.owner});
      if(path==='/api/ideas'&&req.method==='POST'){
       limit('ideas:'+person.id,20);const b=await body(req);const latest=await session(req);if(!latest)fail(401,'Войдите в Мнемодак.');

@@ -19,6 +19,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/dist ./public
 COPY server ./server
+COPY app/product-news.ts ./app/product-news.ts
 COPY app/material-activity.ts ./app/material-activity.ts
 COPY app/file-name.ts ./app/file-name.ts
 COPY app/finding-repeats.ts ./app/finding-repeats.ts

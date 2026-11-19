@@ -35,3 +35,7 @@ Visual reference: Glassmorphism Folder Cards by Kedhareswer Naidu, https://21st.
 ## MnemoDuck Living
 
 Живая аватарка чата: SVG из архива MnemoDuck_Living_Solid_D_v2.zip, предоставленного владельцем проекта 17.11.2026. Графика и тайминги адаптированы для общего Mascot; описание — app/licenses/mnemoduck.md.
+
+## Новости продукта
+
+В описаниях новостей Markdown отображает markdown-to-jsx 9.10.6 (MIT, Evan Jacobs). Лицензия лежит в app/licenses/markdown-to-jsx.txt.

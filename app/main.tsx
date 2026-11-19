@@ -1,3 +1,4 @@
+import {initialNews,demoNews} from './product-news.ts';
 import {useCompactLayout,MOBILE_WEB_QUERY} from './useCompactLayout.ts';
 import ChatHistoryScroll from './ChatHistoryScroll.tsx';
 import {formatFileSize} from './file-size.ts';
@@ -55,6 +56,7 @@ configure({lang:'ru'});
 export const Context=createContext<any>(null);
 // The app context is wide and evolves quickly; components read it untyped until it is split into smaller stores.
 const useApp=():any=>useContext(Context);
+const NewsDialog=React.lazy(()=>import('./NewsDialog.tsx'));
 const DEMO=import.meta.env.VITE_DEMO==='true';
 const qa=DEMO&&new URLSearchParams(location.search).get('qa')==='1';
 let reader=qa&&new URLSearchParams(location.search).get('role')==='view';
@@ -78,7 +80,6 @@ const stamp=ms=>new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'
 const fullDate=s=>new Intl.DateTimeFormat('ru',{day:'numeric',month:'long'}).format(new Date(s+'T12:00:00'))+' '+s.slice(0,4);
 // Documents without pages (TXT) have no timecode: show «Текст», not a misleading 0:00.
 const where=seg=>seg?.page?'Стр. '+seg.page:seg?.speaker==='Документ'&&!seg?.time?'Текст':time(seg?.time||0);
-const WHATS_NEW='early-transcript-0.10.10';
 const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
 const management:[string,string,LucideIcon][]=[['models','Модели',BrainCircuit],['integrations','Интеграции',Plug],['mcp','MCP',Cable],['feedback','Оценки ответов',ThumbsUp],['users','Пользователи',Users]];
@@ -142,7 +143,7 @@ export function App(){
  const [route,setRoute]=useState(appRoute);const routeRef=useRef(route);
  const [animateStudy,setAnimateStudy]=useState(false);
 
- const [dialog,open]=useState<any>(null);
+ const [dialog,open]=useState<any>(()=>new URLSearchParams(location.search).get('open')==='whatsnew'?{type:'whatsnew'}:null);
  const [projectAction,setProjectAction]=useState<any>(null);
  const [sharedProject,setSharedProject]=useState<{id:string;name:string}|null>(null);
  const [toast,setToast]=useState('');
@@ -172,12 +173,13 @@ export function App(){
  const effectiveTheme=state.theme==='system'?(systemDark?'dark':'light'):state.theme;
  const themeTransition=useRef<ViewTransition|null>(null);
  const [seen,setSeen]=useState(()=>{try{return localStorage.getItem('mnema.whatsnew')}catch{return null}});
- const markSeen=()=>{setSeen(WHATS_NEW);try{localStorage.setItem('mnema.whatsnew',WHATS_NEW)}catch{}};
+ const [newsId,setNewsId]=useState(()=>(DEMO?demoNews():initialNews)[0].id);
+ const markSeen=React.useCallback((id:string)=>{setNewsId(id);setSeen(id);try{localStorage.setItem('mnema.whatsnew',id)}catch{}},[]);
  const main=useRef(null),timer=useRef(null),files=useRef(new Map());
  stateRef.current=state;
  reader=DEMO?(qa&&new URLSearchParams(location.search).get('role')==='view'):authInfo.user?.role!=='full';
 
- const receive=(data,onlyCurrentProject=false)=>{if(onlyCurrentProject&&(switching.current||data.user?.workspaceId!==authInfoRef.current?.workspaceId))return;authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
+ const receive=(data,onlyCurrentProject=false)=>{if(onlyCurrentProject&&(switching.current||data.user?.workspaceId!==authInfoRef.current?.workspaceId))return;if(data.user?.newsId)setNewsId(data.user.newsId);authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
  const linkWorkspaceApplied=useRef(false);
  const refresh=async()=>{const info=await api('/api/session');if(info.user){if(!linkWorkspaceApplied.current){const requested=requestedWorkspace();if(requested){const token=new URLSearchParams(location.search).get('share');if(token)await api('/api/workspaces/'+encodeURIComponent(requested)+'/share',{token},'POST',false);setApiWorkspace(requested);document.cookie='mnema_ws='+encodeURIComponent(requested)+'; path=/; SameSite=Lax'}linkWorkspaceApplied.current=true}receive(await api('/api/state'));setAuthInfo(a=>({...a,registrationEnabled:info.registrationEnabled,loading:false,error:undefined}))}else setAuthInfo({...info,loading:false});};
  const completeAuth=async()=>{const back=projectReturnPath(new URL(location.href));if(back&&back!==location.pathname+location.search){location.assign(back);return}try{await refresh()}catch(error){if(error.status===403||error.status===404){closeProject();return}throw error}if(!back)go('research')};
@@ -321,7 +323,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  const workspaces=(authInfo.user?.workspaces||[]).filter(w=>!w.emptyDefault);const workspaceName=state.workspace?.name||workspaces.find(w=>w.id===authInfo.user?.workspaceId)?.name||'Команда';
  const switchWorkspace=async(id:string,navigate=true)=>{if(switching.current)return;if(uploadingBatch.current){notify('Дождитесь завершения загрузки перед сменой проекта.');return}const previous=authInfo.user?.workspaceId;switching.current=true;setSwitchingProject(true);try{await pending.current;const token=new URLSearchParams(location.search).get('share');if(token&&requestedWorkspace()===id)await api('/api/workspaces/'+encodeURIComponent(id)+'/share',{token},'POST',false);setApiWorkspace(id);document.cookie='mnema_ws='+encodeURIComponent(id)+'; path=/; SameSite=Lax';setPanel(null);receive(await api('/api/state'));if(navigate)go('home')}catch(e){setApiWorkspace(previous||null);document.cookie='mnema_ws='+encodeURIComponent(previous||'')+'; path=/; SameSite=Lax';notify('Не удалось открыть проект. Попробуйте ещё раз.');throw e}finally{switching.current=false;setSwitchingProject(false)}};
 
- const collapsed=state.sidebarCollapsed&&!mobile;const unseen=seen!==WHATS_NEW;
+ const collapsed=state.sidebarCollapsed&&!mobile;const unseen=seen!==newsId;
  const toggleSidebar=(event:React.MouseEvent)=>{const el=main.current?.parentElement;const left=el?.getBoundingClientRect().left;sidebarShift.current?.animation?.cancel();sidebarShift.current=event.detail&&left!==undefined&&!matchMedia('(prefers-reduced-motion: reduce)').matches?{left}:null;update({sidebarCollapsed:!state.sidebarCollapsed})};
  useLayoutEffect(()=>{const el=main.current?.parentElement,previous=sidebarShift.current;if(!el||!previous||mobile)return;const delta=previous.left-el.getBoundingClientRect().left;const css=getComputedStyle(el),timing=css.getPropertyValue('--mn-motion-fast').trim();previous.animation=el.animate([{transform:'translateX('+delta+'px)'},{transform:'translateX(0)'}],{duration:parseFloat(timing)*(timing.endsWith('ms')?1:1000)||160,easing:css.getPropertyValue('--mn-ease-out').trim()||'cubic-bezier(0.23,1,0.32,1)'});return()=>previous.animation?.cancel()},[collapsed,mobile]);
 
@@ -359,7 +361,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
   <div className="account-menu-row"><span>Звук уведомлений</span><Switch checked={state.soundEnabled!==false} controlProps={{'aria-label':'Звук уведомлений'}} onUpdate={v=>update({soundEnabled:v})}/></div>
   <div className="account-menu-sep" role="separator"/>
   {authInfo.user?.manageUsers&&!DEMO?<button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);setTimeout(()=>open({type:'invite'}),0)}}><UserPlus size={16}/>Пригласить людей</button>:null}
-  <button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);setMenuOpen(false);markSeen();setTimeout(()=>open({type:'whatsnew'}),0)}}><Newspaper size={16} aria-hidden="true"/>Что нового{unseen?<span className="account-dot inline" aria-hidden="true"/>:null}</button>
+  <button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);setMenuOpen(false);setTimeout(()=>open({type:'whatsnew'}),0)}}><Newspaper size={16} aria-hidden="true"/>Что нового{unseen?<span className="account-dot inline" aria-hidden="true"/>:null}</button>
   {DEMO?null:<button type="button" role="menuitem" className="account-menu-item" onClick={()=>{setAccountOpen(false);setMenuOpen(false);setIdeasOpen('all')}}><Lightbulb size={16}/>Портал идей</button>}
   {DEMO?null:<><div className="account-menu-sep" role="separator"/><button type="button" role="menuitem" className="account-menu-item danger" onClick={signOut}><LogOut size={16}/>Выйти</button></>}
  </div></Popup></>;
@@ -910,66 +912,16 @@ function AppDialog(){const ctx=useApp();const {dialog:d,open,state,update,receiv
 
  case 'upload':{const f=file.current;if(!f||!f.size||f.size>2*1024**3){setError('Выберите непустой файл размером до 2 ГБ.');return}if(!form.title?.trim()){setError('Укажите название материала.');return}const id=uid();files.current.set(id,{url:URL.createObjectURL(f),type:f.type});update(s=>({studies:[{id,title:form.title.trim(),description:'Локальный файл · демонстрация обработки',type:form.type||'Интервью',format:/\.(pdf|txt)$/i.test(f.name)?'PDF':'Видео',project:form.project?.trim()||'',date:new Date().toISOString().slice(0,10),duration:0,participants:0,status:'processing',step:0,tags:['Новый материал'],color:'sage',findings:0,summary:[],localFile:true,fileName:f.name},...s.studies]}));go('library');notify('Файл добавлен локально. Запущена демонстрация обработки.');break}
  default:return}close()}catch(e){setError(e.message)}finally{setUploading(false)}}
- return <><Dialog open={Boolean(d)&&!(real&&d?.type==='upload')&&d?.type!=='import'&&d?.type!=='model'} onClose={close} size="s" hasCloseButton={d?.type==='whatsnew'?true:undefined} className={d?.type==='invite'?'invite-dialog':d?.type==='whatsnew'?'updates-dialog':undefined} aria-labelledby="modal-title"><Dialog.Header caption={title}/><Dialog.Body><h2 className="sr-only" id="modal-title">{title}</h2>{d?.type==='search'?<><TextInput value={query} onUpdate={setQuery} placeholder="Название, тема или метка" controlProps={{'aria-label':'Поиск по исследованиям'}} autoFocus/><div className="command-results">{state.studies.filter(s=>(s.title+' '+s.project+' '+s.tags.join(' ')).toLowerCase().includes(query.toLowerCase())).map(s=><Button view="flat" width="max" key={s.id} onClick={()=>{close();go('study/'+s.id)}}><FileText size={16}/>{s.title}</Button>)}</div></>:null}
+ if(d?.type==='whatsnew')return <React.Suspense fallback={null}><NewsDialog real={real} canEdit={real?Boolean(ctx.user?.owner):!ctx.reader} onSeen={ctx.markSeen} onClose={close}/></React.Suspense>;
+ return <><Dialog open={Boolean(d)&&!(real&&d?.type==='upload')&&d?.type!=='import'&&d?.type!=='model'} onClose={close} size="s" className={d?.type==='invite'?'invite-dialog':undefined} aria-labelledby="modal-title"><Dialog.Header caption={title}/><Dialog.Body><h2 className="sr-only" id="modal-title">{title}</h2>{d?.type==='search'?<><TextInput value={query} onUpdate={setQuery} placeholder="Название, тема или метка" controlProps={{'aria-label':'Поиск по исследованиям'}} autoFocus/><div className="command-results">{state.studies.filter(s=>(s.title+' '+s.project+' '+s.tags.join(' ')).toLowerCase().includes(query.toLowerCase())).map(s=><Button view="flat" width="max" key={s.id} onClick={()=>{close();go('study/'+s.id)}}><FileText size={16}/>{s.title}</Button>)}</div></>:null}
  {d?.type==='invite'?<>{form.inviteURL?<div className="invite-result"><p role="status">{invitationMailNotice(form.emailStatus)}</p><p>Коллега получит доступ после регистрации по этой ссылке. Ссылка действует 7 дней и используется один раз.</p><TextInput value={form.inviteURL} readOnly controlProps={{'aria-label':'Ссылка приглашения'}}/><Button onClick={()=>navigator.clipboard.writeText(form.inviteURL).then(()=>notify('Ссылка скопирована.')).catch(()=>notify('Выделите и скопируйте ссылку вручную.'))}>Скопировать ссылку</Button></div>:null}<FormField label="Имя"><TextInput value={form.name||''} onUpdate={v=>field('name',v)} controlRef={first} placeholder="Анна Иванова" autoComplete="off"/></FormField><FormField label="Электронная почта"><TextInput value={form.email||''} onUpdate={v=>field('email',v)} type="email" placeholder="name@example.com" autoComplete="off" validationState={error?'invalid':undefined} errorMessage={error}/></FormField><FormField label="Проекты"><Select aria-label="Проекты" value={[form.workspace||(ctx.user?.manageUsers||DEMO?'all':ctx.user?.workspaceId)]} options={[...(ctx.user?.manageUsers||DEMO?[{value:'all',content:'Общие проекты'}]:[]),...(ctx.workspaces||[]).filter(w=>w.admin).map(w=>({value:w.id,content:w.name}))]} onUpdate={v=>field('workspace',v[0])}/></FormField><FormField label="Уровень доступа"><Select value={[form.role||'view']} options={[{value:'view',content:'Просмотр'},{value:'full',content:'Полный доступ'}]} onUpdate={v=>field('role',v[0])}/></FormField>{!form.inviteURL?<Notice>Если аккаунт уже есть, доступ откроется сразу. «Общие проекты» включает текущие и будущие общие проекты. Для закрытых проектов нужен отдельный доступ.</Notice>:null}</>:null}
 
  {d?.type==='finding'?<>{!finding&&!d.segmentId?<><FormField label="Материал"><Select width="max" filterable={state.studies.length>8} placeholder="Выберите материал" value={study?[study.id]:[]} disabled={Boolean(d.studyId)} options={state.studies.filter(s=>s.status==='ready'&&segmentsOf(s).length).map(s=>({value:s.id,content:s.title,text:s.title}))} onUpdate={v=>setForm(x=>({...x,studyId:v[0],segmentId:undefined}))}/></FormField><FormField label="Цитата-доказательство" help="Фрагмент материала, на который опирается вывод."><Select width="max" popupWidth="fit" filterable placeholder={study?'Найдите фрагмент по словам':'Сначала выберите материал'} disabled={!study} value={segment?[segment.id]:[]} options={segmentsOf(study).map(seg=>{const label=where(seg)+' · '+(seg.correctedText??seg.text).slice(0,140);return {value:seg.id,content:label,text:label}})} onUpdate={v=>field('segmentId',v[0])}/></FormField></>:null}<FormField label="Короткий вывод" help="До 160 символов. Одна мысль, которую можно проверить по фрагменту."><TextInput value={form.title??finding?.title??''} onUpdate={v=>field('title',v)} controlRef={first} placeholder="Что узнали из фрагмента?"/></FormField><FormField label="Контекст"><TextArea value={form.description??finding?.description??(d?.quote?'«'+d.quote+'»':'')} onUpdate={v=>field('description',v)} minRows={2}/></FormField><div className="form-row"><FormField label="Тип"><Select value={[form.kind||finding?.kind||'Инсайт']} options={KINDS.map(value=>({value,content:value}))} onUpdate={v=>field('kind',v[0])}/></FormField><FormField label="Важность"><Select value={[form.importance||finding?.importance||'Средняя']} options={IMPORTANCE.map(value=>({value,content:value}))} onUpdate={v=>field('importance',v[0])}/></FormField></div><Switch checked={form.significant??finding?.significant??false} onUpdate={v=>field('significant',v)} content="Статистически значимо"/>{segment?<blockquote>«{segment.correctedText??segment.text}»<footer>{study?.title} · {where(segment)}</footer></blockquote>:null}{finding?<History f={finding}/>:null}</>:null}
  {d?.type==='workspace'?<><FormField label="Название" help="Например, «Календарь цен». Материалы, участники и чат в каждом проекте свои."><TextInput value={form.name||''} onUpdate={v=>field('name',v)} controlRef={first} placeholder="Календарь цен" autoFocus/></FormField><CreateProjectPrivacy value={form.sharingMode||'all'} onChange={value=>field('sharingMode',value)}/></>:null}
- {d?.type==='whatsnew'?<div className="updates-feed">
-  <section>
-   <time dateTime="2026-11-20">20 ноября 2026</time>
-   <h3>Расшифровку можно читать раньше</h3>
-   <p>Пока Мнемодак определяет спикеров, вы уже можете читать текст. Нажмите на время рядом с фразой, чтобы послушать её в записи.</p>
-   <p>Проверили на записи встречи длиной 1 час 9 минут. Расшифровка открылась через 3 минуты 6 секунд вместо 17 минут 13 секунд.</p>
-   <p>Само распознавание речи ускорилось с переходом на GigaAM 19 ноября. В отдельном тесте на той же записи прежней модели понадобилось 14 минут 15 секунд, а GigaAM справилась за 2 минуты 53 секунды.</p>
-  </section>
-  <section>
-   <time dateTime="2026-11-19">19 ноября 2026</time>
-   <h3>Речь распознаёт GigaAM v3</h3>
-   <p>Заменили движок распознавания: вместо Whisper теперь работает GigaAM v3 от Сбера. Модель обучена на русской речи и реже путает слова. Знаки препинания она ставит сама, а записи обрабатывает быстрее.</p>
-   <p>Пример из нашего интервью: Whisper услышал «без комфорта» и «берёшь кот», а GigaAM — «дискомфорт» и «берёшь код».</p>
-  </section>
-  <section>
-   <time dateTime="2026-11-19">19 ноября 2026</time>
-   <h3>Улучшили работу с аудио</h3>
-   <ul>
-    <li>Фразы на стыке 15-минутных частей записи больше не обрываются</li>
-    <li>Если в одном фрагменте говорят двое, делим его на реплики по концу предложения</li>
-    <li>Голос, который чаще всех задаёт вопросы, подписываем «Модератор?». Проверьте подпись во вкладке «Спикеры»</li>
-    <li>Неуверенно распознанные фразы отмечаем словом «проверьте». После исправления пометка пропадает</li>
-    <li>Подсказываем ИИ, какие фразы распознаны неуверенно, чтобы он не опирался только на них</li>
-   </ul>
-   <p>Изменения действуют для записей, загруженных после обновления.</p>
-  </section>
-  <section>
-   <time dateTime="2026-11-18">18 ноября 2026</time>
-   <h3>Обратная связь по элементу интерфейса</h3>
-   <p>В меню нажмите «Оставить отзыв». Выберите элемент интерфейса, напишите комментарий и при желании укажите категорию.</p>
-   <p>В портале идей видно, к чему относится отзыв. Кнопка «Показать в интерфейсе» открывает нужную страницу и подсвечивает выбранный элемент.</p>
-  </section>
-  <section>
-   <time dateTime="2026-11-18">18 ноября 2026</time>
-   <h3>Проекты можно сделать приватными</h3>
-   <p>По умолчанию новые проекты видны всей команде Суточно.ру. Приватный проект видите только вы и те, кого вы пригласили.</p>
-   <p>Приглашайте коллег по почте и выбирайте для каждого «Просмотр» или «Полный доступ». В каталоге приватные проекты отмечены замком.</p>
-  </section>
-  <section>
-   <h3>Ранее</h3>
-   <ul>
-    <li><strong>Категории находок.</strong> Выбирайте проблемы, рекомендации и инсайты чипами. Важность показана первым столбцом, проверенные находки отмечены серым.</li>
-    <li><strong>Ожидание ответа.</strong> Пока готовится ответ, Мнемодак ищет по исследованиям и показывает время ожидания. Под готовыми ответами убрана служебная строка об охвате.</li>
-    <li><strong>Главная с общим чатом.</strong> Задавайте вопросы по доступным исследованиям сразу после входа.</li>
-    <li><strong>История бесед.</strong> Продолжайте сохранённые чаты из меню. Корзина у строки открывает подтверждение удаления.</li>
-    <li><strong>Проекты.</strong> Все папки собраны в отдельном разделе. Материалы находятся внутри проекта.</li>
-    <li><strong>Общие находки.</strong> Просматривайте находки из доступных проектов. Права на черновики сохраняются.</li>
-    <li><strong>Источники рядом с ответом.</strong> Сноска открывает фрагмент поверх переписки. Черновик вопроса остаётся на месте.</li>
-    <li><strong>Права для истории чата.</strong> История личная. Доступ к сохранённым ответам повторно проверяется по текущим источникам и правам.</li>
-   </ul>
-  </section>
- </div>:null}
+
  {d?.type==='passport'&&study?<><FormField label="Название"><TextInput value={form.title??study.title} onUpdate={v=>field('title',v)} controlRef={first}/></FormField><FormField label="Описание"><TextArea value={form.description??study.description??''} onUpdate={v=>field('description',v)} minRows={2}/></FormField><div className="form-row"><FormField label="Тип источника"><Select value={[form.type||study.type]} options={['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}))} onUpdate={v=>field('type',v[0])}/></FormField><FormField label="Проведено"><TextInput value={form.conducted??study.conducted??''} onUpdate={v=>field('conducted',v)} placeholder="Ноябрь 2026"/></FormField></div><FormField label="Метод"><TextInput value={form.method??study.method??''} onUpdate={v=>field('method',v)} placeholder="Юзабилити-тестирование"/></FormField><FormField label="Аудитория" help="Хозяева или гости, сегменты и размер выборки."><TextArea value={form.audience??study.audience??''} onUpdate={v=>field('audience',v)} minRows={2}/></FormField><FormField label="Автор"><TextInput value={form.author??study.author??''} onUpdate={v=>field('author',v)}/></FormField><div className="form-row"><FormField label="Отчёт исследователя"><Select value={[form.report||reportOf(study)]} options={[{value:'ready',content:'Отчёт есть'},{value:'none',content:'Отчёта нет'}]} onUpdate={v=>field('report',v[0])}/></FormField>{(form.report||reportOf(study))==='none'?<FormField label="Ожидаем отчёт"><TextInput type={"date" as "text"} value={form.reportExpected??study.reportExpected??''} onUpdate={v=>field('reportExpected',v)}/></FormField>:null}</div><Notice>Без отчёта находки и ответы чата по исследованию помечаются «по сырым данным».</Notice></>:null}
  {d?.type==='upload'?<><label className="file-drop"><Upload size={28}/><strong>{form.fileName||'Выберите исходный файл'}</strong><small>PDF, DOCX, DOC, XLS, XLSX, TXT, аудио и видео · до 2 ГБ</small><input type="file" accept=".mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx" aria-label="Выбрать исходный файл" onChange={e=>{const f=e.target.files[0];file.current=f;if(f)setForm(s=>({...s,fileName:f.name,title:s.title||f.name.replace(/\.[^.]+$/,'')}))}}/></label><FormField label="Название"><TextInput value={form.title||''} onUpdate={v=>field('title',v)}/></FormField><div className="form-row"><FormField label="Тип источника"><Select value={[form.type||'Интервью']} options={['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}))} onUpdate={v=>field('type',v[0])}/></FormField><FormField label="Тема"><TextInput value={form.project||''} onUpdate={v=>field('project',v)} placeholder="Календарь и цены"/></FormField></div><Switch checked={form.autoSummary!==false} onUpdate={v=>field('autoSummary',v)} content="Создать сводку после обработки"/><p className="upload-summary-note">{form.autoSummary!==false?'После обработки текст будет отправлен выбранной модели: '+(state.models.find(m=>m.id===state.modelId)?.name||'модель не выбрана')+'. Сводка сохранится как черновик ИИ.':'Текст останется в проекте. Сводку можно будет создать на странице материала.'}</p><Notice>Файл сохранится в проекте. Текст из TXT, PDF и Word станет доступен для поиска. {state.processors.some(p=>p.id==='whisper'&&p.configured)?'После загрузки запись автоматически попадёт в очередь распознавания.':'Распознавание речи на этом сервере пока не установлено. Запись можно сохранить для обработки позже.'} Сводку можно создать на странице материала.</Notice></>:null}
  {d?.type==='source'?<><div className="meta"><Folder size={14}/>{study?.title} · {study?.type}</div>{segment?<><blockquote>«{segment.correctedText??segment.text}»<footer>{segment.speaker} · {segment.page?'Стр. '+segment.page:time(segment.time)}</footer></blockquote><Button view="action" onClick={e=>{close();go('study/'+d.studyId,d.segmentId,e.detail>0)}}>Открыть фрагмент {segment.page?'Стр. '+segment.page:time(segment.time)}<ArrowRight size={16}/></Button></>:<><p className="dialog-copy">У этой находки нет прямой цитаты. Это вопрос из демонстрационной внутренней встречи.</p><Button href={appHref('study/'+d.studyId)} onClick={close}>Открыть материал</Button></>}</>:null}
  {d?.type==='processor'?<><p className="dialog-copy">{state.processors.find(p=>p.id===d.id)?.name}: распознавание речи и LLM подключаются независимо. В этом прототипе модуль не установлен и не запускается.</p><Notice>Параметры сервера и скорость обработки нужно проверять на реальном корпусе.</Notice></>:null}
- {error&&d?.type!=='invite'?<p className={uploading?"muted":"form-error"} role={uploading?"status":"alert"}>{error}</p>:null}</Dialog.Body>{d?.type!=='whatsnew'&&<Dialog.Footer onClickButtonCancel={close} textButtonCancel={['search','source','processor'].includes(d?.type)?'Закрыть':'Отмена'} {...(['upload','finding','model','invite','passport','workspace'].includes(d?.type)?{onClickButtonApply:submit,propsButtonApply:{loading:uploading,disabled:uploading},textButtonApply:({upload:state.processors.some(p=>p.id==='whisper'&&p.configured)?'Загрузить и распознать':'Загрузить файл',finding:finding?(d.accept?'Принять с правкой':'Сохранить'):'Сохранить находку',model:'Сохранить настройки',invite:'Создать приглашение',passport:'Сохранить паспорт',workspace:'Создать и перейти'})[d.type]}:{})}/>}</Dialog><ModelConnectionDialog open={d?.type==='model'} model={model} ctx={ctx} onClose={close}/></>
+ {error&&d?.type!=='invite'?<p className={uploading?"muted":"form-error"} role={uploading?"status":"alert"}>{error}</p>:null}</Dialog.Body><Dialog.Footer onClickButtonCancel={close} textButtonCancel={['search','source','processor'].includes(d?.type)?'Закрыть':'Отмена'} {...(['upload','finding','model','invite','passport','workspace'].includes(d?.type)?{onClickButtonApply:submit,propsButtonApply:{loading:uploading,disabled:uploading},textButtonApply:({upload:state.processors.some(p=>p.id==='whisper'&&p.configured)?'Загрузить и распознать':'Загрузить файл',finding:finding?(d.accept?'Принять с правкой':'Сохранить'):'Сохранить находку',model:'Сохранить настройки',invite:'Создать приглашение',passport:'Сохранить паспорт',workspace:'Создать и перейти'})[d.type]}:{})}/></Dialog><ModelConnectionDialog open={d?.type==='model'} model={model} ctx={ctx} onClose={close}/></>
 }

@@ -403,6 +403,36 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    assert.match(await news.innerText(),/Выберите элемент интерфейса, напишите комментарий/);
    await news.press('Escape');await news.waitFor({state:'hidden'});
   });
+  await run(theme+': local news editor saves Markdown and keeps the dialog inside the viewport',async()=>{
+   const title='Новость для проверки '+theme;
+   async function show(){
+    await page.getByRole('button',{name:/^Профиль:/}).click();
+    await page.getByRole('menuitem',{name:'Что нового',exact:true}).click();
+    const feed=page.getByRole('dialog',{name:'Что нового',exact:true});
+    await feed.getByRole('heading',{name:'Расшифровку можно читать раньше'}).waitFor();return feed;
+   }
+   try{
+    const feed=await show(),dialog=feed.locator('.updates-dialog');
+    const box=await dialog.boundingBox();assert(box&&box.height<=601);
+    const close=feed.locator('.g-dialog-btn-close__btn'),before=await close.boundingBox();
+    await feed.locator('.g-dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);
+    assert(await feed.locator('.g-dialog-body').evaluate(el=>el.scrollTop>0));
+    assert.equal((await close.boundingBox()).y,before.y);
+    await feed.getByRole('button',{name:'Добавить новость'}).click();
+    const create=page.getByRole('dialog',{name:'Новая новость'});
+    await create.getByRole('textbox',{name:'Заголовок'}).fill(title);
+    await create.getByRole('textbox',{name:'Описание'}).fill('## Раздел\n\n- **Начало**\n- *Продолжение*\n\n[Ссылка](/projects)');
+    await create.getByRole('radio',{name:'Предпросмотр'}).check();await create.locator('strong',{hasText:'Начало'}).waitFor();
+    await create.getByRole('button',{name:'Опубликовать'}).click();
+    await feed.getByRole('button',{name:'Редактировать: '+title}).click();
+    const edit=page.getByRole('dialog',{name:'Редактировать новость'});
+    await edit.getByRole('textbox',{name:'Описание'}).fill('Изменённый **текст**');
+    await edit.getByRole('button',{name:'Сохранить'}).click();await feed.locator('.updates-feed section').first().locator('strong').waitFor();
+    await page.reload();await show();const first=feed.locator('.updates-feed section').first();assert.equal(await first.locator('h3').innerText(),title);assert.equal(await first.locator('strong').innerText(),'текст');
+    await page.setViewportSize({width:320,height:568});const mobile=await dialog.boundingBox();assert(mobile.height<=568&&mobile.y>=0&&mobile.y+mobile.height<=569);
+    await feed.press('Escape');await feed.waitFor({state:'hidden'});
+   }finally{fixture.app.db.prepare('DELETE FROM mnema_news WHERE title=?').run(title);await page.setViewportSize({width:1440,height:950})}
+  });
   await run(theme+': select an element on a 320px screen',async()=>{
    await page.setViewportSize({width:320,height:760});await goto('/projects');
    const menu=page.getByRole('button',{name:'Открыть меню',exact:true});await menu.click();
