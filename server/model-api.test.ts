@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {createMnemaServer} from './server.ts';
 
-test('model API: owner-only keys/catalogue, native providers, chat rules and cross-project key isolation',async()=>{
+test('model API: owner-only keys/catalogue, native providers, chat rules and team-wide connections',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'mnemonika-model-api-')),setup=randomBytes(32).toString('hex'),calls:any[]=[];
  const openAIKey='fixture-openai-key-not-real',claudeKey='fixture-anthropic-key-not-real',longAnswer='Завершённый тестовый ответ. '.repeat(700);
  const app=await createMnemaServer({dataDir:dir,baseURL:'http://127.0.0.1:4198',authSecret:randomBytes(32).toString('hex'),setupToken:setup,
@@ -37,8 +37,8 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and cro
   assert.equal(answer.response.status,200,JSON.stringify(answer.data));assert.equal(answer.data.answer,longAnswer);assert(answer.data.answer.length>16000);
   assert(calls.at(-1).body.input[0].content.includes('Как UX-исследователь'));assert.equal(calls.at(-1).body.store,false);
   const second=await req('/api/workspaces',{cookie,body:{name:'Second fixture'}});assert.equal(second.response.status,201);const workspace=second.data.id;
-  assert.equal((await req('/api/models/'+connection.id,{cookie,workspace,method:'PUT',body:values})).response.status,404);
-  assert.equal((await req('/api/models/catalog',{cookie,workspace,body:{connectionId:connection.id}})).response.status,404);
+  // The owner's connections are team-wide: a new project starts with them and their keys.
+  const inherited=(await req('/api/state',{cookie,workspace})).data.state.models.find(m=>m.id===connection.id);assert(inherited?.keyConfigured,'a new project inherits the owner connection');
   const global=await req('/api/chat/global',{cookie,workspace,body:{question:'Как участник проверяет выбранные даты?'}});
   assert.equal(global.response.status,200,JSON.stringify(global.data));assert.equal(calls.at(-1).headers.get('Authorization'),'Bearer '+openAIKey);
   const claude=await req('/api/models',{cookie,workspace,body:{name:'Claude fixture',model:'claude-fixture',apiType:'anthropic',provider:'Claude',keySource:'api',apiKey:claudeKey}});
