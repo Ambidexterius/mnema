@@ -392,6 +392,12 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.getByRole('button',{name:/^Профиль:/}).click();
    await page.getByRole('menuitem',{name:'Что нового',exact:true}).click();
    const news=page.getByRole('dialog',{name:'Что нового',exact:true});
+   const latest=news.locator('.updates-feed section').first();
+   assert.equal(await latest.locator('time').getAttribute('datetime'),'2026-11-20');
+   assert.equal(await latest.getByRole('heading').innerText(),'Расшифровку можно читать раньше');
+   const latestText=(await latest.innerText()).replaceAll('\u00a0',' ');
+   assert.match(latestText,/3 минуты 6 секунд вместо 17 минут 13 секунд/);
+   assert.match(latestText,/14 минут 15 секунд.+2 минуты 53 секунды/s);
    await news.getByRole('heading',{name:'Речь распознаёт GigaAM v3',exact:true}).waitFor();
    await news.getByRole('heading',{name:'Обратная связь по элементу интерфейса',exact:true}).waitFor();
    assert.match(await news.innerText(),/Выберите элемент интерфейса, напишите комментарий/);
