@@ -779,7 +779,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/state'&&req.method==='GET')return json(res,200,view(person));
     if(path==='/api/state'&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'У вас доступ только для просмотра.');const b=await body(req);const current=getState();if(b.version!==current.version)fail(409,'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.');const changes=b.changes||{};
-     const allowed=person.admin?['findings','models','processors','modelId']:['findings'];if(Object.keys(changes).some(k=>!allowed.includes(k)))fail(403,'Недостаточно прав для этого изменения.');
+     // Models are one team-wide setting: only account administrators change them.
+     const allowed=['findings',...(person.admin?['processors']:[]),...(person.owner?['models','modelId']:[])];if(Object.keys(changes).some(k=>!allowed.includes(k)))fail(403,'Недостаточно прав для этого изменения.');
      if(changes.findings){if(!Array.isArray(changes.findings)||changes.findings.length>10000)fail(400,'Некорректные находки.');for(const f of changes.findings){const study=current.state.studies.find(s=>s.id===f.studyId);if(!study||!study.segments?.some(t=>t.id===f.segmentId))fail(400,'Находке нужен существующий фрагмент источника.');if(f.evidence!==undefined&&(!Array.isArray(f.evidence)||f.evidence.some(id=>!study.segments.some(t=>t.id===id))))fail(400,'Доказательства находки должны быть фрагментами того же материала.');if(!text(f.title,160)||f.title.length>160||String(f.description||'').length>(f.importSource?28000:4000))fail(400,'Сократите текст находки.');if(f.status!==undefined&&!findingStatuses.has(f.status))fail(400,'Неизвестный статус находки.');if(f.importance!==undefined&&!importanceLevels.includes(f.importance))fail(400,'Важность: Критично, Высокая, Средняя или Низкая.')}}
      if(changes.models){
       if(!Array.isArray(changes.models)||changes.models.length>20)fail(400,'Не больше 20 подключений.');
@@ -797,7 +798,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       if(changes.models.filter(m=>m.reserve).length>1)fail(400,'Резервной может быть только одна модель.');
      }
      if(changes.findings){const now=Date.now();const previous=new Map(current.state.findings.map(f=>[f.id,f]));const seen=new Set();changes.findings=changes.findings.map(f=>{const prev=previous.get(f.id);const next=reviewFinding(f,prev,person,now);if(seen.has(next.id))fail(400,'Находка указана дважды.');seen.add(next.id);return next})}
-     mutate(s=>{if(changes.models)for(const old of s.models)if(!changes.models.some(m=>m.id===old.id))modelKeys.remove(currentWs(),old.id);Object.assign(s,changes);if(!s.models.some(m=>m.id===s.modelId&&m.enabled))s.modelId=s.models.find(m=>m.enabled)?.id||'';return s});if(person.owner&&(changes.models||changes.modelId!==undefined))syncModels(currentWs());return json(res,200,view(person));
+     mutate(s=>{if(changes.models)for(const old of s.models)if(!changes.models.some(m=>m.id===old.id))modelKeys.remove(currentWs(),old.id);Object.assign(s,changes);if(!s.models.some(m=>m.id===s.modelId&&m.enabled))s.modelId=s.models.find(m=>m.enabled)?.id||'';return s});if(changes.models||changes.modelId!==undefined)syncModels(currentWs());return json(res,200,view(person));
     }
     if(path==='/api/invitations'&&req.method==='POST'){
      const b=await body(req),fresh=await session(req);if(!fresh)fail(401,'Войдите в Мнемодак.');const result=await inviteToProject(fresh,b);
@@ -1028,7 +1029,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(person.role!=='full')fail(403,'Обработка недоступна.');await body(req);const study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(study.format==='Видео'&&!options.recordingProcessor&&!processingReadiness().asr)fail(503,'Локальная модель речи ещё не установлена.');if(['queued','running'].includes(study.summaryInfo?.state))fail(409,'Дождитесь завершения сводки перед повторным распознаванием.');enqueue(study,study.format==='Видео'?'asr':'document');return json(res,202,view(person));
     }
     if(path==='/api/models/catalog'&&req.method==='POST'){
-     if(!person.admin)fail(403,'Список моделей доступен владельцу проекта.');limit('model-catalog:'+person.id,10);
+     if(!person.owner)fail(403,'Модели настраивает администратор.');limit('model-catalog:'+person.id,10);
      const b=await body(req),saved=b.connectionId?getState().state.models.find(m=>m.id===b.connectionId):null;
      if(b.connectionId&&!saved)fail(404,'Подключение не найдено.');
      const model={apiType:b.apiType||saved?.apiType||'compatible',url:b.url||saved?.url};modelBase(model);
@@ -1038,7 +1039,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      return json(res,200,{models:await availableModels(model,key,options.providerFetch||fetch)});
     }
     if((path==='/api/models'&&req.method==='POST')||(/^\/api\/models\/[^/]+$/.test(path)&&req.method==='PUT')){
-     if(!person.admin)fail(403,'Подключения настраивает владелец проекта.');limit('model-save:'+person.id,20);
+     if(!person.owner)fail(403,'Модели настраивает администратор.');limit('model-save:'+person.id,20);
      const b=await body(req),state=getState().state,id=req.method==='PUT'?path.split('/')[3]:randomUUID(),previous=state.models.find(m=>m.id===id);
      if(req.method==='PUT'&&!previous)fail(404,'Подключение не найдено.');if(!previous&&state.models.length>=20)fail(400,'Не больше 20 подключений.');
      const next=cleanModel({...b,id},previous),apiKey=String(b.apiKey||'').trim(),useServer=b.keySource==='server';
@@ -1049,10 +1050,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      mutate(s=>{
       if(useServer)modelKeys.remove(currentWs(),id);else if(apiKey)modelKeys.set(currentWs(),id,apiKey);
       s.models=(previous?s.models.map(m=>m.id===id?next:m):[...s.models,next]).map(m=>next.reserve&&m.id!==id&&m.reserve?{...m,reserve:false}:m);
-     });if(person.owner)syncModels(currentWs());return json(res,req.method==='POST'?201:200,view(person));
+     });syncModels(currentWs());return json(res,req.method==='POST'?201:200,view(person));
     }
     if(/^\/api\/models\/[^/]+\/test$/.test(path)&&req.method==='POST'){
-     if(!person.admin)fail(403,'Проверка подключения доступна владельцу.');limit('model-test:'+person.id,3);await body(req);const model=getState().state.models.find(m=>m.id===path.split('/')[3]);if(!model)fail(404,'Модель не найдена.');const started=Date.now();if(new URL(model.url).hostname==='inference.waw0.amvera.ru'){try{const ping=await fetch(model.url.replace(/\/$/,'')+'/models',{headers:{Authorization:'Bearer '+modelKey(model)},signal:AbortSignal.timeout(15000)});console.log('Amvera models preflight',ping.status);await ping.arrayBuffer();if(!ping.ok)fail(502,'API Amvera вернул HTTP '+ping.status)}catch(e){if(e.status)throw e;fail(504,'API Amvera недоступен из контейнера. '+e.name)}}const result=await callModel(person,model,{model:model.model,max_tokens:1024,messages:[{role:'user',content:'Reply with one word: OK'}]},currentWs(),false);const content=result.choices?.[0]?.message?.content;if(!content?.trim())fail(502,'API доступен, но модель не вернула текст.');return json(res,200,{ok:true,model:model.model,answer:content.slice(0,500),usage:result.usage,seconds:(Date.now()-started)/1000});
+     if(!person.owner)fail(403,'Модели настраивает администратор.');limit('model-test:'+person.id,3);await body(req);const model=getState().state.models.find(m=>m.id===path.split('/')[3]);if(!model)fail(404,'Модель не найдена.');const started=Date.now();if(new URL(model.url).hostname==='inference.waw0.amvera.ru'){try{const ping=await fetch(model.url.replace(/\/$/,'')+'/models',{headers:{Authorization:'Bearer '+modelKey(model)},signal:AbortSignal.timeout(15000)});console.log('Amvera models preflight',ping.status);await ping.arrayBuffer();if(!ping.ok)fail(502,'API Amvera вернул HTTP '+ping.status)}catch(e){if(e.status)throw e;fail(504,'API Amvera недоступен из контейнера. '+e.name)}}const result=await callModel(person,model,{model:model.model,max_tokens:1024,messages:[{role:'user',content:'Reply with one word: OK'}]},currentWs(),false);const content=result.choices?.[0]?.message?.content;if(!content?.trim())fail(502,'API доступен, но модель не вернула текст.');return json(res,200,{ok:true,model:model.model,answer:content.slice(0,500),usage:result.usage,seconds:(Date.now()-started)/1000});
     }
     if(path==='/api/project-summary'&&req.method==='POST'){
      // Build the shared summary from the same evidence a project reader can see.

@@ -17,7 +17,7 @@ async function fixture(port:number,corporateRegistration=false){
  return {get app(){return app},req,owner:owner.cookie,add,restart:async()=>{await stop();app=await createMnemaServer(options);await listen()},close:async()=>{await stop();await rm(dir,{recursive:true,force:true})}};
 }
 
-test('global user directory is independent of the selected project; full members invite and configure, only admins revoke and assign admins',async()=>{
+test('global user directory is independent of the selected project; full members invite, only admins configure models, revoke and assign admins',async()=>{
  const f=await fixture(4256),{req,owner}=f;
  try{
   const other=(await req('/api/workspaces',owner,{name:'Other',mode:'private'})).data.id;
@@ -29,7 +29,7 @@ test('global user directory is independent of the selected project; full members
   for(const workspace of ['main',other])assert.deepEqual((await req('/api/state',owner,undefined,workspace)).data.state.users,directory);
   assert.equal((await req('/api/users',full.cookie)).status,200);assert.equal((await req('/api/users',reader.cookie)).status,403);assert.equal((await req('/api/users',scoped.cookie)).status,403);
   const state=(await req('/api/state',full.cookie,undefined,'main')).data;
-  assert.equal((await req('/api/state',full.cookie,{version:state.version,changes:{modelId:state.state.modelId}},'main','PATCH')).status,200);
+  assert.equal((await req('/api/state',full.cookie,{version:state.version,changes:{modelId:state.state.modelId}},'main','PATCH')).status,403,'only account administrators change the model');
   assert.equal((await req('/api/storage',full.cookie)).status,200);
   const invited=await req('/api/invitations',full.cookie,{name:'By full',email:'by-full@example.test',role:'view'},'main');assert.equal(invited.status,201);assert.equal(f.app.db.prepare("SELECT workspace_id FROM mnema_invites WHERE email='by-full@example.test'").get().workspace_id,'*');
   assert.equal((await req('/api/users/'+readerId,full.cookie,{role:'full'},'main','PATCH')).status,200);
