@@ -367,6 +367,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.getByRole('button',{name:/^Профиль:/}).click();
    await page.getByRole('menuitem',{name:'Что нового',exact:true}).click();
    const news=page.getByRole('dialog',{name:'Что нового',exact:true});
+   await news.getByRole('heading',{name:'Речь распознаёт GigaAM v3',exact:true}).waitFor();
    await news.getByRole('heading',{name:'Обратная связь по элементу интерфейса',exact:true}).waitFor();
    assert.match(await news.innerText(),/Выберите элемент интерфейса, напишите комментарий/);
    await news.press('Escape');await news.waitFor({state:'hidden'});

@@ -9,7 +9,7 @@ flowchart LR
   API --> Files[Защищённые исходники · /data/uploads]
   API --> MCP[MCP · чтение по OAuth или bot token]
   API --> Local[Очередь локальных файлов · один worker]
-  Local --> ASR[Whisper Small int8]
+  Local --> ASR[GigaAM v3 int8]
   Local --> OCR[Poppler + Tesseract]
   ASR --> Checkpoints[Приватные части · /data/processing]
   API --> Analysis[Независимая очередь анализа]

@@ -23,7 +23,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     os.environ.setdefault('OMP_NUM_THREADS', str(max(1, args.threads)))
-    from faster_whisper import WhisperModel
+    gigaam = (Path(args.model) / 'encoder.int8.onnx').is_file()
     started = time.monotonic()
     last_progress = 0.0
     def progress(phase, processed=0.0, chunk=0, chunks=0, force=False):
@@ -41,7 +41,7 @@ def main():
     completed = 0
     checkpoint = Path(args.checkpoint) if args.checkpoint else None
     identity = {'schema': 1, 'model': args.model, 'audioSeconds': args.duration,
-                'chunks': len(chunks), 'pipeline': 'small-int8-beam1-vad-v1'}
+                'chunks': len(chunks), 'pipeline': 'gigaam-v3-rnnt-silero-v2' if gigaam else 'small-int8-beam1-vad-v1'}
     if checkpoint:
         try:
             saved = json.loads(checkpoint.read_text(encoding='utf-8'))
@@ -63,23 +63,43 @@ def main():
     model = None
     if completed < len(chunks):
         progress('loading', force=True)
-        model = WhisperModel(args.model, device='cpu', compute_type='int8',
-                             cpu_threads=max(1, args.threads), num_workers=1,
-                             local_files_only=True)
+        if gigaam:
+            model = GigaAM(args.model, max(1, args.threads))
+        else:
+            from faster_whisper import WhisperModel
+            model = WhisperModel(args.model, device='cpu', compute_type='int8',
+                                 cpu_threads=max(1, args.threads), num_workers=1,
+                                 local_files_only=True)
     for index, audio in enumerate(chunks[completed:], completed + 1):
         progress('transcribing', duration, index, len(chunks), force=True)
-        iterator, info = model.transcribe(str(audio), beam_size=1, best_of=1,
-                                         temperature=0, vad_filter=True,
-                                         condition_on_previous_text=False,
-                                         word_timestamps=False)
+        if gigaam:
+            # A phrase cut by the 15-minute split is finished from the next part,
+            # and that part then starts where the phrase ended.
+            following = str(chunks[index]) if index < len(chunks) else None
+            skip = max(0.0, segments[-1]['end'] - duration) if segments else 0.0
+            iterator, info = model.transcribe(str(audio), following=following, skip=skip)
+        else:
+            iterator, info = model.transcribe(str(audio), beam_size=1, best_of=1,
+                                             temperature=0, vad_filter=True,
+                                             condition_on_previous_text=False,
+                                             word_timestamps=False)
         language = language or info.language
         for segment in iterator:
             progress('transcribing', duration + segment.end, index, len(chunks))
             content = segment.text.strip()
             if content:
-                segments.append({'time': round(duration + segment.start, 2),
-                                 'end': round(duration + segment.end, 2),
-                                 'speaker': 'Запись', 'text': content})
+                item = {'time': round(duration + segment.start, 2),
+                        'end': round(duration + segment.end, 2),
+                        'speaker': 'Запись', 'text': content}
+                words = getattr(segment, 'words', None)
+                if words:  # [time, text, unsure]: lets speakers split a segment mid-way
+                    item['words'] = [[round(duration + t, 2), w, u] for t, w, u in words]
+                    unsure = any(u for _, _, u in words)
+                else:
+                    unsure = segment.avg_logprob < -1 or segment.no_speech_prob > 0.6
+                if unsure:
+                    item['uncertain'] = True
+                segments.append(item)
         duration += info.duration
         if checkpoint:
             temporary = checkpoint.with_suffix('.part')
@@ -95,8 +115,9 @@ def main():
     speakers, diarization_error = 0, None
     output = Path(args.output)
     def save_result():
-        result = {'segments': segments, 'duration': round(duration, 2),
-                  'language': language, 'model': 'Whisper Small int8',
+        result = {'segments': [{k: v for k, v in s.items() if k != 'words'} for s in segments],
+                  'duration': round(duration, 2),
+                  'language': language, 'model': 'GigaAM v3 int8' if gigaam else 'Whisper Small int8',
                   'processingSeconds': round(time.monotonic() - started, 2),
                   'diarization': speakers > 0, 'speakers': speakers,
                   'transcriptionComplete': True}
@@ -129,6 +150,72 @@ def main():
     # Log measurements only; transcript is written to the private output file.
     print(json.dumps({'segments': len(segments), 'duration': result['duration'],
                       'processingSeconds': result['processingSeconds']}))
+
+
+LOOKAHEAD = 25  # seconds of the next part: longer than the longest VAD piece (20 s)
+UNSURE = -1.0    # word log-probability below this marks the segment «проверьте»
+
+
+class GigaAM:
+    """GigaAM v3 RNN-T with punctuation (MIT, Sber) through sherpa-onnx.
+
+    The model reads at most ~25 s at once, so Silero VAD cuts speech at pauses
+    into pieces up to 20 s. Same transcribe() shape as faster-whisper.
+    """
+    def __init__(self, folder, threads):
+        import sherpa_onnx as so
+        self.so, self.folder, self.threads = so, Path(folder), threads
+        self.recognizer = so.OfflineRecognizer.from_transducer(
+            encoder=str(self.folder / 'encoder.int8.onnx'), decoder=str(self.folder / 'decoder.onnx'),
+            joiner=str(self.folder / 'joiner.onnx'), tokens=str(self.folder / 'tokens.txt'),
+            num_threads=threads, feature_dim=64, model_type='nemo_transducer')
+
+    def transcribe(self, path, following=None, skip=0.0):
+        import numpy as np
+        from faster_whisper.audio import decode_audio
+        from types import SimpleNamespace
+        audio = decode_audio(path, sampling_rate=16000)
+        length = len(audio) / 16000
+        audio = audio[int(skip * 16000):]
+        if following:
+            audio = np.concatenate([audio, decode_audio(following, sampling_rate=16000)[:LOOKAHEAD * 16000]])
+        config = self.so.VadModelConfig()
+        config.silero_vad.model = str(self.folder / 'silero_vad.onnx')
+        config.silero_vad.min_silence_duration = 0.3
+        config.silero_vad.min_speech_duration = 0.25
+        config.silero_vad.max_speech_duration = 20
+        config.sample_rate, config.num_threads = 16000, self.threads
+        vad = self.so.VoiceActivityDetector(config, buffer_size_in_seconds=60)
+        window = config.silero_vad.window_size
+
+        def segments():
+            def ready():
+                while not vad.empty():
+                    speech = vad.front
+                    samples = np.asarray(speech.samples, dtype=np.float32)
+                    start = skip + speech.start / 16000
+                    vad.pop()  # frees speech.samples: read everything above first
+                    if start >= length:  # belongs to the next part
+                        return
+                    stream = self.recognizer.create_stream()
+                    stream.accept_waveform(16000, samples)
+                    self.recognizer.decode_stream(stream)
+                    result = stream.result
+                    words = []  # subword tokens joined into words; a token with a space starts a word
+                    for token, at, chance in zip(result.tokens, result.timestamps, result.ys_log_probs):
+                        if token.startswith(' ') or not words:
+                            words.append([start + at, token, chance < UNSURE])
+                        else:
+                            words[-1][1] += token
+                            words[-1][2] = words[-1][2] or chance < UNSURE
+                    yield SimpleNamespace(start=start, end=start + len(samples) / 16000,
+                                          text=result.text, words=words)
+            for offset in range(0, len(audio), window):
+                vad.accept_waveform(audio[offset:offset + window])
+                yield from ready()
+            vad.flush()
+            yield from ready()
+        return segments(), SimpleNamespace(duration=length, language='ru')
 
 
 if __name__ == '__main__':

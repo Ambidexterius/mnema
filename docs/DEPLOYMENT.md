@@ -31,7 +31,7 @@
 | LLM_MODEL_DEEPSEEK | Идентификатор модели; можно задать и в интерфейсе |
 | LLM_KEY_CUSTOM1 / LLM_KEY_CUSTOM2 | Ключи дополнительных подключений |
 | LLM_ALLOWED_HOSTS | Разрешённые домены API, через запятую |
-| ASR_MODEL_DIR | Каталог локальной модели, /app/models/whisper-small |
+| ASR_MODEL_DIR | Каталог локальной модели, /app/models/gigaam-v3; /app/models/whisper-small — запасной Whisper |
 | ASR_DIARIZATION_DIR | Модели спикеров, /app/models/diarization (`segmentation.onnx`, `embedding.onnx`) |
 | ASR_DIARIZATION / ASR_DIARIZATION_THRESHOLD | `0` выключает разделение спикеров / порог кластеризации, по умолчанию 0.7 |
 | ASR_CPU_THREADS / OCR_LANGUAGES | 1 / rus+eng |

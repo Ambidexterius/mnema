@@ -139,29 +139,113 @@ def limit_voice_groups(voices, spoken, keep, merge, max_speakers):
 
 
 def label_segments(segments: list[dict], turns: list[tuple[float, float, int]]) -> tuple[list[dict], int]:
-    """Assigns each transcript segment the speaker with the largest time overlap."""
+    """Assigns each transcript segment the speaker with the largest time overlap.
+
+    A segment with word times is first cut where the voice changes, so a moderator's
+    question and the start of the answer do not end up in one reply.
+    """
+    from bisect import bisect_right
+    starts = [s for s, _, _ in turns]
     order: dict[int, int] = {}
     previous = None
+    labeled = []
     for segment in segments:
-        start = float(segment.get('time') or 0)
-        end = float(segment.get('end') or start + 1)
-        overlap: dict[int, float] = {}
-        for s, e, k in turns:
-            if e <= start or s >= end:
+        for part, speaker in _split_by_voice(segment, turns, starts, bisect_right):
+            if speaker is None:
+                speaker = _overlap_speaker(part, turns, previous)
+            labeled.append(part)
+            if speaker is None:
                 continue
-            overlap[k] = overlap.get(k, 0.0) + min(e, end) - max(s, start)
-        if overlap:
-            speaker = max(overlap, key=overlap.get)
-        else:
-            near = min(turns, key=lambda t: min(abs(t[0] - start), abs(t[1] - start)), default=None)
-            speaker = near[2] if near and min(abs(near[0] - start), abs(near[1] - start)) <= 1.5 else previous
-        if speaker is None:
+            previous = speaker
+            if speaker not in order:
+                order[speaker] = len(order) + 1
+            part['speaker'] = f'{LABEL} {order[speaker]}'
+    return labeled, len(order)
+
+
+def _overlap_speaker(segment, turns, previous):
+    start = float(segment.get('time') or 0)
+    end = float(segment.get('end') or start + 1)
+    overlap: dict[int, float] = {}
+    for s, e, k in turns:
+        if e <= start or s >= end:
             continue
-        previous = speaker
-        if speaker not in order:
-            order[speaker] = len(order) + 1
-        segment['speaker'] = f'{LABEL} {order[speaker]}'
-    return segments, len(order)
+        overlap[k] = overlap.get(k, 0.0) + min(e, end) - max(s, start)
+    if overlap:
+        return max(overlap, key=overlap.get)
+    near = min(turns, key=lambda t: min(abs(t[0] - start), abs(t[1] - start)), default=None)
+    return near[2] if near and min(abs(near[0] - start), abs(near[1] - start)) <= 1.5 else previous
+
+
+def _split_by_voice(segment, turns, starts, bisect_right, shortest=1.0):
+    """Yields (part, speaker or None). Voice runs under `shortest` seconds or one word are noise."""
+    words = segment.get('words') or []
+    if len(words) < 2 or not turns:
+        yield segment, None
+        return
+    def voice(at):
+        index = bisect_right(starts, at) - 1
+        found = [k for s, e, k in turns[max(0, index - 5):index + 1] if s <= at < e]
+        return found[-1] if found else None
+    labels = [voice(at) for at, _, _ in words]
+    for i in range(1, len(labels)):          # a word between turns keeps the previous voice
+        if labels[i] is None:
+            labels[i] = labels[i - 1]
+    for i in range(len(labels) - 2, -1, -1):
+        if labels[i] is None:
+            labels[i] = labels[i + 1]
+    runs = []                                # [speaker, first word, last word + 1]
+    for i, label in enumerate(labels):
+        if runs and runs[-1][0] == label:
+            runs[-1][2] = i + 1
+        else:
+            runs.append([label, i, i + 1])
+    def seconds(run):
+        return (words[run[2]][0] if run[2] < len(words) else segment['end']) - words[run[1]][0]
+    merged = True
+    while merged and len(runs) > 1:
+        merged = False
+        for i, run in enumerate(runs):
+            if run[2] - run[1] < 2 or seconds(run) < shortest:
+                neighbour = runs[i - 1] if i else runs[1]
+                neighbour[1], neighbour[2] = min(neighbour[1], run[1]), max(neighbour[2], run[2])
+                del runs[i]
+                merged = True
+                break
+        for i in range(len(runs) - 1, 0, -1):  # neighbours with the same voice become one run
+            if runs[i][0] == runs[i - 1][0]:
+                runs[i - 1][2] = runs[i][2]
+                del runs[i]
+    # Voice turns lag the words by about one word: cut only at the nearest end of a
+    # sentence within 1.5 s of the change, and give each piece its majority voice.
+    cuts = set()
+    for run in runs[1:]:
+        at = words[run[1]][0]
+        ends = [c for c in range(1, len(words))
+                if words[c - 1][1].rstrip().endswith(('.', '?', '!', '…')) and abs(words[c][0] - at) <= 1.5]
+        if ends:
+            cuts.add(min(ends, key=lambda c: abs(words[c][0] - at)))
+    pieces = []                              # [speaker, first word, last word + 1]
+    bounds = [0, *sorted(cuts), len(words)]
+    for first, last in zip(bounds, bounds[1:]):
+        votes = [label for label in labels[first:last] if label is not None]
+        speaker = max(votes, key=votes.count) if votes else None  # a tie goes to the first voice
+        if pieces and pieces[-1][0] == speaker:
+            pieces[-1][2] = last
+        else:
+            pieces.append([speaker, first, last])
+    if len(pieces) == 1:
+        yield segment, pieces[0][0]
+        return
+    for n, (speaker, first, last) in enumerate(pieces):
+        part = {k: v for k, v in segment.items() if k not in ('words', 'uncertain')}
+        part['time'] = segment['time'] if n == 0 else words[first][0]
+        part['end'] = words[last][0] if last < len(words) else segment['end']
+        part['text'] = ''.join(w for _, w, _ in words[first:last]).strip()
+        part['words'] = words[first:last]
+        if any(u for _, _, u in words[first:last]):
+            part['uncertain'] = True
+        yield part, speaker
 
 
 def main():

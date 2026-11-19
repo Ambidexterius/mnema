@@ -68,7 +68,7 @@ class Model:
         name = Path(audio).name
         with open(os.environ['FIXTURE_CALLS'], 'a') as log: log.write(name + '\\n')
         def segments():
-            yield SimpleNamespace(start=0, end=10, text=name)
+            yield SimpleNamespace(start=0, end=10, text=name, avg_logprob=-0.2, no_speech_prob=0.01)
             if name == os.environ.get('FIXTURE_FAIL'): raise RuntimeError('interrupted chunk fixture')
         return segments(), SimpleNamespace(duration=900, language='ru')
 module = ModuleType('faster_whisper'); module.WhisperModel = Model
@@ -94,6 +94,84 @@ runpy.run_path(script, run_name='__main__')
   await run(join(dir,'job-two.json'));assert.deepEqual((await readFile(calls,'utf8')).trim().split('\n'),['audio-00000.flac','audio-00001.flac','audio-00002.flac']);
   await writeFile(calls,'');await writeFile(checkpoint,'[]');await run(checkpoint);assert.equal((await readFile(calls,'utf8')).trim().split('\n').length,3,'malformed checkpoint must restart ASR safely');
  }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test('GigaAM: VAD pieces get recording time, a phrase cut at a part boundary is finished once, unsure words are marked',async()=>{
+ const {mkdtemp,writeFile,readFile,mkdir,rm}=await import('node:fs/promises');const {join,resolve}=await import('node:path');const {tmpdir}=await import('node:os');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const dir=await mkdtemp(join(tmpdir(),'mnema-gigaam-'));
+ try{
+  const audio=join(dir,'audio'),model=join(dir,'model'),output=join(dir,'out.json'),wrapper=join(dir,'fixture.py');await mkdir(audio);await mkdir(model);
+  for(const name of ['audio-00000.flac','audio-00001.flac'])await writeFile(join(audio,name),'fixture');await writeFile(join(model,'encoder.int8.onnx'),'fixture');
+  await writeFile(wrapper,`import sys, json, runpy
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+numpy = ModuleType('numpy'); numpy.float32 = float; numpy.asarray = lambda value, dtype=None: list(value); numpy.concatenate = lambda parts: [x for part in parts for x in part]
+sys.modules['numpy'] = numpy
+class Speech:
+    def __init__(self, second): self.start, self.samples = second * 16000, [0.0] * 32000
+class Vad:
+    # Speech 1 s after the start, 26 s and 10 s before the end of what it was fed.
+    def __init__(self, config, buffer_size_in_seconds): self.queue, self.fed = [], 0
+    def accept_waveform(self, samples): self.fed += len(samples)
+    def flush(self): self.queue += [Speech(1), Speech(self.fed // 16000 - 26), Speech(self.fed // 16000 - 10)]
+    def empty(self): return not self.queue
+    @property
+    def front(self): return self.queue[0]
+    def pop(self): self.queue.pop(0).samples = []  # sherpa frees the buffer
+class Recognizer:
+    live = 0
+    def __init__(self): Recognizer.live += 1
+    def __del__(self): Recognizer.live -= 1
+    def create_stream(self): return SimpleNamespace(accept_waveform=lambda rate, samples: None, result=SimpleNamespace(
+        text=' Привет. ', tokens=[' При', 'вет.'], timestamps=[0.0, 0.5], ys_log_probs=[-0.1, -2.0]))
+    def decode_stream(self, stream): pass
+class Config:
+    def __init__(self): self.silero_vad = SimpleNamespace(window_size=512)
+sherpa = ModuleType('sherpa_onnx'); sherpa.VadModelConfig = Config; sherpa.VoiceActivityDetector = Vad
+sherpa.OfflineRecognizer = SimpleNamespace(from_transducer=lambda **kwargs: Recognizer())
+sys.modules['sherpa_onnx'] = sherpa
+audio = ModuleType('faster_whisper.audio'); audio.decode_audio = lambda path, sampling_rate: [0.0] * (sampling_rate * 900)
+sys.modules['faster_whisper'] = ModuleType('faster_whisper'); sys.modules['faster_whisper.audio'] = audio
+diarize = ModuleType('diarize'); diarize.models_ready = lambda models: True
+def speakers(chunks, *args, **kwargs):
+    assert Recognizer.live == 0, 'GigaAM must be released before speaker models load'
+    return [], 0
+diarize.diarize_chunks = speakers; diarize.label_segments = lambda segments, turns: (segments, 0)
+sys.modules['diarize'] = diarize
+script = sys.argv.pop(1)
+runpy.run_path(script, run_name='__main__')
+`);
+  await promisify(execFile)(process.env.DOC_PYTHON||'python3',[wrapper,resolve('server/transcribe.py'),audio,output,'--model',model,'--duration','1800'],{env:{...process.env,ASR_DIARIZATION:'1',PYTHONDONTWRITEBYTECODE:'1'},maxBuffer:1024**2});
+  const result=JSON.parse(await readFile(output,'utf8'));
+  assert.equal(result.model,'GigaAM v3 int8');assert.equal(result.language,'ru');assert.equal(result.duration,1800);
+  // Part 1 is read with 25 s of part 2: 899 s is kept, 915 s belongs to part 2. Part 2 starts after the kept phrase (901 s).
+  assert.deepEqual(result.segments.map((s:any)=>[s.time,s.end]),[[1,3],[899,901],[902,904],[1774,1776],[1790,1792]]);
+  assert(result.segments.every((s:any)=>s.text==='Привет.'&&s.uncertain===true&&!('words' in s)));
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test('speakers cut a segment at a sentence end where the voice changes, never mid-phrase, and ignore one-word noise',async()=>{
+ const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {resolve}=await import('node:path');
+ const script=`import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('diarize_fixture', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+words = [[0.0, 'Как', False], [0.5, ' вам', False], [1.0, ' было?', True], [5.2, ' Нормально,', False], [6.0, ' всё', False], [6.5, ' ага', False], [7.0, ' понятно.', False]]
+mid = [[10.0, 'Угу,', False], [10.4, ' а', False], [10.8, ' это', False], [11.6, ' вы', False], [12.0, ' им', False], [12.5, ' писали?', False]]
+segments = [{'time': 0.0, 'end': 9.0, 'speaker': 'Запись', 'text': 'Как вам было? Нормально, всё ага понятно.', 'words': words, 'uncertain': True},
+            {'time': 10.0, 'end': 13.0, 'speaker': 'Запись', 'text': 'Угу, а это вы им писали?', 'words': mid}]
+turns = [(0.0, 5.0, 0), (5.0, 6.4, 1), (6.4, 6.9, 0), (6.9, 9.0, 1), (9.5, 11.5, 1), (11.5, 13.0, 0)]
+labeled, count = module.label_segments(segments, turns)
+print(json.dumps([[s['time'], s['end'], s['speaker'], s['text'], s.get('uncertain', False)] for s in labeled] + [count], ensure_ascii=False))
+`;
+ const result=await promisify(execFile)(process.env.DOC_PYTHON||'python3',['-c',script,resolve('server/diarize.py')],{env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+ assert.deepEqual(JSON.parse(result.stdout),[[0,5.2,'Спикер 1','Как вам было?',true],[5.2,9,'Спикер 2','Нормально, всё ага понятно.',false],[10,13,'Спикер 2','Угу, а это вы им писали?',false],2]);
+});
+
+test('the voice asking most questions is suggested as moderator, an unclear pattern is left alone',async()=>{
+ const {suggestModerator}=await import('./processing.ts');
+ const talk=(asker:string,answer:string)=>[1,2,3,4].flatMap(i=>[{speaker:asker,text:'Как вы искали жильё '+i+'?'},{speaker:answer,text:'Через приложение.'}]);
+ assert.deepEqual([...new Set(suggestModerator(talk('Спикер 2','Спикер 1')).map(s=>s.speaker))],['Модератор?','Спикер 1']);
+ const even=[...talk('Спикер 1','Спикер 2'),...talk('Спикер 2','Спикер 1')];assert.equal(suggestModerator(even),even);
+ const named=talk('Модератор','Спикер 1');assert.equal(suggestModerator(named),named);
 });
 
 test('real diarize_chunks keeps chunk progress indices when an existing voice is reused',async()=>{

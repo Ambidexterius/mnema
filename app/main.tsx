@@ -78,7 +78,7 @@ const stamp=ms=>new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'
 const fullDate=s=>new Intl.DateTimeFormat('ru',{day:'numeric',month:'long'}).format(new Date(s+'T12:00:00'))+' '+s.slice(0,4);
 // Documents without pages (TXT) have no timecode: show «Текст», not a misleading 0:00.
 const where=seg=>seg?.page?'Стр. '+seg.page:seg?.speaker==='Документ'&&!seg?.time?'Текст':time(seg?.time||0);
-const WHATS_NEW='inline-feedback-0.10.5';
+const WHATS_NEW='gigaam-0.10.9';
 const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
 const management:[string,string,LucideIcon][]=[['models','Модели',BrainCircuit],['integrations','Интеграции',Plug],['mcp','MCP',Cable],['feedback','Оценки ответов',ThumbsUp],['users','Пользователи',Users]];
@@ -916,6 +916,24 @@ function AppDialog(){const ctx=useApp();const {dialog:d,open,state,update,receiv
  {d?.type==='finding'?<>{!finding&&!d.segmentId?<><FormField label="Материал"><Select width="max" filterable={state.studies.length>8} placeholder="Выберите материал" value={study?[study.id]:[]} disabled={Boolean(d.studyId)} options={state.studies.filter(s=>s.status==='ready'&&segmentsOf(s).length).map(s=>({value:s.id,content:s.title,text:s.title}))} onUpdate={v=>setForm(x=>({...x,studyId:v[0],segmentId:undefined}))}/></FormField><FormField label="Цитата-доказательство" help="Фрагмент материала, на который опирается вывод."><Select width="max" popupWidth="fit" filterable placeholder={study?'Найдите фрагмент по словам':'Сначала выберите материал'} disabled={!study} value={segment?[segment.id]:[]} options={segmentsOf(study).map(seg=>{const label=where(seg)+' · '+(seg.correctedText??seg.text).slice(0,140);return {value:seg.id,content:label,text:label}})} onUpdate={v=>field('segmentId',v[0])}/></FormField></>:null}<FormField label="Короткий вывод" help="До 160 символов. Одна мысль, которую можно проверить по фрагменту."><TextInput value={form.title??finding?.title??''} onUpdate={v=>field('title',v)} controlRef={first} placeholder="Что узнали из фрагмента?"/></FormField><FormField label="Контекст"><TextArea value={form.description??finding?.description??(d?.quote?'«'+d.quote+'»':'')} onUpdate={v=>field('description',v)} minRows={2}/></FormField><div className="form-row"><FormField label="Тип"><Select value={[form.kind||finding?.kind||'Инсайт']} options={KINDS.map(value=>({value,content:value}))} onUpdate={v=>field('kind',v[0])}/></FormField><FormField label="Важность"><Select value={[form.importance||finding?.importance||'Средняя']} options={IMPORTANCE.map(value=>({value,content:value}))} onUpdate={v=>field('importance',v[0])}/></FormField></div><Switch checked={form.significant??finding?.significant??false} onUpdate={v=>field('significant',v)} content="Статистически значимо"/>{segment?<blockquote>«{segment.correctedText??segment.text}»<footer>{study?.title} · {where(segment)}</footer></blockquote>:null}{finding?<History f={finding}/>:null}</>:null}
  {d?.type==='workspace'?<><FormField label="Название" help="Например, «Календарь цен». Материалы, участники и чат в каждом проекте свои."><TextInput value={form.name||''} onUpdate={v=>field('name',v)} controlRef={first} placeholder="Календарь цен" autoFocus/></FormField><CreateProjectPrivacy value={form.sharingMode||'all'} onChange={value=>field('sharingMode',value)}/></>:null}
  {d?.type==='whatsnew'?<div className="updates-feed">
+  <section>
+   <time dateTime="2026-11-19">19 ноября 2026</time>
+   <h3>Речь распознаёт GigaAM v3</h3>
+   <p>Заменили движок распознавания: вместо Whisper теперь работает GigaAM v3 от Сбера. Модель обучена на русской речи и реже путает слова. Знаки препинания она ставит сама, а записи обрабатывает быстрее.</p>
+   <p>Пример из нашего интервью: Whisper услышал «без комфорта» и «берёшь кот», а GigaAM — «дискомфорт» и «берёшь код».</p>
+  </section>
+  <section>
+   <time dateTime="2026-11-19">19 ноября 2026</time>
+   <h3>Улучшили работу с аудио</h3>
+   <ul>
+    <li>Фразы на стыке 15-минутных частей записи больше не обрываются</li>
+    <li>Если в одном фрагменте говорят двое, делим его на реплики по концу предложения</li>
+    <li>Голос, который чаще всех задаёт вопросы, подписываем «Модератор?». Проверьте подпись во вкладке «Спикеры»</li>
+    <li>Неуверенно распознанные фразы отмечаем словом «проверьте». После исправления пометка пропадает</li>
+    <li>Подсказываем ИИ, какие фразы распознаны неуверенно, чтобы он не опирался только на них</li>
+   </ul>
+   <p>Изменения действуют для записей, загруженных после обновления.</p>
+  </section>
   <section>
    <time dateTime="2026-11-18">18 ноября 2026</time>
    <h3>Обратная связь по элементу интерфейса</h3>

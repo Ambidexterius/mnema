@@ -17,6 +17,8 @@ export interface Segment {
   speaker: string;
   text: string;
   correctedText?: string;
+  /** The speech model was unsure about a word here; cleared by a manual correction. */
+  uncertain?: boolean;
 }
 
 export interface HistoryEntry {

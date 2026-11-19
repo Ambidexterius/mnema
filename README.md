@@ -35,7 +35,7 @@
 
 - **Интерфейс:** React, TypeScript, Gravity UI, Inter и Lucide.
 - **Сервер и данные:** Node.js 24, TypeScript, SQLite и Better Auth.
-- **Обработка материалов:** Python, Whisper Small, FFmpeg, Poppler и Tesseract.
+- **Обработка материалов:** Python, GigaAM v3 (запасной — Whisper Small), FFmpeg, Poppler и Tesseract.
 - **Модели:** OpenAI Responses, Anthropic Messages и совместимый Chat Completions API.
 - **Развёртывание:** Docker, один экземпляр приложения и постоянный диск для данных.
 

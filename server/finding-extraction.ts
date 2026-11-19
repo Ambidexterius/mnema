@@ -17,7 +17,7 @@ export const FINDINGS_INSTRUCTION=[
  'Важность: «Критично» — человек не может выполнить ключевую задачу, теряет бронь, деньги или доверие; «Высокая» — заметно мешает, но есть обходной путь; «Средняя» — неудобство или раздражение; «Низкая» — мелочь, единичное упоминание без последствий.',
  'В reason одной фразой до 200 символов объясни, почему такая важность, опираясь на слова источника. Не оценивай статистическую значимость.',
  'Формулируй про этот материал: «участник», «респондентка», «в отчёте» — не обобщай на всех пользователей. Сохраняй отрицания, числа и сомнения. Не придумывай имена, цифры и цитаты. Не путай хозяев и гостей. Реплики модератора — не мнение участника.',
- 'Каждая находка ссылается на 1–3 ID фрагментов, которые прямо её подтверждают. Копируй ID без изменений.',
+ 'Каждая находка ссылается на 1–3 ID фрагментов, которые прямо её подтверждают. Копируй ID без изменений. Фрагмент с uncertain: true распознан неуверенно: не строй находку только на нём.',
  'Верни только JSON {"findings":[{"title":"вывод до 160 символов","description":"контекст до 400 символов","kind":"Проблема|Инсайт|Рекомендация|Цифра","importance":"Критично|Высокая|Средняя|Низкая","reason":"почему такая важность","segments":["ID"]}]}. Если находок нет — {"findings":[]}. Без рассуждений и Markdown.'
 ].join(' ');
 const rank=(i:string)=>IMPORTANCE_LEVELS.indexOf(i as any);
@@ -56,7 +56,7 @@ export async function extractFindings(segments:Segment[],study:{title:string;typ
  const parts=findingParts(segments);const found:ExtractedFinding[]=[];
  for(let i=0;i<parts.length;i++){
   onProgress(parts.length>1?`Ищем находки · часть ${i+1} из ${parts.length}`:'Ищем находки');
-  const raw=await request({system:FINDINGS_INSTRUCTION,study:{title:study.title,type:study.type||''},part:`${i+1} из ${parts.length}`,fragments:parts[i].map(s=>({id:s.id,text:s.correctedText??s.text,...(s.page?{page:s.page}:{time:Math.round(s.time)}),...(knownSpeaker(s.speaker)?{speaker:s.speaker}:{})}))});
+  const raw=await request({system:FINDINGS_INSTRUCTION,study:{title:study.title,type:study.type||''},part:`${i+1} из ${parts.length}`,fragments:parts[i].map(s=>({id:s.id,text:s.correctedText??s.text,...(s.page?{page:s.page}:{time:Math.round(s.time)}),...(knownSpeaker(s.speaker)?{speaker:s.speaker}:{}),...(s.uncertain&&s.correctedText===undefined?{uncertain:true}:{})}))});
   const parsed=parseModelJSON(raw,'findings');if(!Array.isArray(parsed?.findings))throw new SummaryFailure('format','Модель вернула находки в неверном формате. Повторите поиск.');
   found.push(...validFindings(parsed,new Set(parts[i].map(s=>s.id))));
  }

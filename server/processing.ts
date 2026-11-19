@@ -42,11 +42,11 @@ export function processingProgress(line:string):string|null{
 }
 function progressLines(onProgress:(p:string)=>void){let previous='';return (line:string)=>{const value=processingProgress(line);if(value&&value!==previous){previous=value;onProgress(value)}}}
 const id=(fileId:string,part:string,text:string)=>'s-'+createHash('sha256').update(fileId+':'+part+':'+text).digest('hex').slice(0,24);
-export function processingReadiness(){return {
- asr:existsSync(join(process.env.ASR_MODEL_DIR||'/app/models/whisper-small','model.bin')),
+export function processingReadiness(){const asrDir=process.env.ASR_MODEL_DIR||'/app/models/gigaam-v3',gigaam=existsSync(join(asrDir,'encoder.int8.onnx'));return {
+ asr:gigaam||existsSync(join(asrDir,'model.bin')),
  ocr:existsSync('/usr/bin/tesseract')&&existsSync('/usr/bin/pdftoppm'),
  diarization:existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','segmentation.onnx'))&&existsSync(join(process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','embedding.onnx'))&&process.env.ASR_DIARIZATION!=='0',
- model:'Whisper Small int8',ocrLanguages:process.env.OCR_LANGUAGES||'rus+eng'
+ model:gigaam?'GigaAM v3 int8':'Whisper Small int8',ocrLanguages:process.env.OCR_LANGUAGES||'rus+eng'
 }}
 export async function extractDocument({filePath,fileName='',fileId,signal,onProgress=()=>{},run=runProcessingCommand,maxPages=Number(process.env.OCR_MAX_PAGES||100)}:JobArgs){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
@@ -79,6 +79,15 @@ export async function extractDocument({filePath,fileName='',fileId,signal,onProg
  signal?.throwIfAborted();if(!segments.length)throw new Error('Текст не найден. Проверьте качество скана и наличие печатного текста.');
  return {segments,pages,ocrPages,engine:/\.xlsx?$/i.test(fileName)?'Excel stored values':/\.docx?$/i.test(fileName)?'Word text':ocrPages?'Poppler + Tesseract':'Poppler / TXT'};
 }
+/** The voice that asks most of the questions becomes «Модератор?»; a person confirms or renames it in «Спикеры». */
+export function suggestModerator<T extends {speaker:string;text:string;correctedText?:string}>(segments:T[]):T[]{
+ if(segments.some(s=>/модератор|интервьюер/i.test(s.speaker)))return segments;
+ const stats=new Map<string,{all:number;asked:number}>();
+ for(const s of segments){if(!/^Спикер \d+$/.test(s.speaker))continue;const x=stats.get(s.speaker)||{all:0,asked:0};x.all++;if((s.correctedText??s.text).includes('?'))x.asked++;stats.set(s.speaker,x)}
+ const [top,next]=[...stats].map(([speaker,x])=>({speaker,asked:x.asked,rate:x.asked/x.all})).sort((a,b)=>b.rate-a.rate);
+ if(!top||!next||top.asked<3||top.rate<.2||top.rate<2*next.rate)return segments;
+ return segments.map(s=>s.speaker===top.speaker?{...s,speaker:'Модератор?'}:s);
+}
 const speakerCountArgs=(n?:number)=>Number.isSafeInteger(n)&&n>0?['--max-speakers',String(n)]:[];
 export async function transcribeRecording({filePath,fileId,checkpointDir,participants,signal,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
@@ -95,7 +104,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,partici
   onProgress('Локальное распознавание речи');const script=join(dirname(fileURLToPath(import.meta.url)),'transcribe.py');
   let result:any;
   try{
-   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/whisper-small','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
+   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/gigaam-v3','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   }catch(error){
    signal?.throwIfAborted();
    // The Python checkpoint is written only after ALL speech chunks finish.
@@ -107,7 +116,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,partici
   }
   result??=JSON.parse(await readFile(output,'utf8'));
   signal?.throwIfAborted();if(!result.segments?.length)throw new Error('В записи не удалось распознать речь. Проверьте качество звука.');
-  result.segments=result.segments.map((s,i)=>({...s,id:id(fileId,String(i),s.text)}));
+  result.segments=suggestModerator(result.segments).map((s,i)=>({...s,id:id(fileId,String(i),s.text)}));
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
  }finally{await rm(working,{recursive:true,force:true});if(checkpointDir)await rm(checkpointDir,{recursive:true,force:true})}
 }
@@ -135,6 +144,7 @@ export async function detectSpeakers({filePath,segments,participants,signal,onPr
   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,input,output,'--models',process.env.ASR_DIARIZATION_DIR||'/app/models/diarization','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants)],{timeout:Math.min(4*3600000,Math.max(10*60000,Math.ceil(duration*3000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:progressLines(onProgress)});
   const result=JSON.parse(await readFile(output,'utf8')) as {speakers:Record<string,string>;count:number;engine:string};
   signal?.throwIfAborted();if(!result.count)throw new Error('Не удалось различить голоса. Проверьте качество звука.');
+  result.speakers=Object.fromEntries(suggestModerator(segments.filter(s=>result.speakers[s.id]).map(s=>({...s,speaker:result.speakers[s.id]}))).map(s=>[s.id,s.speaker]));
   return {...result,processingSeconds:Math.round((Date.now()-started)/10)/100};
  }finally{await rm(working,{recursive:true,force:true})}
 }
