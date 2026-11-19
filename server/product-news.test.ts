@@ -17,7 +17,7 @@ test('product news preserves the original feed, edits, Markdown and publication 
   assert.equal(posts.length,initialNews.length+1);assert.equal(reopened.latest(),posts[0].id);
   assert.equal(posts[0].title,'Новая запись');assert.match(posts[0].date!,/^\d{4}-\d\d-\d\d$/);
   assert.equal(posts[1].revision,2);assert.equal(posts[1].description,markdown);assert.equal(posts[1].date,original.date);
-  assert.throws(()=>news.create({title:' ',description:'текст'}),{status:400});
+  assert.throws(()=>news.create({description:'  '}),{status:400});
   assert.throws(()=>news.edit('missing',{title:'Заголовок',description:'текст',revision:1}),{status:404});
  }finally{db.close()}
 });

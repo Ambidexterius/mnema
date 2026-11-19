@@ -5,9 +5,10 @@ import {initialNews,type NewsPost} from '../app/product-news.ts';
 function invalid(message:string,status=400):never{throw Object.assign(new Error(message),{status})}
 
 function newsFields(body:any){
- if(typeof body?.title!=='string'||!body.title.trim()||body.title.trim().length>160)invalid('Введите заголовок до 160 символов.');
- if(typeof body.description!=='string'||!body.description.trim()||body.description.length>20000)invalid('Введите описание до 20 000 символов.');
- return {title:body.title.trim(),description:body.description};
+ const title=body?.title??'';
+ if(typeof title!=='string'||title.trim().length>160)invalid('Заголовок слишком длинный.');
+ if(typeof body?.description!=='string'||!body.description.trim()||body.description.length>24000)invalid('Введите текст новости до 24 000 символов.');
+ return {title:title.trim(),description:body.description};
 }
 
 export function createProductNews(db:DatabaseSync){

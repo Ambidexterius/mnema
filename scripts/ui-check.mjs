@@ -413,25 +413,22 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    }
    try{
     const feed=await show(),dialog=feed.locator('.updates-dialog');
-    const box=await dialog.boundingBox();assert(box&&box.height<=601);
+    const box=await dialog.boundingBox();assert(box&&box.height<=721&&box.height>600);
     const close=feed.locator('.g-dialog-btn-close__btn'),before=await close.boundingBox();
     await feed.locator('.g-dialog-body').evaluate(el=>el.scrollTop=el.scrollHeight);
     assert(await feed.locator('.g-dialog-body').evaluate(el=>el.scrollTop>0));
     assert.equal((await close.boundingBox()).y,before.y);
     await feed.getByRole('button',{name:'Добавить новость'}).click();
-    const create=page.getByRole('dialog',{name:'Новая новость'});
-    await create.getByRole('textbox',{name:'Заголовок'}).fill(title);
-    await create.getByRole('textbox',{name:'Описание'}).fill('## Раздел\n\n- **Начало**\n- *Продолжение*\n\n[Ссылка](/projects)');
-    await create.getByRole('radio',{name:'Предпросмотр'}).check();await create.locator('strong',{hasText:'Начало'}).waitFor();
-    await create.getByRole('button',{name:'Опубликовать'}).click();
-    await feed.getByRole('button',{name:'Редактировать: '+title}).click();
-    const edit=page.getByRole('dialog',{name:'Редактировать новость'});
-    await edit.getByRole('textbox',{name:'Описание'}).fill('Изменённый **текст**');
-    await edit.getByRole('button',{name:'Сохранить'}).click();await feed.locator('.updates-feed section').first().locator('strong').waitFor();
-    await page.reload();await show();const first=feed.locator('.updates-feed section').first();assert.equal(await first.locator('h3').innerText(),title);assert.equal(await first.locator('strong').innerText(),'текст');
+    const input=feed.getByRole('textbox',{name:'Текст новости'});
+    await input.fill('**'+title+'**');assert.equal(await feed.getByRole('textbox').count(),1);
+    await feed.getByRole('button',{name:'Сохранить',exact:true}).click();
+    const first=feed.locator('.updates-feed section').first();await first.locator('strong',{hasText:title}).waitFor();
+    assert.equal(await first.locator('h3').count(),0);await first.getByRole('button',{name:/Редактировать/}).click();
+    await input.fill('**'+title+'**\n\n- *Готово*');await input.press('Control+Enter');
+    await first.locator('li em').waitFor();await page.reload();await show();assert.equal(await first.locator('strong').innerText(),title);assert.equal(await first.locator('li em').innerText(),'Готово');
     await page.setViewportSize({width:320,height:568});const mobile=await dialog.boundingBox();assert(mobile.height<=568&&mobile.y>=0&&mobile.y+mobile.height<=569);
     await feed.press('Escape');await feed.waitFor({state:'hidden'});
-   }finally{fixture.app.db.prepare('DELETE FROM mnema_news WHERE title=?').run(title);await page.setViewportSize({width:1440,height:950})}
+   }finally{fixture.app.db.prepare('DELETE FROM mnema_news WHERE description=?').run('**'+title+'**\n\n- *Готово*');await page.setViewportSize({width:1440,height:950})}
   });
   await run(theme+': select an element on a 320px screen',async()=>{
    await page.setViewportSize({width:320,height:760});await goto('/projects');
