@@ -87,6 +87,7 @@ export interface Study {
   findingsInfo?: {state:'queued'|'running'|'ready'|'error'; progress?:string|null; found?:number; added?:number; merged?:number; dedupe?:'model'|'words'; model?:string; error?:string; errorCode?:string; startedAt?:number; finishedAt?:number};
   speakerInfo?: {state:'queued'|'running'|'ready'|'error'; count?:number; engine?:string; progress?:string|null; error?:string; startedAt?:number; finishedAt?:number};
   speakerEdits?: {action:'detected'|'renamed'|'reassigned'; from?:string; to?:string; count?:number; changed:number; by:string; at:number}[];
+  transcriptPreview?: Pick<Segment,'time'|'end'|'text'|'uncertain'>[];
   processingState?: 'queued' | 'running';
   processingUpdatedAt?: number;
   processingStartedAt?: number;

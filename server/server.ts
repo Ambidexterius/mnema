@@ -248,6 +248,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   for(const study of files)if(study.format==='Видео'&&study.uploadedById&&(study.status==='processing'||['queued','running'].includes(study.speakerInfo?.state)))processingOwners.add(study.uploadedById);
   const card={fileCount:files.length,filePreviews:files.slice(0,3).map(study=>({name:study.fileName||study.title||'Материал',format:(study.fileName?.split('.').at(-1)||study.format||'').toUpperCase()})),studyCount:state.studies.length,processingOwners};
   projectCards.set(m.id,{key,card});return card};
+ // Only the active recording job owns a preview. Project reads still pass through view's access filters.
+ const transcriptPreviews=new Map<string,NonNullable<Study['transcriptPreview']>>();
  const view=person=>{const {state:raw,version}=getState();const full=person.role==='full';
   // Readers never receive drafts or rejected findings: not in the list, counters or any other field.
   const findings=raw.findings.map(legacyFinding).filter(f=>full||f.status==='verified').map(f=>({...f,basis:reportOf(raw.studies.find(s=>s.id===f.studyId))==='ready'?'report':'raw'}));
@@ -377,7 +379,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   if(kind==='speakers')return processSpeakers(study,record?.id,signal);
   if(!record)throw new Error('Исходник не найден. Добавьте файл заново.');
   const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,participants:study.participants,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
-  const result=await(kind==='document'?extractDocument(args):(options.recordingProcessor||transcribeRecording)(args));
+  const key=jobKey(currentWs(),study.id);
+  let result;
+  try{
+   result=kind==='document'?await extractDocument(args):await (options.recordingProcessor||transcribeRecording)({...args,
+    onTranscript:segments=>{if(!signal.aborted)transcriptPreviews.set(key,segments)}
+   });
+  }finally{transcriptPreviews.delete(key)}
   signal.throwIfAborted();
   mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item)Object.assign(item,{status:'ready',step:4,segments:result.segments,summary:[],summaryInfo:undefined,speakerInfo:kind==='document'?undefined:result.diarization?{state:'ready',count:result.speakers,engine:'pyannote-segmentation-3.0 + WeSpeaker ResNet34',finishedAt:Date.now()}:result.diarizationError?{state:'error',error:'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.'}:undefined,error:null,progress:null,duration:result.duration||0,processing:{...result,segments:undefined,processingSeconds:(Date.now()-started)/1000}});if(item?.autoSummary){const request=item.autoSummary;item.summaryInfo={state:'queued',review:'draft',revision:transcriptRevision(item.segments),modelId:request.modelId,requestedBy:request.requestedBy,autoFindings:true,startedAt:Date.now(),progress:'В очереди'};delete item.autoSummary}});
  };
@@ -777,7 +785,15 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      });
      return json(res,200,view(latest));
     }
-    if(path==='/api/state'&&req.method==='GET')return json(res,200,view(person));
+    if(path==='/api/state'&&req.method==='GET'){
+     const data=view(person);
+     for(const study of data.state.studies){
+      if(study.status!=='processing'||study.segments?.length||study.importSource?.catalog&&person.role!=='full')continue;
+      const preview=transcriptPreviews.get(jobKey(currentWs(),study.id));
+      if(preview){study.transcriptPreview=preview;study.activity=materialActivity(study)}
+     }
+     return json(res,200,data);
+    }
     if(path==='/api/state'&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'У вас доступ только для просмотра.');const b=await body(req);const current=getState();if(b.version!==current.version)fail(409,'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.');const changes=b.changes||{};
      // Models are one team-wide setting: only account administrators change them.
@@ -1079,7 +1095,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     if(path==='/api/chat'&&req.method==='POST'){
      limit('chat:'+person.id,10);const b=await body(req),question=text(b.question,2000);if(!question)fail(400,'Напишите вопрос.');const {state}=getState();const model=state.models.find(m=>m.id===(b.modelId||state.modelId)&&m.enabled);if(!model)fail(400,'Выберите включённую модель.');const key=modelKey(model);if(!key||!model.model)fail(503,'Модель ещё не подключена. Владелец должен указать её идентификатор и API-ключ.');
      const corpus=view(person).state;const {sources,coverage,reviewedFindings}=selectEvidence(corpus.studies,question,b.scope||'all',corpus.findings);if(!sources.length)return json(res,200,ratedReply(person,question,'project',{answer:'Прямых данных нет: в доступных материалах не найдено фрагментов по этому вопросу.\n\nЧто осталось невыясненным\n- Возможно, вопрос сформулирован другими словами, чем в материалах. Попробуйте другую формулировку.\n- Возможно, такого исследования в Мнемодаке ещё нет.',sources:[],model:model.name},model.model));
-     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||person.role==='full'&&current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return callModel(person,model,payload)});const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'project',{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,coverage,usage:result.usage},(result.mnemaModel||model).model));
+     const result=await requestChatAnswer(model,{model:model.model,temperature:.2,messages:[{role:'system',content:answerSystem(answerTemplate,model.instructions)},{role:'user',content:JSON.stringify({question,coverage,reviewed_findings:reviewedFindings,instruction:coverage.sampled?'Доступна выборка фрагментов проекта. Не утверждай, что изучил все материалы целиком. Укажи ограничение выборки.':undefined,sources:sources.map((s,i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {number:i+1,type:st.type,basis:reportOf(st)==='ready'?'report':'raw',title:s.title,time:s.time,page:s.page,speaker:s.speaker,text:s.text,...(s.uncertain&&s.correctedText===undefined?{uncertain:true}:{})}})})}]},async payload=>{const current=await session(req);if(!current||current.workspaceId!==person.workspaceId||person.role==='full'&&current.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return callModel(person,model,payload)});const answer=result.choices?.[0]?.message?.content;if(typeof answer!=='string')fail(502,'Модель вернула неожиданный ответ. Повторите вопрос.');const latest=await session(req);if(!latest||latest.workspaceId!==person.workspaceId||person.role==='full'&&latest.role!=='full')fail(409,'Доступ к проекту изменился. Обновите страницу и повторите вопрос.');return json(res,200,ratedReply(person,question,'project',{answer,sources:sources.map(({score,...s},i)=>{const st=state.studies.find(x=>x.id===s.studyId);return {...s,number:i+1,segmentId:s.id,studyType:st.type,basis:reportOf(st)==='ready'?'report':'raw'}}),model:(result.mnemaModel||model).name,coverage,usage:result.usage},(result.mnemaModel||model).model));
     }
     fail(404,'Метод не найден.');
    }

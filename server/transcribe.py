@@ -137,6 +137,7 @@ def main():
         try:
             from diarize import models_ready, diarize_chunks, label_segments
             if models_ready(models):
+                print('{"event":"transcript-ready"}', flush=True)
                 progress('diarization', 0, 1, len(chunks), force=True)
                 turns, _ = diarize_chunks(chunks, models,
                                           max(1, args.threads),

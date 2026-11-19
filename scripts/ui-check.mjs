@@ -42,6 +42,31 @@ try{
    try{await page.goto(fixture.base+'/projects');await page.locator('.auth-loading').waitFor();const geometry=await page.locator('.auth-loading').evaluate(e=>{const t=e.querySelector(':scope>span').getBoundingClientRect(),loader=e.querySelector('.g-loader').getBoundingClientRect();return{font:getComputedStyle(e).fontSize,x:t.x+t.width/2,y:(loader.y+t.bottom)/2,width:innerWidth,height:innerHeight}});assert.equal(geometry.font,'16px');assert.ok(Math.abs(geometry.x-geometry.width/2)<1);assert.ok(Math.abs(geometry.y-geometry.height/2)<1);await screenshot('startup-loading')}
    finally{unlock();await page.locator('.app-shell').waitFor();await page.unroute('**/api/session')}
   });
+  await run(theme+': early transcript opens read-only and resolves the same passage after speakers',async()=>{
+   let ready=false;
+   const early={time:12,end:20,text:'Проверяем первую фразу. Затем вторую.'};
+   const final=[{id:'early-a',time:12,end:16,text:'Проверяем первую фразу.',speaker:'Спикер 1'},
+                {id:'early-b',time:16,end:20,text:'Затем вторую.',speaker:'Спикер 2'}];
+   const routeState=async route=>{
+    const response=await route.fetch(),data=await response.json();
+    const study=data.state.studies.find(s=>s.id==='sample');
+    Object.assign(study,{format:'Видео',status:ready?'ready':'processing',segments:ready?final:[],
+     transcriptPreview:ready?undefined:[early],activity:ready?{state:'ready',label:'Текст готов'}:
+      {state:'running',label:'Расшифровка готова',detail:'Определяем спикеров'}});
+    await route.fulfill({json:data});
+   };
+   await page.route('**/api/state',routeState);
+   try{
+    await page.goto(fixture.base+'/projects/main/studies/sample');
+    const preview=page.getByLabel('Предварительная расшифровка');
+    await preview.waitFor();assert.equal(await preview.getByRole('button').count(),1);
+    await preview.getByRole('button',{name:'Перейти к 0:12'}).press('Enter');
+    ready=true;await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await page.locator('#segment-early-a.cited-text').waitFor();assert.equal(await preview.count(),0);
+    assert(await page.locator('.transcript-time:focus').count());
+    assert.equal(await page.locator('#segment-early-b').innerText(),'Затем вторую.');
+   }finally{await page.unroute('**/api/state',routeState)}
+  });
   await run(theme+': catalog copy and design colors',async()=>{
    await goto('/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Создать',exact:true}).count(),1);
    const palette=await page.locator('.g-root').first().evaluate(e=>({theme:e.className,background:getComputedStyle(e).getPropertyValue('--g-color-base-background').trim(),brand:getComputedStyle(e).getPropertyValue('--g-color-base-brand').trim()}));

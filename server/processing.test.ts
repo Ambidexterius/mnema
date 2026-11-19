@@ -26,11 +26,14 @@ test('complete ASR checkpoint survives interrupted optional speaker stage; parti
    if(args[0]?.endsWith('transcribe.py')){
     options.onStdoutLine(JSON.stringify({event:'progress',phase:'diarization',processedSeconds:0,totalSeconds:1000,chunk:1,chunks:2}));
     await writeFile(args[2],JSON.stringify({transcriptionComplete:complete,diarizationError:'NotCompleted',segments:[{time:0,end:2,speaker:'Запись',text:'Complete fixture speech'}],duration:1000}));
+    options.onStdoutLine(JSON.stringify({event:'transcript-ready'}));
     if(cancelAfterCheckpoint)controller.abort();
     throw Object.assign(new Error('fixture process killed'),{signal:'SIGKILL'});
    }return{stdout:''};
   };
-  const result=await transcribeRecording({filePath:'fixture.webm',fileId:'checkpoint',run,onProgress:p=>progress.push(p)});
+  let preview:unknown;
+  const result=await transcribeRecording({filePath:'fixture.webm',fileId:'checkpoint',run,onTranscript:parts=>{preview=parts},onProgress:p=>progress.push(p)});
+  assert.deepEqual(preview,[{time:0,end:2,text:'Complete fixture speech',uncertain:undefined}]);
   assert.equal(result.segments[0].text,'Complete fixture speech');assert.equal(result.diarization,false);assert.equal(result.diarizationError,'Interrupted');assert(progress.some(p=>p.startsWith('Определяем спикеров')));
   complete=false;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'partial',run}),/fixture process killed/);
   complete=true;cancelAfterCheckpoint=true;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'cancelled',run,signal:controller.signal}),{name:'AbortError'},'explicit cancellation must not return the complete-ASR fallback');

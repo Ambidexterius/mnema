@@ -107,3 +107,14 @@ test('reviewed context is capped at six strongest matched titles, truncates text
  const result=selectEvidence([doc],'Возврат депозита','all',hints);assert.equal(result.reviewedFindings.length,6);assert(result.reviewedFindings[0].title.startsWith('Возврат депозита 11'));
  assert(result.reviewedFindings.every(finding=>finding.title.length<=160&&finding.sourceNumbers.length&&finding.sourceNumbers.every(number=>Number.isSafeInteger(number)&&Boolean(result.sources[number-1]))));
 });
+
+test('a timed recording keeps a short answer after the relevant clause despite unrelated materials and many findings',()=>{
+ const recording={...study('talk',50),segments:Array.from({length:50},(_,i)=>({
+  id:'s'+i,speaker:'Участник',time:i*8,end:i*8+7,text:i===30?'В старом календаре цену изменить нельзя.':i===31?'А доступность можно.':'Обсуждали стоимость помещения.'
+ }))} as any;
+ const hints=Array.from({length:22},(_,i)=>({studyId:'talk',segmentId:'s'+i,title:'Цена и календарь',status:'verified'}));
+ const result=selectEvidence([recording,study('hidden',3)],'Что можно менять в старом календаре: цену или доступность?','talk',hints);
+ assert(result.sources.some(s=>s.id==='s30')&&result.sources.some(s=>s.id==='s31'));
+ assert(result.sources.every(s=>s.studyId==='talk'));
+ assert(result.sources.length<=24);
+});

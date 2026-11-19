@@ -6,3 +6,16 @@ test('revision changes when transcript content changes, but IDs stay stable',()=
 test('summary accepts JSON surrounded by provider commentary without weakening citations',async()=>{const seg=segment('real-id','Есть различие между двумя действиями.');const json=JSON.stringify({summary:[{title:'Тема',text:'Текст с символами { и } внутри строки.',segments:['real-id']}]});for(const raw of ['Ответ:\n```json\n'+json+'\n```\nГотово.','<think>Внутренние рассуждения не являются сводкой.</think>\n'+json]){const result=await summarizeMaterial([seg],'Material',async()=>raw);assert.equal(result[0].segments[0],'real-id');assert(!result[0].text.includes('рассуждения'))}await assert.rejects(summarizeMaterial([seg],'Material',async()=>'<think>'+json),/оборван/);await assert.rejects(summarizeMaterial([seg],'Material',async()=>'{"summary":[{"title":"Incomplete"'),/формате/)});
 
 test('restart resumes only running analyses and preserves queued requests, revisions and completed results',()=>{const queued={id:'q',summaryInfo:{state:'queued',revision:'q-revision',requestedBy:'owner'}};const running={id:'r',summaryInfo:{state:'running',revision:'r-revision',requestedBy:'owner',modelId:'model'},summary:[{title:'Previous'}]};const complete={id:'done',summaryInfo:{state:'ready'}};const failed={id:'failed',summaryInfo:{state:'error',errorCode:'truncated'}};assert.equal(resumePendingSummaries([queued,running,complete,failed]),1);assert.equal(running.summaryInfo.state,'queued');assert.equal(running.summaryInfo.revision,'r-revision');assert.equal(running.summaryInfo.requestedBy,'owner');assert.deepEqual(running.summary,[{title:'Previous'}]);assert.equal(queued.summaryInfo.state,'queued');assert.equal(complete.summaryInfo.state,'ready');assert.equal(failed.summaryInfo.state,'error');assert.equal(resumePendingSummaries([queued,running]),0)});
+
+test('a merge which covers only the opening cannot discard independent later decisions or invent citations',async()=>{
+ const input=['a','b','c','d'].map(id=>segment(id,'аб'.repeat(4000)));
+ const summary=await summarizeMaterial(input,'Встреча',async(payload:any)=>{
+  if(payload.fragments){
+   const id=payload.fragments[0].id;
+   return JSON.stringify({summary:[{title:id,text:'Итог '+id,kind:id==='b'?'topic':'decision',segments:[id]}]});
+  }
+  return JSON.stringify({summary:[{title:'Начало',text:'Итог a',segments:['a','чужой ID']}]});
+ });
+ assert.deepEqual(summary.map(b=>b.segments),[['a'],['b'],['c'],['d']]);
+ assert(summary.every(b=>!Object.hasOwn(b,'kind')));
+});

@@ -12,6 +12,7 @@ test('blocked ASR does not block analysis; queued documents keep honest status a
  const dir=await mkdtemp(join(tmpdir(),'mnemonika-processing-queue-'));
  const base='http://127.0.0.1:4198',setup=randomBytes(32).toString('hex');
  let releaseASR!:()=>void;const asrGate=new Promise<void>(resolve=>{releaseASR=resolve});
+ let publishPreview:()=>void;
  let asrReleased=false,asrCalls=0,documentId='',projectB='',cookie='',firstCheckpointDir='';
  const providerInputs:any[]=[];
  const app=await createMnemaServer({dataDir:dir,baseURL:base,authSecret:randomBytes(32).toString('hex'),setupToken:setup,
@@ -20,7 +21,7 @@ test('blocked ASR does not block analysis; queued documents keep honest status a
    if(call===1){
     assert.ok(args.checkpointDir,'worker must supply a job-scoped persistent checkpoint directory');firstCheckpointDir=args.checkpointDir;
     await mkdir(firstCheckpointDir,{recursive:true});await writeFile(join(firstCheckpointDir,'asr.json'),JSON.stringify({synthetic:true,segments:['FIXTURE_PRIVATE_CHECKPOINT']}));
-    args.onProgress?.('Синтетическое распознавание ждёт разрешения теста');await asrGate;asrReleased=true;
+    publishPreview=()=>args.onTranscript?.([{time:0,end:1,text:'PREVIEW_MAIN_ONLY'}]);args.onProgress?.('Синтетическое распознавание ждёт разрешения теста');await asrGate;asrReleased=true;
    }
    else{
     const project:any=app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(projectB);
@@ -67,6 +68,12 @@ test('blocked ASR does not block analysis; queued documents keep honest status a
   const running=await until(()=>state(),value=>value.studies.some(study=>study.id===recording.id&&study.processingState==='running'&&study.progress==='Синтетическое распознавание ждёт разрешения теста')&&asrCalls===1,'first recording did not enter blocked ASR');
   const firstJob:any=app.db.prepare('SELECT id FROM mnema_jobs WHERE study_id=?').get(recording.id);assert.equal(firstCheckpointDir,join(dir,'processing',firstJob.id));assert(existsSync(join(firstCheckpointDir,'asr.json')),'active ASR checkpoint must survive while the processor is blocked');
   const active=running.studies.find(study=>study.id===recording.id);assert.equal(active.activity.label,'Распознаём запись');assert.equal(active.activity.state,'running');assert(active.processingStartedAt>0);assert(active.processingUpdatedAt>=active.processingStartedAt);
+  publishPreview!();
+  const preview=(await state()).studies.find(study=>study.id===recording.id);
+  assert.equal(preview.activity.label,'Расшифровка готова');
+  assert.deepEqual(preview.transcriptPreview,[{time:0,end:1,text:'PREVIEW_MAIN_ONLY'}]);
+  assert(!preview.segments?.length);
+  assert.doesNotMatch(JSON.stringify(await state(projectB)),/PREVIEW_MAIN_ONLY/);
   // The next recording is enqueued before the document, making document priority observable.
   const nextRecording=await upload('second-fixture.wav','synthetic-recording-two');
   const document=await upload('queued-fixture.txt','SYNTHETIC_PROJECT_B_DOCUMENT',projectB);documentId=document.id;
@@ -91,6 +98,7 @@ test('blocked ASR does not block analysis; queued documents keep honest status a
   const doneMain=await until(()=>state(),value=>[recording.id,nextRecording.id].every(id=>value.studies.find(study=>study.id===id)?.status==='ready'),'recording lane did not complete');
   await until(async()=>existsSync(firstCheckpointDir),exists=>!exists,'finished ASR checkpoint was retained');
   assert.equal(asrCalls,2);assert.equal(doneB.studies.find(study=>study.id===documentId).processingState,undefined);assert.equal(doneB.studies.find(study=>study.id===documentId).activity.label,'Текст готов');
+  assert.doesNotMatch(JSON.stringify(doneMain),/PREVIEW_MAIN_ONLY/);
   assert.match(JSON.stringify(doneB),/SYNTHETIC_PROJECT_B_DOCUMENT/);assert.doesNotMatch(JSON.stringify(doneB),/SYNTHETIC_MAIN_RECORDING/);assert.doesNotMatch(JSON.stringify(doneMain),/SYNTHETIC_PROJECT_B_DOCUMENT|Синтетическая сводка проекта Б/);
  }finally{
   releaseASR();

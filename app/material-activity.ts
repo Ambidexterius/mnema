@@ -2,6 +2,7 @@ import type {Study,MaterialActivity} from './types.ts';
 
 // Only public progress belongs here. Model configuration and draft contents stay private.
 export function materialActivity(s:Study):MaterialActivity {
+ if(s.status==='processing'&&s.transcriptPreview?.length)return {state:'running',label:'Расшифровка готова',detail:s.progress?.startsWith('Определяем спикеров')?s.progress:'Определяем спикеров'};
  if(s.status==='processing'&&s.processingState==='queued')return {state:'queued',label:'В очереди на обработку',detail:'Файл сохранён. Обработка начнётся после предыдущих файлов.'};
  if(s.status==='processing'&&s.progress?.startsWith('Определяем спикеров'))return {state:'running',label:'Определяем спикеров',detail:s.progress};
  if(s.status==='processing')return {state:'running',label:s.format==='Видео'?'Распознаём запись':'Извлекаем текст',detail:s.progress||'Файл обрабатывается на сервере.'};
