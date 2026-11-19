@@ -13,8 +13,9 @@ export function createChatHistory(db:DatabaseSync,readProject?:(person:Person,wo
  const row=(person:Person,id:string)=>{const r=db.prepare('SELECT * FROM mnema_chats WHERE id=? AND user_id=?').get(id,person.id);if(!r)reject(404,'Чат не найден.');return r};
  function readable(person:Person,r:any,projects=new Map<string,any[]>()){
   if(r.project_id&&!person.workspaces.some(w=>w.id===r.project_id))return false;
-  if(JSON.parse(String(r.grants)).some(g=>{const w=person.workspaces.find(w=>w.id===g.id);return !w||(g.role==='full'&&w.role!=='full')}))return false;
+  // Visibility follows the cited fragments only. The person already read these answers, so a role change or losing a project the chat never cited must not hide it.
   for(const m of JSON.parse(r.messages))for(const s of m.sources||[]){
+   if(!person.workspaces.some(w=>w.id===s.workspaceId))return false;
    if(!projects.has(s.workspaceId)){
     const project=readProject?readProject(person,s.workspaceId):JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(s.workspaceId)?.data||'{"studies":[]}')).studies;
     projects.set(s.workspaceId,project);
@@ -31,13 +32,11 @@ export function createChatHistory(db:DatabaseSync,readProject?:(person:Person,wo
  function remove(person:Person,id:string){row(person,id);if(busy.has(id))reject(409,'Дождитесь ответа перед удалением чата.');db.prepare('DELETE FROM mnema_chats WHERE id=? AND user_id=?').run(id,person.id)}
  function acquire(person:Person,id:string){const chat=get(person,id);if(busy.has(id))reject(409,'В этом чате уже готовится ответ.');if(chat.messages.length>=200)reject(409,'В чате уже 100 вопросов. Начните новый чат.');busy.add(id);return chat}
  function append(person:Person,id:string,question:string,answer:any){
-  const chat=get(person,id),r=row(person,id),grants=JSON.parse(String(r.grants));
-  // A generated answer may use reviewed findings as well as its displayed citations.
-  for(const w of person.workspaces){const grant=grants.find(g=>g.id===w.id);if(!grant)grants.push({id:w.id,role:w.role});else if(w.role==='full')grant.role='full'}
+  const chat=get(person,id),r=row(person,id);
   const messages=[...chat.messages,{id:randomUUID(),role:'user',text:question},{id:randomUUID(),role:'assistant',...answer}];
-  const next={...r,messages:JSON.stringify(messages),grants:JSON.stringify(grants)};
+  const next={...r,messages:JSON.stringify(messages)};
   if(!readable(person,next))reject(409,'Источники изменились. Начните новый чат.');
-  db.prepare('UPDATE mnema_chats SET title=?,messages=?,grants=?,updated=? WHERE id=? AND user_id=?').run(chat.messages.length?chat.title:question.slice(0,80),next.messages,next.grants,Date.now(),id,person.id);
+  db.prepare('UPDATE mnema_chats SET title=?,messages=?,updated=? WHERE id=? AND user_id=?').run(chat.messages.length?chat.title:question.slice(0,80),next.messages,Date.now(),id,person.id);
   return get(person,id);
  }
  return {list,get,create,remove,acquire,append,release:(id:string)=>busy.delete(id)};
