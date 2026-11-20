@@ -739,6 +739,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     assert.equal(await question.getAttribute('aria-pressed'),'true');
     await section.getByRole('button',{name:'Обновить ответ'}).waitFor();
     await section.locator('.summary-text .footnote').first().waitFor();
+    const gaps=await section.locator('.summary-text .answer > * + *').evaluateAll(els=>els.map(e=>getComputedStyle(e).marginTop));assert.ok(gaps.length&&gaps.every(g=>g==='12px'),'summary blocks are spaced: '+gaps);
     await section.getByRole('button',{name:'Общий обзор'}).click();
     assert.equal(await section.getByRole('button',{name:'Общий обзор'}).getAttribute('aria-pressed'),'true');
     await section.getByRole('button',{name:'Обновить сводку'}).waitFor();

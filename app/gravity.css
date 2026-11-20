@@ -575,9 +575,13 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 .section-count{color:var(--g-color-text-hint);font-weight:400}
 .section-note{font-size:12px;line-height:16px;color:var(--g-color-text-hint)}
 .segment-count{margin-left:6px;color:var(--g-color-text-hint)}
+/* Count of the selected tab takes the tab's colour, slightly dimmed, instead of staying grey */
+.g-segmented-radio-group__option:has(:checked) .segment-count{color:inherit;opacity:.7}
 .digest-filters{margin:0 0 8px}
 .summary-card{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--g-color-line-generic);border-radius:var(--g-border-radius-xl)}
 .summary-text{font-size:15px;line-height:24px}.summary-text :is(p,ul,ol){margin:0}.summary-text :is(ul,ol){display:grid;gap:8px;padding-left:20px}.summary-text>*+*{margin-top:8px}
+/* The answer sits in .answer inside .summary-text: space its blocks too, or a paragraph runs into the list below */
+.summary-text .answer>*+*,.summary-text .answer-lead>*+*{margin-top:12px}
 .summary-pending{display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;border-radius:var(--g-border-radius-m);background:var(--g-color-base-info-light);font-size:13px;line-height:18px}
 .summary-empty{margin:0;color:var(--g-color-text-secondary);font-size:14px;line-height:20px}
 .summary-actions{display:flex;flex-wrap:wrap;gap:8px}
