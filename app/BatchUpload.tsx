@@ -5,7 +5,7 @@ import {AlertCircle,ArrowUpCircle,CheckCircle2,FileText,FileSpreadsheet,FileVide
 import {existingFileMessage,fileNameKey} from './file-name.ts';
 import {UploadQueue,type UploadItem,type UploadRow} from './upload-queue.ts';
 
-const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx';
+export const accept='.mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx';
 const formats=new Set(accept.split(','));
 const types=['Интервью','Юзабилити-тест','Встреча','Отчёт'].map(value=>({value,content:value}));
 const size=(bytes:number)=>bytes<1024**2?Math.max(1,Math.round(bytes/1024))+' КБ':new Intl.NumberFormat('ru',{maximumFractionDigits:1}).format(bytes/1024**2)+' МБ';
@@ -19,15 +19,16 @@ type PickerProps = {
  model:string;
  existingNames:ReadonlySet<string>;
  queuedNames:ReadonlySet<string>;
+ initial?:File[];
 };
 const duplicateSelectionMessage = 'Файл с таким именем уже выбран. Чтобы выбрать этот, снимите отметку с одноимённого файла.';
 const queuedFileMessage = 'Файл с таким именем уже в очереди. Чтобы добавить другой, переименуйте его на устройстве и выберите снова.';
 
-function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
+function Picker({close,start,model,existingNames,queuedNames,initial}:PickerProps){
  const [rows,setRows]=useState<Draft[]>([]),[autoSummary,setSummary]=useState(true);
  const input=useRef<HTMLInputElement>(null);
  const [expanded,setExpanded]=useState<string|null>(null),[dragging,setDragging]=useState(false);
- function add(files:FileList|null){
+ function add(files:FileList|File[]|null){
    const added=Array.from(files||[]);
    setRows(previous=>{
      const used = new Set(previous.filter(row=>row.checked&&!row.invalid).map(row=>fileNameKey(row.file.name)));
@@ -42,6 +43,8 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
      return next;
    });
  }
+ // Files chosen before the dialog opened (empty materials card) arrive here once.
+ useEffect(()=>{if(initial?.length)add(initial)},[]);
  function edit(id:string,change:Partial<Draft>){setRows(prev=>prev.map(r=>r.id===id?{...r,...change}:r))}
  function unavailable(row:Draft){
    const key=fileNameKey(row.file.name);
@@ -105,7 +108,7 @@ function Picker({close,start,model,existingNames,queuedNames}:PickerProps){
  </Dialog>;
 }
 
-export default function BatchUpload({open,close,workspace,model,studies,receive,openStudy,busy}:{studies:readonly {fileName?:string}[];open:boolean;close:()=>void;workspace:string;model:string;receive:(r:any)=>void;openStudy:(id:string)=>void;busy:React.MutableRefObject<boolean>}){
+export default function BatchUpload({open,close,workspace,model,studies,receive,openStudy,busy,files}:{studies:readonly {fileName?:string}[];open:boolean;files?:File[];close:()=>void;workspace:string;model:string;receive:(r:any)=>void;openStudy:(id:string)=>void;busy:React.MutableRefObject<boolean>}){
  const receiveRef=useRef(receive);receiveRef.current=receive;
  const single=useRef(false);
  const [queue]=useState(()=>new UploadQueue(result=>{receiveRef.current(result);if(single.current&&result.createdStudyId)openStudy(result.createdStudyId)}));
@@ -127,7 +130,7 @@ export default function BatchUpload({open,close,workspace,model,studies,receive,
  useEffect(()=>{if(queue.busy&&leaving)setLeaving(false)},[queue.busy,leaving]);
  const existingNames=new Set(studies.flatMap(study=>study.fileName?[fileNameKey(study.fileName)]:[]));
  const queuedNames=new Set(rows.filter(row=>row.state!=='cancelled'&&row.state!=='ready'&&!row.permanentDuplicate).map(row=>fileNameKey(row.name)));
- return <>{open&&<Picker close={close} model={model} existingNames={existingNames} queuedNames={queuedNames} start={items=>{if(!queue.busy&&rows.every(r=>r.state==='ready'||r.state==='cancelled'))queue.clear();if(!queue.snapshot().length)setDetails(false);single.current=!queue.snapshot().length&&items.length===1;queue.add(items,workspace)}}/>}
+ return <>{open&&<Picker initial={files} close={close} model={model} existingNames={existingNames} queuedNames={queuedNames} start={items=>{if(!queue.busy&&rows.every(r=>r.state==='ready'||r.state==='cancelled'))queue.clear();if(!queue.snapshot().length)setDetails(false);single.current=!queue.snapshot().length&&items.length===1;queue.add(items,workspace)}}/>}
  {rows.length>0&&<aside className="transfer-dock" data-leaving={leaving||undefined} aria-label="Загрузка файлов" onPointerEnter={()=>setHeld(true)} onPointerLeave={()=>setHeld(false)} onFocus={()=>setHeld(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setHeld(false)}} onKeyDown={event=>{if(details&&event.key==='Escape'){setDetails(false);toggle.current?.focus()}}}>
   {details&&<ul className="transfer-list" id="transfer-files" aria-label="Ход загрузки">{rows.map(r=><li key={r.id} className="transfer-card transfer-file">
    {r.state==='ready'?<CheckCircle2 size={18} aria-hidden="true"/>:['error','cancel-error'].includes(r.state)?<AlertCircle size={18} aria-hidden="true"/>:<FileText size={18} aria-hidden="true"/>}

@@ -612,9 +612,9 @@ html[data-theme="light"] .app-shell{background:var(--g-color-base-simple-hover-s
 @media(prefers-reduced-motion:reduce){.progress-dots i{animation:none;opacity:1}}
 .material-rail-empty{min-height:0;padding:24px 16px;gap:8px}.material-rail-empty h3{margin:4px 0 0;font-size:14px;line-height:20px;font-weight:600}.material-rail-empty p{margin:0;max-width:260px;color:var(--g-color-text-secondary);font-size:13px;line-height:18px}
 .material-rail-empty .project-folder{width:44px;height:44px}
-button.material-rail-empty{width:100%;font:inherit;color:inherit;background:none;cursor:pointer}
-@media(hover:hover){button.material-rail-empty:hover{border-color:var(--g-color-line-generic-hover,var(--g-color-text-hint));background:var(--g-color-base-simple-hover)}}
-button.material-rail-empty:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+label.material-rail-empty{width:100%;font:inherit;color:inherit;background:none;cursor:pointer}
+@media(hover:hover){label.material-rail-empty:hover{border-color:var(--g-color-line-generic-hover,var(--g-color-text-hint));background:var(--g-color-base-simple-hover)}}
+label.material-rail-empty:has(input:focus-visible){outline:2px solid var(--g-color-line-focus);outline-offset:2px}
 .material-rail-empty-action{margin-top:4px;font-size:13px;line-height:18px;font-weight:600;color:var(--g-color-text-primary)}
 @media(hover:hover){.material-rail-text>a:hover{text-decoration:underline}}
 .material-rail-text>a:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}

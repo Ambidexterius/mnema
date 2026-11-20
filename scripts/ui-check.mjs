@@ -261,21 +261,22 @@ try{
    const extra=Array.from({length:40},(_,i)=>({...base,id:'bulk'+i,title:'Интервью № '+i,date:'2026-11-0'+(1+i%9),...(i===39?{status:'error'}:{})}));
    fixture.app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(JSON.stringify({...state,studies:[...state.studies,...extra]}));
    try{
-    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await goto('/projects/main');const rows=page.locator('.material-rail>li');await rows.first().waitFor();
-     assert.equal(await rows.count(),8);assert.match(await rows.first().locator('.material-rail-text a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-rail-text a').getAttribute('href'),/studies\/bulk39$/);
+    for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await goto('/projects/main');const rows=page.locator('.material-groups>li');await rows.first().waitFor();
+     // Up to eight files, report first, then work in progress; no «Ещё N файлов» row: the footer links to all materials.
+     assert.equal(await rows.count(),8);assert.match(await rows.first().locator('.material-group-name a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-group-name a').getAttribute('href'),/studies\/bulk39$/);
      const section=page.getByRole('region',{name:/^Материалы/}),more=section.getByRole('link',{name:'Все материалы',exact:true}),add=section.getByRole('button',{name:'Добавить файл',exact:true});
      assert.match(await more.getAttribute('href'),/\/projects\/main\/research$/);assert.match(await section.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
-     const heading=await section.locator('.section-heading').boundingBox(),link=await more.boundingBox(),button=await add.boundingBox(),first=await rows.first().boundingBox();
-     assert.ok(link.y>=heading.y&&link.y+link.height<=heading.y+heading.height+1);assert.ok(button.y>=heading.y+heading.height);const rail=await rows.first().boundingBox();
-     assert.ok(button.x>heading.x);assert.ok(Math.abs(button.x-rail.x)<1);
-     assert.equal(button.height,width<960?36:28);assert.ok(Math.abs(button.width-rail.width)<1);assert.ok(first.y>=button.y+button.height);
-     const title=rows.first().locator('.material-rail-text a'),fullTitle=await title.innerText(),text=await title.evaluate(e=>({height:e.getBoundingClientRect().height,overflow:getComputedStyle(e).textOverflow,nowrap:getComputedStyle(e).whiteSpace,clipped:e.scrollWidth>e.clientWidth}));
-     assert.equal(text.height,20);assert.equal(text.overflow,'ellipsis');assert.equal(text.nowrap,'nowrap');assert.equal(await title.getAttribute('title'),width<960?null:fullTitle);if(width===320||width===1440)assert.ok(text.clipped);
-     const findings=page.getByRole('link',{name:'Все находки',exact:true});assert.equal(await findings.getAttribute('class'),await more.getAttribute('class'));assert.match(await findings.getAttribute('href'),/\/projects\/main\/findings$/);
-     await page.emulateMedia({reducedMotion:'no-preference'});await title.hover();assert.equal(await page.getByRole('tooltip').count(),0);
-     if(width>=960&&text.clipped){await page.waitForFunction(()=>{const e=document.querySelector('.material-rail-text a');return e.scrollLeft>=e.scrollWidth-e.clientWidth-1});await screenshot('overview-material-title-hover-'+width)}else{await page.waitForTimeout(350);assert.equal(await title.evaluate(e=>e.scrollLeft),0)}
-     await page.mouse.move(0,0);await page.waitForFunction(()=>document.querySelector('.material-rail-text a').scrollLeft===0);
-     await page.emulateMedia({reducedMotion:'reduce'});await title.hover();assert.equal(await title.evaluate(e=>e.scrollLeft),0);await page.mouse.move(0,0);
+     const head=await section.locator('.overview-card-head').boundingBox(),button=await add.boundingBox(),foot=await section.locator('.overview-card-foot').boundingBox(),link=await more.boundingBox(),first=await rows.first().boundingBox();
+     assert.ok(button.y>=head.y&&button.y+button.height<=head.y+head.height+1);assert.ok(link.y>=foot.y&&link.y+link.height<=foot.y+foot.height+1);assert.ok(first.y>=head.y+head.height-1);
+     const title=rows.first().locator('.material-group-name a'),text=await title.evaluate(e=>({overflow:getComputedStyle(e).textOverflow,nowrap:getComputedStyle(e).whiteSpace}));
+     assert.equal(text.overflow,'ellipsis');assert.equal(text.nowrap,'nowrap');assert.equal(await title.getAttribute('title'),await title.innerText());
+     // The three overview headings are one level.
+     const fonts=await page.evaluate(()=>['#project-summary-title','#project-materials-title','#project-findings-title'].map(q=>{const s=getComputedStyle(document.querySelector(q));return s.fontSize+'/'+s.lineHeight+'/'+s.fontWeight}));
+     assert.deepEqual(fonts,Array(3).fill('18px/28px/600'));
+     // Wide: materials start level with the passport; one column: summary, materials, findings.
+     const top=async q=>(await page.locator(q).boundingBox()).y;
+     if(width>=1024)assert.ok(Math.abs(await top('.overview-materials')-await top('.project-profile'))<1);
+     else{assert.ok(await top('.overview-materials')>await top('.overview-summary'));assert.ok(await top('.findings-digest')>await top('.overview-materials'))}
      await add.click();const upload=page.getByRole('dialog');await upload.waitFor();await page.keyboard.press('Escape');await upload.waitFor({state:'hidden'});
      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await screenshot('overview-many-materials-'+width);
     }
@@ -346,10 +347,10 @@ try{
      const links=page.locator('.study-table .table-study');assert.match(await links.first().getAttribute('href'),/studies\/report$/);assert.match(await links.nth(1).getAttribute('href'),/studies\/sample$/);
      assert.equal(await page.locator('.study-table tbody tr').first().locator('td').nth(1).innerText(),'Отчёт');assert.equal(await page.locator('.study-table .table-study .g-label').count(),0);
     }else{
-     // Overview: materials column next to «Кратко» and findings, report first, every ready file downloadable, one ZIP for all.
-     const rows=page.locator('.material-rail>li');await rows.first().waitFor();
-     assert.match(await rows.first().locator('.material-rail-text a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-rail-text a').getAttribute('href'),/studies\/sample$/);
-     assert.equal(await page.locator('.material-rail .table-download').count(),await rows.count());
+     // Overview: materials column next to passport, summary and findings, report first, each file a chip, one ZIP for all.
+     const rows=page.locator('.material-groups>li');await rows.first().waitFor();
+     assert.match(await rows.first().locator('.material-group-name a').getAttribute('href'),/studies\/report$/);assert.match(await rows.nth(1).locator('.material-group-name a').getAttribute('href'),/studies\/sample$/);
+     for(let i=0;i<await rows.count();i++)assert.ok(await rows.nth(i).locator('.material-chip').count()>=1);
      assert.match(await page.getByRole('link',{name:/^Скачать всё/}).getAttribute('href'),/^\/api\/files\/archive/);
      const main=await page.locator('.overview-main').boundingBox(),rail=await page.locator('.overview-materials').boundingBox();assert.ok(rail.x>=main.x+main.width);
     }
