@@ -494,7 +494,7 @@ button.brand:focus-visible{outline:2px solid var(--g-color-line-focus);outline-o
 
 .global-context-error{margin:16px 0}
 .global-context-error .form-error{margin-bottom:12px}
-@media(max-width:639px){.composer .g-text-area__control{font-size:16px;line-height:24px}.global-chat button:not(.footnote),.project-findings .g-button{min-height:44px;min-width:44px}.project-findings .g-checkbox{min-height:44px;min-width:44px;justify-content:center}}
+@media(max-width:639px){.composer .g-text-area__control{font-size:16px;line-height:24px}.global-chat button:not(.footnote):not(.answer-topic-link),.project-findings .g-button{min-height:44px;min-width:44px}.project-findings .g-checkbox{min-height:44px;min-width:44px;justify-content:center}}
 
 /* Confirmed by the finding-card stress harness: user-supplied titles must fit at 320px. */
 .finding-card h3{min-width:0}
@@ -1459,6 +1459,14 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .answer-lead{margin:0 0 20px;padding:12px 16px;border-radius:12px;background:var(--g-color-base-generic)}
 .answer-lead>span{display:block;font-size:12px;line-height:16px;color:var(--g-color-text-secondary);margin-bottom:4px}
 .messages .answer .answer-lead p,.answer-lead p{margin:0;font-size:15px;line-height:24px;font-weight:510}
+/* Themes of «Главное»: text-like links (DESIGN.md: red on hover), arrow says «scrolls down». */
+.messages .answer .answer-lead ul,.answer-lead ul{margin:8px 0 0}
+.answer-topic-link{display:inline-flex;align-items:center;gap:4px;padding:0;border:0;background:none;color:var(--g-color-text-primary);font:inherit;font-weight:590;cursor:pointer;text-align:start}
+.answer-topic-link svg{flex:none;color:var(--g-color-text-secondary);transition:color .15s}
+@media(hover:hover){.answer-topic-link:hover,.answer-topic-link:hover svg{color:var(--g-color-text-link)}}
+.answer-topic-link:focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px;border-radius:4px}
+.answer h3[tabindex]{scroll-margin-top:72px;border-radius:4px}
+.answer h3[tabindex]:focus{outline:none}
 .messages .answer_sectioned h3,.answer_sectioned h3{margin:24px 0 8px;font-size:13px;line-height:18px;font-weight:400;color:var(--g-color-text-secondary)}
 .messages .answer_sectioned ul,.answer_sectioned ul{list-style:none;padding-inline-start:0}
 .answer li strong{font-weight:590}
@@ -1482,6 +1490,37 @@ button.ideas-row-main:focus-visible{outline:2px solid var(--g-color-line-focus);
 .answer-metric-value{font-size:17px;line-height:24px;font-weight:590}
 .answer-metric-note{font-size:13px;line-height:18px;color:var(--g-color-text-secondary)}
 @media(max-width:639px){.messages .answer .answer-metrics ul,.answer-metrics ul{grid-template-columns:minmax(0,1fr)}}
+/* Ответ чата, вариант А (20.11.2026): синяя линия «Главного», темы ссылками, бейджи у тем,
+   одна жёлтая сноска на пункт, жёлтые карточки «Цифр». Жёлтый = цитата, как подсветка в расшифровке. */
+.answer .footnote{max-width:none;min-width:22px;justify-content:center;padding:0 5px;margin-inline:4px 0;border-radius:6px;background:var(--g-color-base-warning-medium);color:var(--g-color-text-warning-heavy);font-weight:600;font-variant-numeric:tabular-nums}
+@media(hover:hover){.answer button.footnote:hover{background:var(--g-color-base-warning-medium-hover);color:var(--g-color-text-warning-heavy)}}
+.answer button.footnote[aria-expanded=true]{background:var(--g-color-base-warning-medium-hover);color:var(--g-color-text-warning-heavy)}
+.messages .answer_sectioned .answer-lead,.answer_sectioned .answer-lead{margin:0 0 28px;padding:2px 0 2px 16px;border-radius:0;background:none;border-left:3px solid var(--g-color-line-info)}
+.answer_sectioned .answer-lead>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.messages .answer_sectioned .answer-lead>p:first-of-type,.answer_sectioned .answer-lead>p:first-of-type{font-size:16px;line-height:1.45;font-weight:590;text-wrap:pretty}
+.messages .answer_sectioned .answer-lead>p+p,.messages .answer_sectioned .answer-lead>ol+p,.answer_sectioned .answer-lead>p+p,.answer_sectioned .answer-lead>ol+p{margin-top:10px;font-size:14px;line-height:1.5;font-weight:400;color:var(--g-color-text-secondary)}
+.answer-themes{list-style:none;margin:10px 0 0;padding:0;counter-reset:theme}
+.answer-themes li{counter-increment:theme;position:relative;padding-left:28px;font-size:14px;line-height:1.5}
+.answer-themes li+li{margin-top:6px}
+.answer-themes li::before{content:counter(theme);position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;background:var(--g-color-base-info-light);color:var(--g-color-text-info-heavy);font-size:12px;line-height:20px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.messages .answer_sectioned h3,.answer_sectioned h3{display:flex;align-items:center;gap:8px;margin:28px 0 10px;font-size:16px;line-height:1.3;font-weight:600;color:var(--g-color-text-primary);text-wrap:balance}
+.answer-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:var(--g-color-base-generic);color:var(--g-color-text-secondary);font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
+.messages .answer_sectioned>ul>li,.answer_sectioned>ul>li{position:relative;padding-left:14px;max-width:68ch;color:var(--g-color-text-secondary);text-wrap:pretty}
+.answer_sectioned>ul>li::before{content:'';position:absolute;left:0;top:.72em;width:5px;height:5px;border-radius:50%;background:var(--g-color-text-hint)}
+.answer_sectioned>ul>li strong{font-weight:510;color:var(--g-color-text-primary)}
+/* Светлее карточки «Что осталось невыясненным», чтобы цифры не читались как неясность */
+.messages .answer .answer-metrics li,.answer-metrics li{position:relative;gap:4px;background:color-mix(in srgb,var(--g-color-base-warning-light) 55%,transparent)}
+.answer-metric-label{padding-right:28px;font-size:14px;line-height:1.4;font-weight:500;color:var(--g-color-text-primary)}
+.answer-metric-value{font-size:24px;line-height:1.15;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.answer-metric-note{font-size:14px;line-height:1.4;color:var(--g-color-text-secondary)}
+.answer-metrics li>.footnote{position:absolute;top:10px;right:12px;margin:0}
+/* 1 цифра — строка во всю ширину, 2 и 4 — по две, 3, 5, 6+ — по три */
+@media(min-width:640px){
+ .messages .answer .answer-metrics ul[data-count="1"],.answer-metrics ul[data-count="1"]{grid-template-columns:minmax(0,1fr)}
+ .answer-metrics ul[data-count="1"] li{flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:16px}
+ .answer-metrics ul[data-count="1"] .answer-metric-label{flex-basis:100%}
+ .messages .answer .answer-metrics ul:not([data-count="1"]):not([data-count="2"]):not([data-count="4"]),.answer-metrics ul:not([data-count="1"]):not([data-count="2"]):not([data-count="4"]){grid-template-columns:repeat(3,minmax(0,1fr))}
+}
 /* Settings window is 900 px wide: the status moves under the name (as on the phone) so the frameless users table fits without clipping. */
 .settings-body .users-table .user-cell{min-width:0}.settings-body .users-table .user-cell>div{min-width:0}
 .settings-body .users-table .user-cell strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
