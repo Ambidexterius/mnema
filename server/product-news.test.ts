@@ -21,3 +21,18 @@ test('product news preserves the original feed, edits, Markdown and publication 
   assert.throws(()=>news.edit('missing',{title:'Заголовок',description:'текст',revision:1}),{status:404});
  }finally{db.close()}
 });
+
+test('deleted seeded news stay hidden after startup, including when the feed is empty',()=>{
+ const db=new DatabaseSync(':memory:');
+ try{
+  const news=createProductNews(db);
+  for(const post of news.list())news.remove(post.id,{revision:post.revision});
+  const reopened=createProductNews(db);
+  assert.deepEqual(reopened.list(),[]);
+  assert.equal(reopened.latest(),'');
+  assert.throws(()=>reopened.edit(initialNews[0].id,{description:'Правка',revision:1}),{status:404});
+  reopened.create({description:'Новая запись'});
+  assert.equal(reopened.latest(),reopened.list()[0].id);
+  assert.equal(reopened.list().length,1);
+ }finally{db.close()}
+});

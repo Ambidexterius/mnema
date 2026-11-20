@@ -173,13 +173,13 @@ export function App(){
  const effectiveTheme=state.theme==='system'?(systemDark?'dark':'light'):state.theme;
  const themeTransition=useRef<ViewTransition|null>(null);
  const [seen,setSeen]=useState(()=>{try{return localStorage.getItem('mnema.whatsnew')}catch{return null}});
- const [newsId,setNewsId]=useState(()=>(DEMO?demoNews():initialNews)[0].id);
+ const [newsId,setNewsId]=useState(()=>(DEMO?demoNews():initialNews)[0]?.id??'');
  const markSeen=React.useCallback((id:string)=>{setNewsId(id);setSeen(id);try{localStorage.setItem('mnema.whatsnew',id)}catch{}},[]);
  const main=useRef(null),timer=useRef(null),files=useRef(new Map());
  stateRef.current=state;
  reader=DEMO?(qa&&new URLSearchParams(location.search).get('role')==='view'):authInfo.user?.role!=='full';
 
- const receive=(data,onlyCurrentProject=false)=>{if(onlyCurrentProject&&(switching.current||data.user?.workspaceId!==authInfoRef.current?.workspaceId))return;if(data.user?.newsId)setNewsId(data.user.newsId);authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
+ const receive=(data,onlyCurrentProject=false)=>{if(onlyCurrentProject&&(switching.current||data.user?.workspaceId!==authInfoRef.current?.workspaceId))return;if(typeof data.user?.newsId==='string')setNewsId(data.user.newsId);authInfoRef.current=data.user;setApiWorkspace(data.user?.workspaceId||null);serverVersion.current=data.version;setAuthInfo(a=>({...a,user:data.user}));setState(s=>({...s,...data.state,...(!data.user?.workspaceId?{workspace:undefined}:{})}));};
  const linkWorkspaceApplied=useRef(false);
  const refresh=async()=>{const info=await api('/api/session');if(info.user){if(!linkWorkspaceApplied.current){const requested=requestedWorkspace();if(requested){const token=new URLSearchParams(location.search).get('share');if(token)await api('/api/workspaces/'+encodeURIComponent(requested)+'/share',{token},'POST',false);setApiWorkspace(requested);document.cookie='mnema_ws='+encodeURIComponent(requested)+'; path=/; SameSite=Lax'}linkWorkspaceApplied.current=true}receive(await api('/api/state'));setAuthInfo(a=>({...a,registrationEnabled:info.registrationEnabled,loading:false,error:undefined}))}else setAuthInfo({...info,loading:false});};
  const completeAuth=async()=>{const back=projectReturnPath(new URL(location.href));if(back&&back!==location.pathname+location.search){location.assign(back);return}try{await refresh()}catch(error){if(error.status===403||error.status===404){closeProject();return}throw error}if(!back)go('research')};
@@ -323,7 +323,7 @@ const setAnswerRating=(id:string,rating:'up'|'down'|null)=>{
  const workspaces=(authInfo.user?.workspaces||[]).filter(w=>!w.emptyDefault);const workspaceName=state.workspace?.name||workspaces.find(w=>w.id===authInfo.user?.workspaceId)?.name||'Команда';
  const switchWorkspace=async(id:string,navigate=true)=>{if(switching.current)return;if(uploadingBatch.current){notify('Дождитесь завершения загрузки перед сменой проекта.');return}const previous=authInfo.user?.workspaceId;switching.current=true;setSwitchingProject(true);try{await pending.current;const token=new URLSearchParams(location.search).get('share');if(token&&requestedWorkspace()===id)await api('/api/workspaces/'+encodeURIComponent(id)+'/share',{token},'POST',false);setApiWorkspace(id);document.cookie='mnema_ws='+encodeURIComponent(id)+'; path=/; SameSite=Lax';setPanel(null);receive(await api('/api/state'));if(navigate)go('home')}catch(e){setApiWorkspace(previous||null);document.cookie='mnema_ws='+encodeURIComponent(previous||'')+'; path=/; SameSite=Lax';notify('Не удалось открыть проект. Попробуйте ещё раз.');throw e}finally{switching.current=false;setSwitchingProject(false)}};
 
- const collapsed=state.sidebarCollapsed&&!mobile;const unseen=seen!==newsId;
+ const collapsed=state.sidebarCollapsed&&!mobile;const unseen=Boolean(newsId&&seen!==newsId);
  const toggleSidebar=(event:React.MouseEvent)=>{const el=main.current?.parentElement;const left=el?.getBoundingClientRect().left;sidebarShift.current?.animation?.cancel();sidebarShift.current=event.detail&&left!==undefined&&!matchMedia('(prefers-reduced-motion: reduce)').matches?{left}:null;update({sidebarCollapsed:!state.sidebarCollapsed})};
  useLayoutEffect(()=>{const el=main.current?.parentElement,previous=sidebarShift.current;if(!el||!previous||mobile)return;const delta=previous.left-el.getBoundingClientRect().left;const css=getComputedStyle(el),timing=css.getPropertyValue('--mn-motion-fast').trim();previous.animation=el.animate([{transform:'translateX('+delta+'px)'},{transform:'translateX(0)'}],{duration:parseFloat(timing)*(timing.endsWith('ms')?1:1000)||160,easing:css.getPropertyValue('--mn-ease-out').trim()||'cubic-bezier(0.23,1,0.32,1)'});return()=>previous.animation?.cancel()},[collapsed,mobile]);
 

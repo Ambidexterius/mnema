@@ -53,6 +53,6 @@ export const initialNews:NewsPost[]=[
 ];
 
 export function demoNews():NewsPost[]{
- try{const items=JSON.parse(localStorage.getItem('mnema.demo.news')||'null');if(Array.isArray(items)&&items.length)return items}catch{}
+ try{const items=JSON.parse(localStorage.getItem('mnema.demo.news')||'null');if(Array.isArray(items))return items}catch{}
  return initialNews;
 }
