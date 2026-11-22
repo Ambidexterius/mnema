@@ -46,6 +46,33 @@ try{
  await page.unroute('**/api/state');
  console.log('PASS unchanged-poll-and-same-version-update');
 
+ const hookErrors=[];
+ const reportHookError=error=>hookErrors.push(error.message);
+ page.on('pageerror',reportHookError);
+ let showSummary=false;
+ await page.route('**/api/state',async route=>{
+  const reply=await route.fetch();
+  const data=await reply.json();
+  data.user={...data.user,role:'view',admin:false,owner:false,manageUsers:false};
+  data.state.projectSummary=showSummary?{answer:'Проверочная сводка для читателя.',materials:1,sources:[],at:1795000000000}:null;
+  await route.fulfill({json:data});
+ });
+ await page.goto(fixture.base+'/projects/main');
+ await page.locator('.project-overview h1').waitFor();
+ const summary=page.getByRole('heading',{name:'Сводка проекта',exact:true});
+ assert.equal(await summary.count(),0);
+ showSummary=true;
+ await poll();
+ await summary.waitFor();
+ await page.getByText('Проверочная сводка для читателя.',{exact:true}).waitFor();
+ showSummary=false;
+ await poll();
+ await summary.waitFor({state:'hidden'});
+ assert.deepEqual(hookErrors,[]);
+ page.off('pageerror',reportHookError);
+ await page.unroute('**/api/state');
+ console.log('PASS reader-summary-appears-and-disappears-without-hook-errors');
+
  await page.route('**/assets/NewsDialog-*.js',route=>route.abort());
  await page.getByRole('button',{name:/^Профиль:/}).click();
  const reload=page.waitForEvent('framenavigated',frame=>frame===page.mainFrame());

@@ -483,7 +483,6 @@ function ProjectSummary(){
  const summary=state.projectSummary,ready=state.studies.some(s=>s.status==='ready'&&s.segments?.length),pending=state.studies.filter(isActive),readyCount=state.studies.filter(s=>s.status==='ready').length;
  const model=state.models.find(m=>m.id===state.modelId);
  const canBuild=real&&!reader&&ready&&model?.enabled&&model.keyConfigured&&model.model;
- if(!summary&&reader)return null;
  const build=async()=>{
   if(busy)return;
   setBusy(true);setError('');
@@ -501,6 +500,7 @@ function ProjectSummary(){
  };
  // A new summary or another project starts from the overview again.
  useEffect(()=>{setView(null);setAnswers({});setAskError('')},[summary?.at]);
+ if(!summary&&reader)return null;
  const current=view?answers[view]:null,cite=(list,key)=>setPanel({sources:list,heading:sourcesHeading(list),key});
  return <section className="overview-summary" aria-labelledby="project-summary-title">
   <div className="overview-card"><div className="overview-card-inner">
