@@ -4,46 +4,67 @@
   initial-value: -14%;
 }
 
-.theme-wipe-band {display:none}
+.theme-wipe-band {
+  display: none;
+}
 
 @media (prefers-reduced-motion: no-preference) {
   html.theme-wiping {
     --mn-motion-theme: 1000ms;
-    --mn-ease-theme: cubic-bezier(.4,0,.2,1);
+    --mn-ease-theme: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .theme-wiping .theme-wipe-band {
-    display:block;
-    position:fixed;
-    inset:0;
-    pointer-events:none;
-    view-transition-name:mn-theme-band;
+    display: block;
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    view-transition-name: mn-theme-band;
   }
 
-  html.theme-wiping::view-transition {pointer-events:none}
+  html.theme-wiping::view-transition {
+    pointer-events: none;
+  }
 
   html.theme-wiping::view-transition-group(root),
   html.theme-wiping::view-transition-old(root),
   html.theme-wiping::view-transition-old(mn-theme-band),
-  html.theme-wiping::view-transition-new(mn-theme-band) {animation:none}
+  html.theme-wiping::view-transition-new(mn-theme-band) {
+    animation: none;
+  }
 
   html.theme-wiping::view-transition-old(root),
-  html.theme-wiping::view-transition-new(root) {mix-blend-mode:normal}
+  html.theme-wiping::view-transition-new(root) {
+    mix-blend-mode: normal;
+  }
 
   html.theme-wiping::view-transition-new(root) {
-    mask-image:linear-gradient(to top,#000 calc(var(--mn-theme-progress) - 34%),transparent var(--mn-theme-progress));
-    animation:mn-theme-reveal var(--mn-motion-theme) var(--mn-ease-theme) both;
+    mask-image: linear-gradient(
+      to top,
+      #000 calc(var(--mn-theme-progress) - 34%),
+      transparent var(--mn-theme-progress)
+    );
+    animation: mn-theme-reveal var(--mn-motion-theme) var(--mn-ease-theme) both;
   }
 
   html.theme-wiping::view-transition-group(mn-theme-band) {
-    z-index:1;
-    backdrop-filter:blur(6px);
-    mask-image:linear-gradient(to top,transparent calc(var(--mn-theme-progress) - 41%),#000 calc(var(--mn-theme-progress) - 17%),transparent calc(var(--mn-theme-progress) + 7%));
-    animation:mn-theme-reveal var(--mn-motion-theme) var(--mn-ease-theme) both;
+    z-index: 1;
+    backdrop-filter: blur(6px);
+    mask-image: linear-gradient(
+      to top,
+      transparent calc(var(--mn-theme-progress) - 41%),
+      #000 calc(var(--mn-theme-progress) - 17%),
+      transparent calc(var(--mn-theme-progress) + 7%)
+    );
+    animation: mn-theme-reveal var(--mn-motion-theme) var(--mn-ease-theme) both;
   }
 
   @keyframes mn-theme-reveal {
-    from {--mn-theme-progress:-14%}
-    to {--mn-theme-progress:146%}
+    from {
+      --mn-theme-progress: -14%;
+    }
+    to {
+      --mn-theme-progress: 146%;
+    }
   }
 }

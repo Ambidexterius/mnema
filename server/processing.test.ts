@@ -1,66 +1,233 @@
-import {test} from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {extractDocument,processingProgress,transcribeRecording} from './processing.ts';
-test('mixed PDF uses OCR only for scanned pages and preserves stable page citations',async()=>{
- const calls=[];const run=async(cmd:string,args:string[]):Promise<{stdout:string}>=>{calls.push([cmd,args]);if(cmd==='pdfinfo')return{stdout:'Pages: 2\n'};if(cmd==='pdftotext')return{stdout:args[1]==='1'?'Достаточный текст первого листа. Пользователь проверяет календарь.':''};if(cmd==='tesseract')return{stdout:'Распознанный скан второго листа.'};return{stdout:''}};
- const first=await extractDocument({filePath:'/tmp/neutral.pdf',fileName:'neutral.pdf',fileId:'fixture',run});
- assert.equal(first.ocrPages,1);assert.deepEqual(first.segments.map(s=>s.page),[1,2]);assert.equal(calls.filter(c=>c[0]==='tesseract').length,1);
- const again=await extractDocument({filePath:'/tmp/neutral.pdf',fileName:'neutral.pdf',fileId:'fixture',run});assert.equal(first.segments[1].id,again.segments[1].id);
-});
-
-test('processor progress accepts measured phases without exposing arbitrary stdout',()=>{
- assert.equal(processingProgress('private transcript text'),null);
- assert.equal(processingProgress(JSON.stringify({event:'progress',phase:'private text'})),null);
- assert.equal(processingProgress(JSON.stringify({event:'progress',phase:'transcribing',processedSeconds:925,totalSeconds:3720,chunk:2,chunks:5})),'Распознаём запись: 15:25 из 1:02:00 · часть 2 из 5');
- assert.equal(processingProgress(JSON.stringify({event:'progress',phase:'diarization',processedSeconds:900,totalSeconds:3720,chunk:2,chunks:5})),'Определяем спикеров: 15:00 из 1:02:00 · часть 2 из 5');
- assert.equal(processingProgress(JSON.stringify({event:'progress',phase:'transcribing',processedSeconds:-1,totalSeconds:10,chunk:99,chunks:1})),'Распознаём запись');
-});
-
-test('complete ASR checkpoint survives interrupted optional speaker stage; partial ASR still fails',async()=>{
- const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const {join}=await import('node:path');const {tmpdir}=await import('node:os');
- const dir=await mkdtemp(join(tmpdir(),'mnema-asr-checkpoint-')),before=process.env.ASR_MODEL_DIR;process.env.ASR_MODEL_DIR=dir;
- try{
-  await writeFile(join(dir,'model.bin'),'fixture');const progress:string[]=[];let complete=true,cancelAfterCheckpoint=false;const controller=new AbortController();
-  const run=async(cmd:string,args:string[],options:any)=>{
-   if(cmd==='ffprobe')return{stdout:JSON.stringify({format:{duration:1000,format_name:'webm'}})};
-   if(args[0]?.endsWith('transcribe.py')){
-    options.onStdoutLine(JSON.stringify({event:'progress',phase:'diarization',processedSeconds:0,totalSeconds:1000,chunk:1,chunks:2}));
-    await writeFile(args[2],JSON.stringify({transcriptionComplete:complete,diarizationError:'NotCompleted',segments:[{time:0,end:2,speaker:'Запись',text:'Complete fixture speech'}],duration:1000}));
-    options.onStdoutLine(JSON.stringify({event:'transcript-ready'}));
-    if(cancelAfterCheckpoint)controller.abort();
-    throw Object.assign(new Error('fixture process killed'),{signal:'SIGKILL'});
-   }return{stdout:''};
+import { extractDocument, processingProgress, transcribeRecording } from './processing.ts';
+test('mixed PDF uses OCR only for scanned pages and preserves stable page citations', async () => {
+  const calls = [];
+  const run = async (cmd: string, args: string[]): Promise<{ stdout: string }> => {
+    calls.push([cmd, args]);
+    if (cmd === 'pdfinfo') return { stdout: 'Pages: 2\n' };
+    if (cmd === 'pdftotext')
+      return {
+        stdout:
+          args[1] === '1'
+            ? 'Достаточный текст первого листа. Пользователь проверяет календарь.'
+            : '',
+      };
+    if (cmd === 'tesseract') return { stdout: 'Распознанный скан второго листа.' };
+    return { stdout: '' };
   };
-  let preview:unknown;
-  const result=await transcribeRecording({filePath:'fixture.webm',fileId:'checkpoint',run,onTranscript:parts=>{preview=parts},onProgress:p=>progress.push(p)});
-  assert.deepEqual(preview,[{time:0,end:2,text:'Complete fixture speech',uncertain:undefined}]);
-  assert.equal(result.segments[0].text,'Complete fixture speech');assert.equal(result.diarization,false);assert.equal(result.diarizationError,'Interrupted');assert(progress.some(p=>p.startsWith('Определяем спикеров')));
-  complete=false;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'partial',run}),/fixture process killed/);
-  complete=true;cancelAfterCheckpoint=true;await assert.rejects(transcribeRecording({filePath:'fixture.webm',fileId:'cancelled',run,signal:controller.signal}),{name:'AbortError'},'explicit cancellation must not return the complete-ASR fallback');
- }finally{if(before===undefined)delete process.env.ASR_MODEL_DIR;else process.env.ASR_MODEL_DIR=before;await rm(dir,{recursive:true,force:true})}
+  const first = await extractDocument({
+    filePath: '/tmp/neutral.pdf',
+    fileName: 'neutral.pdf',
+    fileId: 'fixture',
+    run,
+  });
+  assert.equal(first.ocrPages, 1);
+  assert.deepEqual(
+    first.segments.map((s) => s.page),
+    [1, 2],
+  );
+  assert.equal(calls.filter((c) => c[0] === 'tesseract').length, 1);
+  const again = await extractDocument({
+    filePath: '/tmp/neutral.pdf',
+    fileName: 'neutral.pdf',
+    fileId: 'fixture',
+    run,
+  });
+  assert.equal(first.segments[1].id, again.segments[1].id);
 });
 
-test('real subprocess streams progress before termination and joins split stdout lines',async()=>{
- const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const {join}=await import('node:path');const {tmpdir}=await import('node:os');
- const dir=await mkdtemp(join(tmpdir(),'mnema-asr-stream-')),keys=['PATH','ASR_MODEL_DIR','ASR_PYTHON'];const before=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
- try{
-  await writeFile(join(dir,'model.bin'),'fixture');
-  await writeFile(join(dir,'ffprobe'),'#!/usr/bin/env node\nconsole.log(JSON.stringify({format:{duration:60,format_name:"webm"}}));',{mode:0o700});
-  await writeFile(join(dir,'ffmpeg'),'#!/usr/bin/env node\n',{mode:0o700});
-  await writeFile(join(dir,'python-fixture'),'#!/usr/bin/env node\nconst fs=require("node:fs");process.stdout.write("{\\\"event\\\":\\\"progress\\\",\\\"phase\\\":");setTimeout(()=>{process.stdout.write("\\\"transcribing\\\",\\\"processedSeconds\\\":30,\\\"totalSeconds\\\":60}\\n");setTimeout(()=>{fs.writeFileSync(process.argv[4],JSON.stringify({segments:[{time:0,text:"Fixture"}]}));},300);},25);',{mode:0o700});
-  process.env.PATH=dir+':'+before.PATH;process.env.ASR_MODEL_DIR=dir;process.env.ASR_PYTHON=join(dir,'python-fixture');
-  let progressAt=0;await transcribeRecording({filePath:'fixture.webm',fileId:'stream',onProgress:p=>{if(p.includes('0:30 из 1:00'))progressAt=Date.now()}});
-  assert(progressAt>0,'progress must arrive while the child runs');assert(Date.now()-progressAt>=200,'progress must not wait for buffered stdout at exit');
- }finally{for(const key of keys){if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key]}await rm(dir,{recursive:true,force:true})}
+test('processor progress accepts measured phases without exposing arbitrary stdout', () => {
+  assert.equal(processingProgress('private transcript text'), null);
+  assert.equal(
+    processingProgress(JSON.stringify({ event: 'progress', phase: 'private text' })),
+    null,
+  );
+  assert.equal(
+    processingProgress(
+      JSON.stringify({
+        event: 'progress',
+        phase: 'transcribing',
+        processedSeconds: 925,
+        totalSeconds: 3720,
+        chunk: 2,
+        chunks: 5,
+      }),
+    ),
+    'Распознаём запись: 15:25 из 1:02:00 · часть 2 из 5',
+  );
+  assert.equal(
+    processingProgress(
+      JSON.stringify({
+        event: 'progress',
+        phase: 'diarization',
+        processedSeconds: 900,
+        totalSeconds: 3720,
+        chunk: 2,
+        chunks: 5,
+      }),
+    ),
+    'Определяем спикеров: 15:00 из 1:02:00 · часть 2 из 5',
+  );
+  assert.equal(
+    processingProgress(
+      JSON.stringify({
+        event: 'progress',
+        phase: 'transcribing',
+        processedSeconds: -1,
+        totalSeconds: 10,
+        chunk: 99,
+        chunks: 1,
+      }),
+    ),
+    'Распознаём запись',
+  );
 });
 
-test('Python ASR resumes completed chunks after restart, repeats interrupted chunk and isolates a new job',async()=>{
- const {mkdtemp,writeFile,readFile,mkdir,rm}=await import('node:fs/promises');const {join,resolve}=await import('node:path');const {tmpdir}=await import('node:os');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
- const dir=await mkdtemp(join(tmpdir(),'mnema-asr-resume-'));
- try{
-  const audio=join(dir,'audio'),calls=join(dir,'calls.txt'),output=join(dir,'out.json'),wrapper=join(dir,'fixture.py'),checkpoint=join(dir,'job-one.json');await mkdir(audio);
-  for(const name of ['audio-00000.flac','audio-00001.flac','audio-00002.flac'])await writeFile(join(audio,name),'fixture');
-  await writeFile(wrapper,`import sys, os, json, runpy
+test('complete ASR checkpoint survives interrupted optional speaker stage; partial ASR still fails', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mnema-asr-checkpoint-')),
+    before = process.env.ASR_MODEL_DIR;
+  process.env.ASR_MODEL_DIR = dir;
+  try {
+    await writeFile(join(dir, 'model.bin'), 'fixture');
+    const progress: string[] = [];
+    let complete = true,
+      cancelAfterCheckpoint = false;
+    const controller = new AbortController();
+    const run = async (cmd: string, args: string[], options: any) => {
+      if (cmd === 'ffprobe')
+        return { stdout: JSON.stringify({ format: { duration: 1000, format_name: 'webm' } }) };
+      if (args[0]?.endsWith('transcribe.py')) {
+        options.onStdoutLine(
+          JSON.stringify({
+            event: 'progress',
+            phase: 'diarization',
+            processedSeconds: 0,
+            totalSeconds: 1000,
+            chunk: 1,
+            chunks: 2,
+          }),
+        );
+        await writeFile(
+          args[2],
+          JSON.stringify({
+            transcriptionComplete: complete,
+            diarizationError: 'NotCompleted',
+            segments: [{ time: 0, end: 2, speaker: 'Запись', text: 'Complete fixture speech' }],
+            duration: 1000,
+          }),
+        );
+        options.onStdoutLine(JSON.stringify({ event: 'transcript-ready' }));
+        if (cancelAfterCheckpoint) controller.abort();
+        throw Object.assign(new Error('fixture process killed'), { signal: 'SIGKILL' });
+      }
+      return { stdout: '' };
+    };
+    let preview: unknown;
+    const result = await transcribeRecording({
+      filePath: 'fixture.webm',
+      fileId: 'checkpoint',
+      run,
+      onTranscript: (parts) => {
+        preview = parts;
+      },
+      onProgress: (p) => progress.push(p),
+    });
+    assert.deepEqual(preview, [
+      { time: 0, end: 2, text: 'Complete fixture speech', uncertain: undefined },
+    ]);
+    assert.equal(result.segments[0].text, 'Complete fixture speech');
+    assert.equal(result.diarization, false);
+    assert.equal(result.diarizationError, 'Interrupted');
+    assert(progress.some((p) => p.startsWith('Определяем спикеров')));
+    complete = false;
+    await assert.rejects(
+      transcribeRecording({ filePath: 'fixture.webm', fileId: 'partial', run }),
+      /fixture process killed/,
+    );
+    complete = true;
+    cancelAfterCheckpoint = true;
+    await assert.rejects(
+      transcribeRecording({
+        filePath: 'fixture.webm',
+        fileId: 'cancelled',
+        run,
+        signal: controller.signal,
+      }),
+      { name: 'AbortError' },
+      'explicit cancellation must not return the complete-ASR fallback',
+    );
+  } finally {
+    if (before === undefined) delete process.env.ASR_MODEL_DIR;
+    else process.env.ASR_MODEL_DIR = before;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('real subprocess streams progress before termination and joins split stdout lines', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mnema-asr-stream-')),
+    keys = ['PATH', 'ASR_MODEL_DIR', 'ASR_PYTHON'];
+  const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    await writeFile(join(dir, 'model.bin'), 'fixture');
+    await writeFile(
+      join(dir, 'ffprobe'),
+      '#!/usr/bin/env node\nconsole.log(JSON.stringify({format:{duration:60,format_name:"webm"}}));',
+      { mode: 0o700 },
+    );
+    await writeFile(join(dir, 'ffmpeg'), '#!/usr/bin/env node\n', { mode: 0o700 });
+    await writeFile(
+      join(dir, 'python-fixture'),
+      '#!/usr/bin/env node\nconst fs=require("node:fs");process.stdout.write("{\\\"event\\\":\\\"progress\\\",\\\"phase\\\":");setTimeout(()=>{process.stdout.write("\\\"transcribing\\\",\\\"processedSeconds\\\":30,\\\"totalSeconds\\\":60}\\n");setTimeout(()=>{fs.writeFileSync(process.argv[4],JSON.stringify({segments:[{time:0,text:"Fixture"}]}));},300);},25);',
+      { mode: 0o700 },
+    );
+    process.env.PATH = dir + ':' + before.PATH;
+    process.env.ASR_MODEL_DIR = dir;
+    process.env.ASR_PYTHON = join(dir, 'python-fixture');
+    let progressAt = 0;
+    await transcribeRecording({
+      filePath: 'fixture.webm',
+      fileId: 'stream',
+      onProgress: (p) => {
+        if (p.includes('0:30 из 1:00')) progressAt = Date.now();
+      },
+    });
+    assert(progressAt > 0, 'progress must arrive while the child runs');
+    assert(Date.now() - progressAt >= 200, 'progress must not wait for buffered stdout at exit');
+  } finally {
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Python ASR resumes completed chunks after restart, repeats interrupted chunk and isolates a new job', async () => {
+  const { mkdtemp, writeFile, readFile, mkdir, rm } = await import('node:fs/promises');
+  const { join, resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const dir = await mkdtemp(join(tmpdir(), 'mnema-asr-resume-'));
+  try {
+    const audio = join(dir, 'audio'),
+      calls = join(dir, 'calls.txt'),
+      output = join(dir, 'out.json'),
+      wrapper = join(dir, 'fixture.py'),
+      checkpoint = join(dir, 'job-one.json');
+    await mkdir(audio);
+    for (const name of ['audio-00000.flac', 'audio-00001.flac', 'audio-00002.flac'])
+      await writeFile(join(audio, name), 'fixture');
+    await writeFile(
+      wrapper,
+      `import sys, os, json, runpy
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 class Model:
@@ -87,25 +254,88 @@ diarize.diarize_chunks = speakers; diarize.label_segments = lambda segments, tur
 sys.modules['diarize'] = diarize
 script = sys.argv.pop(1)
 runpy.run_path(script, run_name='__main__')
-`);
-  const run=(path:string,fail='')=>promisify(execFile)(process.env.DOC_PYTHON||'python3',[wrapper,resolve('server/transcribe.py'),audio,output,'--model','fixture-model','--duration','2700','--checkpoint',path],{env:{...process.env,FIXTURE_CALLS:calls,FIXTURE_FAIL:fail,ASR_DIARIZATION:'1'},maxBuffer:1024**2});
-  await assert.rejects(run(checkpoint,'audio-00001.flac'),/interrupted chunk fixture/);
-  const partial=JSON.parse(await readFile(checkpoint,'utf8'));assert.equal(partial.completedChunks,1);assert.equal(partial.segments.length,1);
-  const resumed=await run(checkpoint);assert(resumed.stdout.includes('"diarization"'));const result=JSON.parse(await readFile(output,'utf8'));assert.equal(result.segments.length,3);assert.deepEqual(result.segments.map(s=>s.time),[0,900,1800]);
-  assert.deepEqual((await readFile(calls,'utf8')).trim().split('\n'),['audio-00000.flac','audio-00001.flac','audio-00001.flac','audio-00002.flac']);
-  await writeFile(calls,'');await run(checkpoint);assert.equal(await readFile(calls,'utf8'),'','a complete checkpoint does not run ASR again');
-  await run(join(dir,'job-two.json'));assert.deepEqual((await readFile(calls,'utf8')).trim().split('\n'),['audio-00000.flac','audio-00001.flac','audio-00002.flac']);
-  await writeFile(calls,'');await writeFile(checkpoint,'[]');await run(checkpoint);assert.equal((await readFile(calls,'utf8')).trim().split('\n').length,3,'malformed checkpoint must restart ASR safely');
- }finally{await rm(dir,{recursive:true,force:true})}
+`,
+    );
+    const run = (path: string, fail = '') =>
+      promisify(execFile)(
+        process.env.DOC_PYTHON || 'python3',
+        [
+          wrapper,
+          resolve('server/transcribe.py'),
+          audio,
+          output,
+          '--model',
+          'fixture-model',
+          '--duration',
+          '2700',
+          '--checkpoint',
+          path,
+        ],
+        {
+          env: { ...process.env, FIXTURE_CALLS: calls, FIXTURE_FAIL: fail, ASR_DIARIZATION: '1' },
+          maxBuffer: 1024 ** 2,
+        },
+      );
+    await assert.rejects(run(checkpoint, 'audio-00001.flac'), /interrupted chunk fixture/);
+    const partial = JSON.parse(await readFile(checkpoint, 'utf8'));
+    assert.equal(partial.completedChunks, 1);
+    assert.equal(partial.segments.length, 1);
+    const resumed = await run(checkpoint);
+    assert(resumed.stdout.includes('"diarization"'));
+    const result = JSON.parse(await readFile(output, 'utf8'));
+    assert.equal(result.segments.length, 3);
+    assert.deepEqual(
+      result.segments.map((s) => s.time),
+      [0, 900, 1800],
+    );
+    assert.deepEqual((await readFile(calls, 'utf8')).trim().split('\n'), [
+      'audio-00000.flac',
+      'audio-00001.flac',
+      'audio-00001.flac',
+      'audio-00002.flac',
+    ]);
+    await writeFile(calls, '');
+    await run(checkpoint);
+    assert.equal(await readFile(calls, 'utf8'), '', 'a complete checkpoint does not run ASR again');
+    await run(join(dir, 'job-two.json'));
+    assert.deepEqual((await readFile(calls, 'utf8')).trim().split('\n'), [
+      'audio-00000.flac',
+      'audio-00001.flac',
+      'audio-00002.flac',
+    ]);
+    await writeFile(calls, '');
+    await writeFile(checkpoint, '[]');
+    await run(checkpoint);
+    assert.equal(
+      (await readFile(calls, 'utf8')).trim().split('\n').length,
+      3,
+      'malformed checkpoint must restart ASR safely',
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
-test('GigaAM: VAD pieces get recording time, a phrase cut at a part boundary is finished once, unsure words are marked',async()=>{
- const {mkdtemp,writeFile,readFile,mkdir,rm}=await import('node:fs/promises');const {join,resolve}=await import('node:path');const {tmpdir}=await import('node:os');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
- const dir=await mkdtemp(join(tmpdir(),'mnema-gigaam-'));
- try{
-  const audio=join(dir,'audio'),model=join(dir,'model'),output=join(dir,'out.json'),wrapper=join(dir,'fixture.py');await mkdir(audio);await mkdir(model);
-  for(const name of ['audio-00000.flac','audio-00001.flac'])await writeFile(join(audio,name),'fixture');await writeFile(join(model,'encoder.int8.onnx'),'fixture');
-  await writeFile(wrapper,`import sys, json, runpy
+test('GigaAM: VAD pieces get recording time, a phrase cut at a part boundary is finished once, unsure words are marked', async () => {
+  const { mkdtemp, writeFile, readFile, mkdir, rm } = await import('node:fs/promises');
+  const { join, resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const dir = await mkdtemp(join(tmpdir(), 'mnema-gigaam-'));
+  try {
+    const audio = join(dir, 'audio'),
+      model = join(dir, 'model'),
+      output = join(dir, 'out.json'),
+      wrapper = join(dir, 'fixture.py');
+    await mkdir(audio);
+    await mkdir(model);
+    for (const name of ['audio-00000.flac', 'audio-00001.flac'])
+      await writeFile(join(audio, name), 'fixture');
+    await writeFile(join(model, 'encoder.int8.onnx'), 'fixture');
+    await writeFile(
+      wrapper,
+      `import sys, json, runpy
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 numpy = ModuleType('numpy'); numpy.float32 = float; numpy.asarray = lambda value, dtype=None: list(value); numpy.concatenate = lambda parts: [x for part in parts for x in part]
@@ -143,19 +373,55 @@ diarize.diarize_chunks = speakers; diarize.label_segments = lambda segments, tur
 sys.modules['diarize'] = diarize
 script = sys.argv.pop(1)
 runpy.run_path(script, run_name='__main__')
-`);
-  await promisify(execFile)(process.env.DOC_PYTHON||'python3',[wrapper,resolve('server/transcribe.py'),audio,output,'--model',model,'--duration','1800'],{env:{...process.env,ASR_DIARIZATION:'1',PYTHONDONTWRITEBYTECODE:'1'},maxBuffer:1024**2});
-  const result=JSON.parse(await readFile(output,'utf8'));
-  assert.equal(result.model,'GigaAM v3 int8');assert.equal(result.language,'ru');assert.equal(result.duration,1800);
-  // Part 1 is read with 25 s of part 2: 899 s is kept, 915 s belongs to part 2. Part 2 starts after the kept phrase (901 s).
-  assert.deepEqual(result.segments.map((s:any)=>[s.time,s.end]),[[1,3],[899,901],[902,904],[1774,1776],[1790,1792]]);
-  assert(result.segments.every((s:any)=>s.text==='Привет.'&&s.uncertain===true&&!('words' in s)));
- }finally{await rm(dir,{recursive:true,force:true})}
+`,
+    );
+    await promisify(execFile)(
+      process.env.DOC_PYTHON || 'python3',
+      [
+        wrapper,
+        resolve('server/transcribe.py'),
+        audio,
+        output,
+        '--model',
+        model,
+        '--duration',
+        '1800',
+      ],
+      {
+        env: { ...process.env, ASR_DIARIZATION: '1', PYTHONDONTWRITEBYTECODE: '1' },
+        maxBuffer: 1024 ** 2,
+      },
+    );
+    const result = JSON.parse(await readFile(output, 'utf8'));
+    assert.equal(result.model, 'GigaAM v3 int8');
+    assert.equal(result.language, 'ru');
+    assert.equal(result.duration, 1800);
+    // Part 1 is read with 25 s of part 2: 899 s is kept, 915 s belongs to part 2. Part 2 starts after the kept phrase (901 s).
+    assert.deepEqual(
+      result.segments.map((s: any) => [s.time, s.end]),
+      [
+        [1, 3],
+        [899, 901],
+        [902, 904],
+        [1774, 1776],
+        [1790, 1792],
+      ],
+    );
+    assert(
+      result.segments.every(
+        (s: any) => s.text === 'Привет.' && s.uncertain === true && !('words' in s),
+      ),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
-test('speakers cut a segment at a sentence end where the voice changes, never mid-phrase, and ignore one-word noise',async()=>{
- const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {resolve}=await import('node:path');
- const script=`import importlib.util, json, sys
+test('speakers cut a segment at a sentence end where the voice changes, never mid-phrase, and ignore one-word noise', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { resolve } = await import('node:path');
+  const script = `import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location('diarize_fixture', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 words = [[0.0, 'Как', False], [0.5, ' вам', False], [1.0, ' было?', True], [5.2, ' Нормально,', False], [6.0, ' всё', False], [6.5, ' ага', False], [7.0, ' понятно.', False]]
 mid = [[10.0, 'Угу,', False], [10.4, ' а', False], [10.8, ' это', False], [11.6, ' вы', False], [12.0, ' им', False], [12.5, ' писали?', False]]
@@ -165,21 +431,41 @@ turns = [(0.0, 5.0, 0), (5.0, 6.4, 1), (6.4, 6.9, 0), (6.9, 9.0, 1), (9.5, 11.5,
 labeled, count = module.label_segments(segments, turns)
 print(json.dumps([[s['time'], s['end'], s['speaker'], s['text'], s.get('uncertain', False)] for s in labeled] + [count], ensure_ascii=False))
 `;
- const result=await promisify(execFile)(process.env.DOC_PYTHON||'python3',['-c',script,resolve('server/diarize.py')],{env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
- assert.deepEqual(JSON.parse(result.stdout),[[0,5.2,'Спикер 1','Как вам было?',true],[5.2,9,'Спикер 2','Нормально, всё ага понятно.',false],[10,13,'Спикер 2','Угу, а это вы им писали?',false],2]);
+  const result = await promisify(execFile)(
+    process.env.DOC_PYTHON || 'python3',
+    ['-c', script, resolve('server/diarize.py')],
+    { env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } },
+  );
+  assert.deepEqual(JSON.parse(result.stdout), [
+    [0, 5.2, 'Спикер 1', 'Как вам было?', true],
+    [5.2, 9, 'Спикер 2', 'Нормально, всё ага понятно.', false],
+    [10, 13, 'Спикер 2', 'Угу, а это вы им писали?', false],
+    2,
+  ]);
 });
 
-test('the voice asking most questions is suggested as moderator, an unclear pattern is left alone',async()=>{
- const {suggestModerator}=await import('./processing.ts');
- const talk=(asker:string,answer:string)=>[1,2,3,4].flatMap(i=>[{speaker:asker,text:'Как вы искали жильё '+i+'?'},{speaker:answer,text:'Через приложение.'}]);
- assert.deepEqual([...new Set(suggestModerator(talk('Спикер 2','Спикер 1')).map(s=>s.speaker))],['Модератор?','Спикер 1']);
- const even=[...talk('Спикер 1','Спикер 2'),...talk('Спикер 2','Спикер 1')];assert.equal(suggestModerator(even),even);
- const named=talk('Модератор','Спикер 1');assert.equal(suggestModerator(named),named);
+test('the voice asking most questions is suggested as moderator, an unclear pattern is left alone', async () => {
+  const { suggestModerator } = await import('./processing.ts');
+  const talk = (asker: string, answer: string) =>
+    [1, 2, 3, 4].flatMap((i) => [
+      { speaker: asker, text: 'Как вы искали жильё ' + i + '?' },
+      { speaker: answer, text: 'Через приложение.' },
+    ]);
+  assert.deepEqual(
+    [...new Set(suggestModerator(talk('Спикер 2', 'Спикер 1')).map((s) => s.speaker))],
+    ['Модератор?', 'Спикер 1'],
+  );
+  const even = [...talk('Спикер 1', 'Спикер 2'), ...talk('Спикер 2', 'Спикер 1')];
+  assert.equal(suggestModerator(even), even);
+  const named = talk('Модератор', 'Спикер 1');
+  assert.equal(suggestModerator(named), named);
 });
 
-test('real diarize_chunks keeps chunk progress indices when an existing voice is reused',async()=>{
- const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');const {resolve}=await import('node:path');
- const script=`import sys, json, math, importlib.util
+test('real diarize_chunks keeps chunk progress indices when an existing voice is reused', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { resolve } = await import('node:path');
+  const script = `import sys, json, math, importlib.util
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 class Vec(list):
@@ -230,20 +516,133 @@ assert [step[0] for step in progress] == [0.0, 12.0, 12.0, 24.0], progress
 assert all(step[2] == 2 for step in progress), progress
 print(json.dumps({'progress': progress, 'speakers': count}))
 `;
- const result=await promisify(execFile)(process.env.DOC_PYTHON||'python3',['-c',script,resolve('server/diarize.py')],{env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},maxBuffer:1024**2});
- const checked=JSON.parse(result.stdout);assert.deepEqual(checked.progress.map(step=>step[1]),[1,1,2,2]);assert.equal(checked.speakers,1);
+  const result = await promisify(execFile)(
+    process.env.DOC_PYTHON || 'python3',
+    ['-c', script, resolve('server/diarize.py')],
+    { env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }, maxBuffer: 1024 ** 2 },
+  );
+  const checked = JSON.parse(result.stdout);
+  assert.deepEqual(
+    checked.progress.map((step) => step[1]),
+    [1, 1, 2, 2],
+  );
+  assert.equal(checked.speakers, 1);
 });
-test('PDF page limit stops before rendering',async()=>{let rendered=false;await assert.rejects(extractDocument({filePath:'/tmp/huge.pdf',fileName:'huge.pdf',fileId:'x',run:async(cmd:string):Promise<{stdout:string}>=>{if(cmd==='pdfinfo')return{stdout:'Pages: 101'};rendered=true;return{stdout:''}}}),/100/);assert.equal(rendered,false)});
+test('PDF page limit stops before rendering', async () => {
+  let rendered = false;
+  await assert.rejects(
+    extractDocument({
+      filePath: '/tmp/huge.pdf',
+      fileName: 'huge.pdf',
+      fileId: 'x',
+      run: async (cmd: string): Promise<{ stdout: string }> => {
+        if (cmd === 'pdfinfo') return { stdout: 'Pages: 101' };
+        rendered = true;
+        return { stdout: '' };
+      },
+    }),
+    /100/,
+  );
+  assert.equal(rendered, false);
+});
 
-test('Word text keeps stable source IDs without invented pages',async()=>{let engine='';const run=async(cmd:string)=>{engine=cmd;return{stdout:'Первый абзац про даты.\n\nВторой абзац про цены.'}};const first=await extractDocument({filePath:'/tmp/test.docx',fileName:'test.docx',fileId:'word',run});assert.equal(first.segments.length,2);assert.equal(first.segments[0].page,null);assert.equal(engine,process.env.DOC_PYTHON||'python3');const again=await extractDocument({filePath:'/tmp/test.docx',fileName:'test.docx',fileId:'word',run});assert.equal(first.segments[1].id,again.segments[1].id);await assert.rejects(extractDocument({filePath:'/tmp/broken.doc',fileName:'broken.doc',fileId:'broken',run:async()=>{throw new Error('bad file')}}),/Сохраните его как DOCX или PDF/)});
+test('Word text keeps stable source IDs without invented pages', async () => {
+  let engine = '';
+  const run = async (cmd: string) => {
+    engine = cmd;
+    return { stdout: 'Первый абзац про даты.\n\nВторой абзац про цены.' };
+  };
+  const first = await extractDocument({
+    filePath: '/tmp/test.docx',
+    fileName: 'test.docx',
+    fileId: 'word',
+    run,
+  });
+  assert.equal(first.segments.length, 2);
+  assert.equal(first.segments[0].page, null);
+  assert.equal(engine, process.env.DOC_PYTHON || 'python3');
+  const again = await extractDocument({
+    filePath: '/tmp/test.docx',
+    fileName: 'test.docx',
+    fileId: 'word',
+    run,
+  });
+  assert.equal(first.segments[1].id, again.segments[1].id);
+  await assert.rejects(
+    extractDocument({
+      filePath: '/tmp/broken.doc',
+      fileName: 'broken.doc',
+      fileId: 'broken',
+      run: async () => {
+        throw new Error('bad file');
+      },
+    }),
+    /Сохраните его как DOCX или PDF/,
+  );
+});
 
-test('fractional recording duration produces valid integer subprocess timeouts for ASR and speakers',async()=>{
- const {transcribeRecording,detectSpeakers}=await import('./processing.ts');const {mkdtemp,writeFile,readFile,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
- const dir=await mkdtemp(join(tmpdir(),'mnema-timeout-'));const keys=['ASR_MODEL_DIR','ASR_DIARIZATION_DIR','ASR_DIARIZATION'];const before=Object.fromEntries(keys.map(k=>[k,process.env[k]]));const timeouts:number[]=[];
- try{
-  for(const name of ['model.bin','segmentation.onnx','embedding.onnx'])await writeFile(join(dir,name),'fixture');process.env.ASR_MODEL_DIR=dir;process.env.ASR_DIARIZATION_DIR=dir;process.env.ASR_DIARIZATION='1';
-  const run=async(cmd:string,args:string[],options:any)=>{assert(Number.isSafeInteger(options.timeout));assert(options.timeout>0);timeouts.push(options.timeout);if(args[0]?.endsWith('.py'))assert.equal(args[args.indexOf('--max-speakers')+1],'2');if(cmd==='ffprobe')return{stdout:JSON.stringify({format:{duration:2049.14392,format_name:'webm'}})};if(args[0]?.endsWith('transcribe.py'))await writeFile(args[2],JSON.stringify({segments:[{time:0,end:2,speaker:'Запись',text:'Fixture speech'}]}));if(args[0]?.endsWith('diarize.py')){assert.deepEqual(JSON.parse(await readFile(args[2],'utf8')),[{id:'s',time:0,end:2}]);await writeFile(args[3],JSON.stringify({speakers:{s:'Спикер 1'},count:1,engine:'fixture'}))};return{stdout:''}};
-  const result=await transcribeRecording({filePath:'fixture.webm',fileId:'fixture',participants:2,run});assert.equal(result.segments.length,1);assert(timeouts.includes(10245720));
-  const speakers=await detectSpeakers({filePath:'fixture.webm',participants:2,segments:[{id:'s',time:0,end:2,speaker:'Спикер 10',text:'Fixture speech'}],run});assert.equal(speakers.count,1);
- }finally{for(const key of keys){if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key]}await rm(dir,{recursive:true,force:true})}
+test('fractional recording duration produces valid integer subprocess timeouts for ASR and speakers', async () => {
+  const { transcribeRecording, detectSpeakers } = await import('./processing.ts');
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'mnema-timeout-'));
+  const keys = ['ASR_MODEL_DIR', 'ASR_DIARIZATION_DIR', 'ASR_DIARIZATION'];
+  const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const timeouts: number[] = [];
+  try {
+    for (const name of ['model.bin', 'segmentation.onnx', 'embedding.onnx'])
+      await writeFile(join(dir, name), 'fixture');
+    process.env.ASR_MODEL_DIR = dir;
+    process.env.ASR_DIARIZATION_DIR = dir;
+    process.env.ASR_DIARIZATION = '1';
+    const run = async (cmd: string, args: string[], options: any) => {
+      assert(Number.isSafeInteger(options.timeout));
+      assert(options.timeout > 0);
+      timeouts.push(options.timeout);
+      if (args[0]?.endsWith('.py')) assert.equal(args[args.indexOf('--max-speakers') + 1], '2');
+      if (cmd === 'ffprobe')
+        return {
+          stdout: JSON.stringify({ format: { duration: 2049.14392, format_name: 'webm' } }),
+        };
+      if (args[0]?.endsWith('transcribe.py'))
+        await writeFile(
+          args[2],
+          JSON.stringify({
+            segments: [{ time: 0, end: 2, speaker: 'Запись', text: 'Fixture speech' }],
+          }),
+        );
+      if (args[0]?.endsWith('diarize.py')) {
+        assert.deepEqual(JSON.parse(await readFile(args[2], 'utf8')), [
+          { id: 's', time: 0, end: 2 },
+        ]);
+        await writeFile(
+          args[3],
+          JSON.stringify({ speakers: { s: 'Спикер 1' }, count: 1, engine: 'fixture' }),
+        );
+      }
+      return { stdout: '' };
+    };
+    const result = await transcribeRecording({
+      filePath: 'fixture.webm',
+      fileId: 'fixture',
+      participants: 2,
+      run,
+    });
+    assert.equal(result.segments.length, 1);
+    assert(timeouts.includes(10245720));
+    const speakers = await detectSpeakers({
+      filePath: 'fixture.webm',
+      participants: 2,
+      segments: [{ id: 's', time: 0, end: 2, speaker: 'Спикер 10', text: 'Fixture speech' }],
+      run,
+    });
+    assert.equal(speakers.count, 1);
+  } finally {
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
 });

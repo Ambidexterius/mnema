@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import {
   useCallback,
@@ -10,9 +10,9 @@ import {
   type ClipboardEvent,
   type FocusEvent,
   type KeyboardEvent,
-} from "react";
+} from 'react';
 
-export type OtpMode = "numeric" | "alphanumeric";
+export type OtpMode = 'numeric' | 'alphanumeric';
 
 const ALLOW: Record<OtpMode, RegExp> = {
   numeric: /^[0-9]$/,
@@ -32,11 +32,11 @@ export type OtpCellProps = {
   ref: (el: HTMLInputElement | null) => void;
   value: string;
   disabled: boolean;
-  type: "text";
-  inputMode: "numeric" | "text";
+  type: 'text';
+  inputMode: 'numeric' | 'text';
   autoComplete: string;
-  autoCorrect: "off";
-  autoCapitalize: "off";
+  autoCorrect: 'off';
+  autoCapitalize: 'off';
   spellCheck: false;
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
@@ -58,8 +58,8 @@ export type UseOtpInputReturn = {
 
 export function useOtpInput({
   length = 6,
-  mode = "numeric",
-  defaultValue = "",
+  mode = 'numeric',
+  defaultValue = '',
   disabled = false,
   onChange,
   onComplete,
@@ -69,18 +69,18 @@ export function useOtpInput({
   const keep = useCallback(
     (text: string) =>
       text
-        .split("")
+        .split('')
         .filter((c) => allow.test(c))
-        .join(""),
+        .join(''),
     [allow],
   );
 
   const [chars, setChars] = useState<string[]>(() => {
     const seed = defaultValue
-      .split("")
+      .split('')
       .filter((c) => ALLOW[mode].test(c))
       .slice(0, length);
-    return Array.from({ length }, (_, i) => seed[i] ?? "");
+    return Array.from({ length }, (_, i) => seed[i] ?? '');
   });
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
@@ -96,9 +96,7 @@ export function useOtpInput({
 
   useEffect(() => {
     setChars((prev) =>
-      prev.length === length
-        ? prev
-        : Array.from({ length }, (_, i) => prev[i] ?? ""),
+      prev.length === length ? prev : Array.from({ length }, (_, i) => prev[i] ?? ''),
     );
     refs.current.length = length;
   }, [length]);
@@ -106,10 +104,9 @@ export function useOtpInput({
   const commit = useCallback((next: string[]) => {
     charsRef.current = next;
     setChars(next);
-    const value = next.join("");
+    const value = next.join('');
     changed.current?.(value);
-    if (next.length > 0 && next.every((c) => c !== ""))
-      completed.current?.(value);
+    if (next.length > 0 && next.every((c) => c !== '')) completed.current?.(value);
   }, []);
 
   const focusAt = useCallback(
@@ -140,7 +137,7 @@ export function useOtpInput({
   );
 
   const clear = useCallback(() => {
-    commit(Array.from({ length }, () => ""));
+    commit(Array.from({ length }, () => ''));
     focusAt(0);
   }, [commit, focusAt, length]);
 
@@ -149,31 +146,32 @@ export function useOtpInput({
       ref: (el) => {
         refs.current[index] = el;
       },
-      value: chars[index] ?? "",
+      value: chars[index] ?? '',
       disabled,
-      type: "text",
-      inputMode: mode === "numeric" ? "numeric" : "text",
-      autoComplete: index === 0 ? "one-time-code" : "off",
-      autoCorrect: "off",
-      autoCapitalize: "off",
+      type: 'text',
+      inputMode: mode === 'numeric' ? 'numeric' : 'text',
+      autoComplete: index === 0 ? 'one-time-code' : 'off',
+      autoCorrect: 'off',
+      autoCapitalize: 'off',
       spellCheck: false,
       onChange: (e) => {
-        const previous = charsRef.current[index] ?? "";
+        const previous = charsRef.current[index] ?? '';
         const raw = e.currentTarget.value;
-        if (keep(raw).length >= length) { fillFrom(0, raw); return; }
+        if (keep(raw).length >= length) {
+          fillFrom(0, raw);
+          return;
+        }
         const trimmed =
-          raw.length > 1 && previous && raw.startsWith(previous)
-            ? raw.slice(previous.length)
-            : raw;
+          raw.length > 1 && previous && raw.startsWith(previous) ? raw.slice(previous.length) : raw;
         const incoming = keep(trimmed);
 
         if (incoming.length === 0) {
           if (raw.length === 0 && previous) {
             const next = [...charsRef.current];
-            next[index] = "";
+            next[index] = '';
             commit(next);
           }
-          e.currentTarget.value = charsRef.current[index] ?? "";
+          e.currentTarget.value = charsRef.current[index] ?? '';
           return;
         }
 
@@ -189,52 +187,52 @@ export function useOtpInput({
         fillFrom(index, incoming);
       },
       onKeyDown: (e) => {
-        if (e.key === "Backspace") {
+        if (e.key === 'Backspace') {
           e.preventDefault();
           const current = charsRef.current;
           const next = [...current];
           if (current[index]) {
-            next[index] = "";
+            next[index] = '';
             commit(next);
             return;
           }
           if (index > 0) {
-            next[index - 1] = "";
+            next[index - 1] = '';
             commit(next);
             focusAt(index - 1);
           }
           return;
         }
-        if (e.key === "Delete") {
+        if (e.key === 'Delete') {
           e.preventDefault();
           const next = [...charsRef.current];
-          next[index] = "";
+          next[index] = '';
           commit(next);
           return;
         }
-        if (e.key === "ArrowLeft") {
+        if (e.key === 'ArrowLeft') {
           e.preventDefault();
           focusAt(index - 1);
           return;
         }
-        if (e.key === "ArrowRight") {
+        if (e.key === 'ArrowRight') {
           e.preventDefault();
           focusAt(index + 1);
           return;
         }
-        if (e.key === "Home") {
+        if (e.key === 'Home') {
           e.preventDefault();
           focusAt(0);
           return;
         }
-        if (e.key === "End") {
+        if (e.key === 'End') {
           e.preventDefault();
           focusAt(length - 1);
         }
       },
       onPaste: (e) => {
         e.preventDefault();
-        const text = keep(e.clipboardData.getData("text"));
+        const text = keep(e.clipboardData.getData('text'));
         fillFrom(text.length >= length ? 0 : index, text);
       },
       onFocus: (e) => {
@@ -250,13 +248,13 @@ export function useOtpInput({
     [chars, commit, disabled, fillFrom, focusAt, keep, length, mode],
   );
 
-  const value = chars.join("");
+  const value = chars.join('');
 
   return {
     chars,
     value,
     length,
-    complete: chars.length > 0 && chars.every((c) => c !== ""),
+    complete: chars.length > 0 && chars.every((c) => c !== ''),
     focusedIndex,
     getCellProps,
     focusAt,
@@ -264,10 +262,69 @@ export function useOtpInput({
   };
 }
 
-export default function OtpInput({onChange,error='',disabled=false}:{onChange:(value:string)=>void;error?:string;disabled?:boolean}){
- const {chars,getCellProps,focusAt}=useOtpInput({onChange,disabled});const id=useId(),group=useRef<HTMLDivElement>(null);
- useEffect(()=>{if(!disabled)focusAt(0)},[disabled,focusAt]);
- useEffect(()=>{if(!error||disabled)return;focusAt(0);if(!matchMedia('(prefers-reduced-motion: reduce)').matches)group.current?.animate([{transform:'translateX(0)'},{transform:'translateX(-5px)'},{transform:'translateX(4px)'},{transform:'translateX(-3px)'},{transform:'translateX(0)'}],{duration:320,easing:'cubic-bezier(.23,1,.32,1)'})},[error,disabled,focusAt]);
- return <div className="registration-otp-field"><div id={id+'-label'} className="registration-label">Код из письма</div><div ref={group} className={'registration-otp'+(error?' has-error':'')} role="group" aria-labelledby={id+'-label'}>{chars.map((char,i)=><div className={'registration-otp-cell'+(char?' is-filled':'')} key={i}><input {...getCellProps(i)} aria-label={'Код из письма, цифра '+(i+1)+' из 6'} aria-invalid={Boolean(error)} aria-describedby={id+'-hint'}/><span className="registration-otp-digit" key={char} aria-hidden="true">{char}</span><span className="registration-otp-caret" aria-hidden="true"/></div>)}</div><p id={id+'-hint'} className={error?'registration-error':'registration-hint'} role={error?'alert':undefined}>{error||'Код из 6 цифр действует 30 минут'}</p></div>;
+export default function OtpInput({
+  onChange,
+  error = '',
+  disabled = false,
+}: {
+  onChange: (value: string) => void;
+  error?: string;
+  disabled?: boolean;
+}) {
+  const { chars, getCellProps, focusAt } = useOtpInput({ onChange, disabled });
+  const id = useId(),
+    group = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!disabled) focusAt(0);
+  }, [disabled, focusAt]);
+  useEffect(() => {
+    if (!error || disabled) return;
+    focusAt(0);
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches)
+      group.current?.animate(
+        [
+          { transform: 'translateX(0)' },
+          { transform: 'translateX(-5px)' },
+          { transform: 'translateX(4px)' },
+          { transform: 'translateX(-3px)' },
+          { transform: 'translateX(0)' },
+        ],
+        { duration: 320, easing: 'cubic-bezier(.23,1,.32,1)' },
+      );
+  }, [error, disabled, focusAt]);
+  return (
+    <div className="registration-otp-field">
+      <div id={id + '-label'} className="registration-label">
+        Код из письма
+      </div>
+      <div
+        ref={group}
+        className={'registration-otp' + (error ? ' has-error' : '')}
+        role="group"
+        aria-labelledby={id + '-label'}
+      >
+        {chars.map((char, i) => (
+          <div className={'registration-otp-cell' + (char ? ' is-filled' : '')} key={i}>
+            <input
+              {...getCellProps(i)}
+              aria-label={'Код из письма, цифра ' + (i + 1) + ' из 6'}
+              aria-invalid={Boolean(error)}
+              aria-describedby={id + '-hint'}
+            />
+            <span className="registration-otp-digit" key={char} aria-hidden="true">
+              {char}
+            </span>
+            <span className="registration-otp-caret" aria-hidden="true" />
+          </div>
+        ))}
+      </div>
+      <p
+        id={id + '-hint'}
+        className={error ? 'registration-error' : 'registration-hint'}
+        role={error ? 'alert' : undefined}
+      >
+        {error || 'Код из 6 цифр действует 30 минут'}
+      </p>
+    </div>
+  );
 }
-

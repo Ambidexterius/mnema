@@ -10,7 +10,7 @@
   font-weight: 510;
 }
 
-.welcome-heading [tabindex="-1"]:focus {
+.welcome-heading [tabindex='-1']:focus {
   outline: none;
 }
 

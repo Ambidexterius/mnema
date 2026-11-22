@@ -7,7 +7,11 @@ export type FindingKind = 'Проблема' | 'Инсайт' | 'Рекомен�
 export type SourceType = 'Интервью' | 'Юзабилити-тест' | 'Встреча' | 'Отчёт';
 export type ReportStatus = 'ready' | 'none';
 export type Basis = 'report' | 'raw';
-export interface MaterialActivity {state:'queued'|'running'|'ready'|'error'|'uploaded'|'cancelled';label:string;detail?:string}
+export interface MaterialActivity {
+  state: 'queued' | 'running' | 'ready' | 'error' | 'uploaded' | 'cancelled';
+  label: string;
+  detail?: string;
+}
 
 export interface Segment {
   id: string;
@@ -17,7 +21,7 @@ export interface Segment {
   speaker: string;
   text: string;
   correctedText?: string;
-  wordTimes?: {from:number;to:number;start:number;end:number}[];
+  wordTimes?: { from: number; to: number; start: number; end: number }[];
   /** The speech model was unsure about a word here; cleared by a manual correction. */
   uncertain?: boolean;
 }
@@ -44,7 +48,15 @@ export interface Finding {
   significant: boolean;
   status: FindingStatus;
   origin: 'human' | 'ai' | 'import';
-  importSource?: {provider:string;url:string;originalStatus:string;confidence:string;originalImportance:string;evidence:string[];exactQuoteMatched:boolean};
+  importSource?: {
+    provider: string;
+    url: string;
+    originalStatus: string;
+    confidence: string;
+    originalImportance: string;
+    evidence: string[];
+    exactQuoteMatched: boolean;
+  };
   createdAt?: number;
   createdBy?: string;
   history: HistoryEntry[];
@@ -70,7 +82,19 @@ export interface Study {
   findings: number;
   drafts?: number;
   activity?: MaterialActivity;
-  summaryInfo?: {state:'queued'|'running'|'ready'|'error'; review:'draft'|'verified'; revision:string; modelId:string; model?:string; requestedBy:string; startedAt:number; finishedAt?:number; progress?:string; errorCode?:string; error?:string};
+  summaryInfo?: {
+    state: 'queued' | 'running' | 'ready' | 'error';
+    review: 'draft' | 'verified';
+    revision: string;
+    modelId: string;
+    model?: string;
+    requestedBy: string;
+    startedAt: number;
+    finishedAt?: number;
+    progress?: string;
+    errorCode?: string;
+    error?: string;
+  };
   summary: { title: string; text: string; segments: string[] }[];
   segments: Segment[];
   fileName?: string;
@@ -83,12 +107,47 @@ export interface Study {
   author?: string;
   report?: ReportStatus;
   reportExpected?: string;
-  processing?: { pages?: number; ocrPages?: number; engine?: string; model?: string; processingSeconds: number; duration?: number };
-  transcriptEdits?: {segmentId:string;before:string;after:string;by:string;at:number}[];
-  findingsInfo?: {state:'queued'|'running'|'ready'|'error'; progress?:string|null; found?:number; added?:number; merged?:number; dedupe?:'model'|'words'; model?:string; error?:string; errorCode?:string; startedAt?:number; finishedAt?:number};
-  speakerInfo?: {state:'queued'|'running'|'ready'|'error'; count?:number; engine?:string; progress?:string|null; error?:string; startedAt?:number; finishedAt?:number};
-  speakerEdits?: {action:'detected'|'renamed'|'reassigned'; from?:string; to?:string; count?:number; changed:number; by:string; at:number}[];
-  transcriptPreview?: Pick<Segment,'time'|'end'|'text'|'uncertain'>[];
+  processing?: {
+    pages?: number;
+    ocrPages?: number;
+    engine?: string;
+    model?: string;
+    processingSeconds: number;
+    duration?: number;
+  };
+  transcriptEdits?: { segmentId: string; before: string; after: string; by: string; at: number }[];
+  findingsInfo?: {
+    state: 'queued' | 'running' | 'ready' | 'error';
+    progress?: string | null;
+    found?: number;
+    added?: number;
+    merged?: number;
+    dedupe?: 'model' | 'words';
+    model?: string;
+    error?: string;
+    errorCode?: string;
+    startedAt?: number;
+    finishedAt?: number;
+  };
+  speakerInfo?: {
+    state: 'queued' | 'running' | 'ready' | 'error';
+    count?: number;
+    engine?: string;
+    progress?: string | null;
+    error?: string;
+    startedAt?: number;
+    finishedAt?: number;
+  };
+  speakerEdits?: {
+    action: 'detected' | 'renamed' | 'reassigned';
+    from?: string;
+    to?: string;
+    count?: number;
+    changed: number;
+    by: string;
+    at: number;
+  }[];
+  transcriptPreview?: Pick<Segment, 'time' | 'end' | 'text' | 'uncertain'>[];
   processingState?: 'queued' | 'running';
   processingUpdatedAt?: number;
   processingStartedAt?: number;
@@ -109,7 +168,7 @@ export interface ModelConnection {
   description: string;
   keyConfigured?: boolean;
   hasStoredKey?: boolean;
-  apiType?: 'compatible'|'openai'|'anthropic';
+  apiType?: 'compatible' | 'openai' | 'anthropic';
   instructions?: string;
 }
 

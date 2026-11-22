@@ -1,60 +1,241 @@
 /* Project overview in the shape of the project folders: tray 16 px → card 12 px → footer strip.
    Left: passport, summary, findings. Right: materials. */
-.overview-grid.overview-cards{gap:24px;align-items:stretch}
-.overview-cards>section{display:grid;min-width:0}
+.overview-grid.overview-cards {
+  gap: 24px;
+  align-items: stretch;
+}
+.overview-cards > section {
+  display: grid;
+  min-width: 0;
+}
 /* Two columns from the passport down: passport, summary and findings on the left; materials start level with «Автор» and pin once the page scrolls. */
-.overview-grid.overview-cards{margin-top:0}
-.overview-cards>.overview-main{gap:32px}
-.overview-cards .project-profile{margin:0}
-@media(min-width:1024px){.overview-cards>.overview-materials{align-self:start;display:flex;flex-direction:column}}
-.overview-materials>.overview-card{min-block-size:0;grid-template-rows:minmax(0,1fr)}
-.overview-materials .overview-card-inner{min-block-size:0;grid-template-rows:auto minmax(0,1fr) auto}
-.overview-cards .overview-materials-body{padding:0 6px 6px;border:0;border-radius:0}
+.overview-grid.overview-cards {
+  margin-top: 0;
+}
+.overview-cards > .overview-main {
+  gap: 32px;
+}
+.overview-cards .project-profile {
+  margin: 0;
+}
+@media (min-width: 1024px) {
+  .overview-cards > .overview-materials {
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+  }
+}
+.overview-materials > .overview-card {
+  min-block-size: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.overview-materials .overview-card-inner {
+  min-block-size: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.overview-cards .overview-materials-body {
+  padding: 0 6px 6px;
+  border: 0;
+  border-radius: 0;
+}
 
-.overview-card{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;padding:3px;border:1px solid var(--g-color-line-generic);border-radius:16px;background:var(--g-color-base-generic-ultralight)}
-.overview-card-inner{display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:minmax(0,1fr);min-width:0;border:1px solid var(--g-color-line-generic);border-radius:12px;background:var(--g-color-base-background);color:var(--g-color-text-primary)}
-.overview-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:60px;padding:12px 12px 12px 16px}
+.overview-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--g-color-line-generic);
+  border-radius: 16px;
+  background: var(--g-color-base-generic-ultralight);
+}
+.overview-card-inner {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  border: 1px solid var(--g-color-line-generic);
+  border-radius: 12px;
+  background: var(--g-color-base-background);
+  color: var(--g-color-text-primary);
+}
+.overview-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 12px 12px 16px;
+}
 /* Same h2 as «Находки»: the three sections are one level. */
-.overview-card-head h2{display:flex;align-items:center;gap:8px;margin:0;font-size:18px;line-height:28px;font-weight:600}
-.overview-card-sub{margin:2px 0 0;font-size:12px;line-height:16px;color:var(--g-color-text-secondary)}
-.overview-card-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;min-width:0;padding:6px 12px;border-block-start:1px solid var(--g-color-line-generic);border-radius:0 0 11px 11px;background:var(--g-color-base-generic-ultralight);color:var(--g-color-text-secondary);font:var(--g-text-caption-2-font);font-variant-numeric:tabular-nums}
-.overview-card-foot>a{display:inline-flex;align-items:center;gap:4px;min-height:28px;color:var(--g-color-text-primary);font-size:12px}
-.overview-card-warn{display:inline-flex;align-items:center;gap:6px;color:var(--g-color-text-warning-heavy,var(--g-color-text-warning))}
-.overview-card-warn::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
-.g-root_theme_dark .overview-card-warn{color:var(--g-color-text-warning)}
-@media(hover:hover){.overview-card-foot>a:hover{text-decoration:underline}}
+.overview-card-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.overview-card-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--g-color-text-secondary);
+}
+.overview-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-block-start: 1px solid var(--g-color-line-generic);
+  border-radius: 0 0 11px 11px;
+  background: var(--g-color-base-generic-ultralight);
+  color: var(--g-color-text-secondary);
+  font: var(--g-text-caption-2-font);
+  font-variant-numeric: tabular-nums;
+}
+.overview-card-foot > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  color: var(--g-color-text-primary);
+  font-size: 12px;
+}
+.overview-card-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--g-color-text-warning-heavy, var(--g-color-text-warning));
+}
+.overview-card-warn::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.g-root_theme_dark .overview-card-warn {
+  color: var(--g-color-text-warning);
+}
+@media (hover: hover) {
+  .overview-card-foot > a:hover {
+    text-decoration: underline;
+  }
+}
 
 /* Summary inside the card */
-.overview-cards .overview-card .summary-card{padding:0 16px 16px;border:0;border-radius:0}
-.overview-cards .summary-refresh{margin-inline-end:0}
+.overview-cards .overview-card .summary-card {
+  padding: 0 16px 16px;
+  border: 0;
+  border-radius: 0;
+}
+.overview-cards .summary-refresh {
+  margin-inline-end: 0;
+}
 
 /* Materials: one row per name, its files as small links */
-.material-groups{list-style:none;margin:0;padding:0}
-.material-groups>li{padding:8px 10px}
-.material-groups>li+li{border-block-start:1px solid var(--g-color-line-generic)}
-.material-group-name{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;font-size:13px;line-height:18px}
-.material-group-name .material-rail-icon{width:16px;height:16px;margin:0}
-.material-group-name>a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--g-color-text-primary)}
-.material-group-count{color:var(--g-color-text-hint);font-size:12px}
-.material-chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0 24px}
-.material-chip{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:999px;background:var(--g-color-base-generic);color:var(--g-color-text-secondary);font-size:12px;line-height:16px}
-.g-root_theme_dark .material-chip{background:var(--g-color-base-generic-medium)}
-.material-chip_error{color:var(--g-color-text-danger)}
-@media(hover:hover){.material-group-name>a:hover,.material-chip:hover{color:var(--g-color-text-primary);text-decoration:underline}}
-:is(.material-group-name>a,.material-chip,.overview-card-foot>a):focus-visible{outline:2px solid var(--g-color-line-focus);outline-offset:2px}
+.material-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.material-groups > li {
+  padding: 8px 10px;
+}
+.material-groups > li + li {
+  border-block-start: 1px solid var(--g-color-line-generic);
+}
+.material-group-name {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.material-group-name .material-rail-icon {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.material-group-name > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--g-color-text-primary);
+}
+.material-group-count {
+  color: var(--g-color-text-hint);
+  font-size: 12px;
+}
+.material-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0 24px;
+}
+.material-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--g-color-base-generic);
+  color: var(--g-color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.g-root_theme_dark .material-chip {
+  background: var(--g-color-base-generic-medium);
+}
+.material-chip_error {
+  color: var(--g-color-text-danger);
+}
+@media (hover: hover) {
+  .material-group-name > a:hover,
+  .material-chip:hover {
+    color: var(--g-color-text-primary);
+    text-decoration: underline;
+  }
+}
+:is(.material-group-name > a, .material-chip, .overview-card-foot > a):focus-visible {
+  outline: 2px solid var(--g-color-line-focus);
+  outline-offset: 2px;
+}
 
-@media(max-width:639px){
- .overview-cards{gap:12px}
- .overview-card-foot>a{min-height:44px}
- .material-chip{min-height:28px}
+@media (max-width: 639px) {
+  .overview-cards {
+    gap: 12px;
+  }
+  .overview-card-foot > a {
+    min-height: 44px;
+  }
+  .material-chip {
+    min-height: 28px;
+  }
 }
 /* «Главное» in the summary keeps the 12 px step of the summary text, not the chat answer's 20 px. */
-.overview-cards .summary-text .answer-lead{margin-bottom:0}
+.overview-cards .summary-text .answer-lead {
+  margin-bottom: 0;
+}
 /* Empty materials inside the card: the card is the frame, so no dashed border of its own. */
-.overview-cards .material-rail-empty{border:0}
+.overview-cards .material-rail-empty {
+  border: 0;
+}
 /* One column (phone, tablet): passport, summary, materials, then findings. */
-@media(max-width:1023px){
- .overview-grid.overview-cards{gap:32px}
- .overview-cards>.overview-main{display:contents}
- .overview-cards .findings-digest{order:1}
+@media (max-width: 1023px) {
+  .overview-grid.overview-cards {
+    gap: 32px;
+  }
+  .overview-cards > .overview-main {
+    display: contents;
+  }
+  .overview-cards .findings-digest {
+    order: 1;
+  }
 }
