@@ -1,3 +1,4 @@
+import { handleAuth, handleProfile, isAuthPath } from './auth/routes.ts';
 import { handleMcpManagement, handlePublicMcp, matchPublicMcpRoute } from './mcp/routes.ts';
 import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
 import { handleModels } from './admin/models-route.ts';
@@ -1101,8 +1102,8 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     createHmac('sha256', authSecret)
       .update('removed-user:' + email.toLowerCase())
       .digest('hex');
-  let registration = Promise.resolve();
-  const withRegistration = (fn) => {
+  let registration: Promise<unknown> = Promise.resolve();
+  const withRegistration = <T>(fn: () => T | Promise<T>) => {
     const result = registration.then(fn, fn);
     registration = result.catch(() => {});
     return result;
@@ -2214,105 +2215,34 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           fail(403, 'Запрос с другого сайта запрещён.');
         if (req.headers['x-mnema-request'] !== '1') fail(403, 'Некорректный запрос приложения.');
       }
-      // Password reset reuses the mailed-code steps of registration and works without self-registration.
-      const reset = path.startsWith('/api/password-reset/');
-      if (reset || path.startsWith('/api/registration/')) {
-        const step = path.split('/')[3];
-        if (!ownerExists() || (!reset && !options.corporateRegistration))
-          fail(404, 'Регистрация недоступна.');
-        if (step === 'status' && req.method === 'GET') return json(res, 200, signup.status(req));
-        if (req.method !== 'POST') fail(405, 'Метод недоступен.');
-        if (step === 'request-code') {
-          limit('registration-mail:' + req.socket.remoteAddress, 10);
-          const input = await body(req);
-          return await withRegistration(async () =>
-            json(res, 200, await signup.request(req, res, input.email, reset)),
-          );
-        }
-        if (step === 'verify-code') {
-          limit('registration-verify:' + req.socket.remoteAddress, 30);
-          const input = await body(req);
-          return await withRegistration(async () => json(res, 200, signup.verify(req, res, input)));
-        }
-        if (step === 'cancel') {
-          return await withRegistration(() => {
-            signup.consume(req, res);
-            return json(res, 200, { ok: true });
-          });
-        }
-        if (reset && step === 'complete') {
-          limit('password-reset:' + req.socket.remoteAddress, 10);
-          const input = await body(req);
-          return await withRegistration(async () => {
-            const { email, userId } = signup.confirmed(req),
-              password = input.password;
-            if (typeof password !== 'string' || password.length < 8 || password.length > 128)
-              fail(400, 'Пароль должен быть от 8 до 128 символов', { publicCode: 'PASSWORD' });
-            const ctx = await auth.$context;
-            await ctx.internalAdapter.updatePassword(userId, await ctx.password.hash(password));
-            await ctx.internalAdapter.deleteUserSessions(userId);
-            signup.consume(req, res);
-            signup.notifyPasswordChanged(email);
-            return transfer(
-              res,
-              await auth.api.signInEmail({
-                body: { email, password, rememberMe: true },
-                headers: fromNodeHeaders(req.headers),
-                asResponse: true,
-              }),
-            );
-          });
-        }
-        fail(404, 'Метод недоступен.');
-      }
-      if (path === '/api/register' && req.method === 'POST') return await register(req, res);
       if (
-        ['/api/auth/sign-in/email', '/api/auth/sign-out', '/api/auth/get-session'].includes(path)
-      ) {
-        if (req.method === 'POST') limit('auth:' + req.socket.remoteAddress, 20);
-        return toNodeHandler(auth)(req, res);
-      }
-      if (path.startsWith('/api/auth/')) fail(404, 'Метод недоступен.');
-      if (path === '/api/session') {
-        const person = await session(req);
-        if (person?.workspaceId) wsStore.enterWith(person.workspaceId);
-        return json(res, 200, {
-          user: person,
-          setupRequired: !ownerExists(),
+        isAuthPath(path) &&
+        (await handleAuth(req, res, path, {
+          auth,
+          signup,
+          body,
+          session,
+          limit,
+          ownerExists,
+          register,
+          withRegistration,
+          transfer,
+          enterWorkspace: (id) => wsStore.enterWith(id),
+          corporateRegistration: options.corporateRegistration,
           setupEnabled: Boolean(setupToken),
-          registrationEnabled: Boolean(options.corporateRegistration && ownerExists()),
           version: VERSION,
-        });
-      }
+        }))
+      )
+        return;
       if (path.startsWith('/api/')) {
         const person = await session(req);
         if (!person) fail(401, 'Войдите в Мнемодак.');
         writingUsers.set(req, person);
-        if (path === '/api/welcome/dismiss' && req.method === 'POST') {
-          q('UPDATE mnema_access SET welcome_pending=0 WHERE user_id=? AND welcome_pending=1').run(
-            person.id,
-          );
-          return json(res, 200, { ok: true });
-        }
-        if (path.startsWith('/api/profile/avatar/') && req.method === 'GET') {
-          const id = path.slice('/api/profile/avatar/'.length);
-          if (!/^[\w-]{1,80}$/.test(id)) fail(404, 'Фотография не найдена.');
-          const shared =
-            id === person.id ||
-            (q('SELECT 1 FROM mnema_access WHERE user_id=? AND revoked=0').get(id) &&
-              sharing
-                .projects(id)
-                .some((project) => person.workspaces.some((own) => own.id === project.id)));
-          const profile =
-            shared && q('SELECT photo,photo_mime FROM mnema_profiles WHERE user_id=?').get(id);
-          if (!profile?.photo) fail(404, 'Фотография не найдена.');
-          res.writeHead(200, {
-            'Content-Type': profile.photo_mime,
-            'Content-Length': profile.photo.length,
-            'Cache-Control': 'no-store',
-          });
-          return res.end(Buffer.from(profile.photo));
-        }
+        if (
+          (path === '/api/welcome/dismiss' || path.startsWith('/api/profile/avatar/')) &&
+          handleProfile(req, res, path, person, { q, sharing })
+        )
+          return;
         if (
           isModerationPath(path) &&
           (await handleModeration(req, res, path, person, {
