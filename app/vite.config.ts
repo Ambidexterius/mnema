@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 let soundOutput: string;
@@ -21,9 +21,22 @@ const extension =
   process.env.MNEMA_APP_EXTENSION === '1'
     ? resolve(import.meta.dirname, 'private/index.tsx')
     : undefined;
+const extensionEntry = resolve(import.meta.dirname, 'extension.tsx');
+const extensionResolver = {
+  name: 'app-extension',
+  enforce: 'pre' as const,
+  resolveId(source: string, importer?: string) {
+    if (
+      extension &&
+      source.startsWith('.') &&
+      importer &&
+      resolve(dirname(importer), source) === extensionEntry
+    )
+      return extension;
+  },
+};
 export default defineConfig({
-  resolve: { alias: extension ? [{ find: './extension.tsx', replacement: extension }] : [] },
-  plugins: [completionSoundGuard],
+  plugins: [extensionResolver, completionSoundGuard],
   define: {
     'import.meta.env.VITE_DESIGN_WORKBENCH': JSON.stringify('false'),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(version),

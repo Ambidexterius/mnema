@@ -388,6 +388,12 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    assert.deepEqual(await mcp.locator('.settings-group-label').evaluateAll(headings=>headings.map(h=>Math.round(h.getBoundingClientRect().left-document.querySelector('.settings-header h2').getBoundingClientRect().left))),[0,0,0]);
    assert.deepEqual(await page.locator('.settings-nav a').evaluateAll(links=>links.slice(-2).map(link=>link.getAttribute('aria-label'))),['Оценки ответов','Пользователи']);
    await screenshot('mcp-settings');
+   const dictionary=page.getByRole('link',{name:'Словарь приватных данных',exact:true});
+   assert.equal(await dictionary.count(),process.env.MNEMA_APP_EXTENSION==='1'?1:0);
+   if(process.env.MNEMA_APP_EXTENSION==='1'){
+    await dictionary.click();
+    await page.getByRole('textbox',{name:'Слово или фраза',exact:true}).waitFor();
+   }
   });
   await run(theme+': What’s new explains feedback on an element',async()=>{
    await goto('/projects');
