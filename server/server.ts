@@ -1,5 +1,10 @@
+import { handleMaterialSummary, handleFindings, handleProjectSummary } from './analysis/routes.ts';
+import {
+  studiesForReader,
+  summarySourcesMatch,
+  summaryFindingsRevision,
+} from './analysis/evidence.ts';
 import { handleGlobalChat, handleProjectChat, isGlobalChatPath } from './chat/routes.ts';
-import { answerTemplate } from './chat/prompt.ts';
 import { handleWorkspace } from './projects/workspace-route.ts';
 import { handleProjectState } from './projects/state-route.ts';
 import { handleDirectory, handleMembers } from './projects/membership-route.ts';
@@ -27,8 +32,6 @@ import {
   providerHeaders,
   providerRequest,
   providerResult,
-  answerSystem,
-  requestChatAnswer,
 } from './model-connections.ts';
 import { createS3Mirror, s3Config } from './s3-storage.ts';
 import { uniqueNames, writeZip } from './zip.ts';
@@ -45,7 +48,6 @@ import { createIdeas } from './ideas.ts';
 import type { FeedbackLocation } from '../app/feedback-context.ts';
 import { sendInvitationEmail } from './invitation-mail.ts';
 import { sourceURL, importedSegments, importFindings } from './imports.ts';
-import { selectEvidence } from './retrieval.ts';
 import { sendBody, encode, pickEncoding, compressible, MIN_COMPRESS_BYTES } from './compression.ts';
 import {
   summarizeMaterial,
@@ -86,59 +88,6 @@ import { betterAuth } from 'better-auth';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { getMigrations } from 'better-auth/db/migration';
 import type { Finding, Study } from '../app/types.ts';
-
-function studiesForReader(
-  studies: (Study & { importSource?: { catalog?: boolean } })[],
-  findings: Finding[],
-) {
-  const segmentsByStudy = new Map<string, Set<string>>();
-  for (const finding of findings) {
-    if (finding.status !== 'verified') continue;
-    const segments = segmentsByStudy.get(finding.studyId) || new Set<string>();
-    segments.add(finding.segmentId);
-    segmentsByStudy.set(finding.studyId, segments);
-  }
-  return studies.flatMap((study) => {
-    if (!study.importSource?.catalog) return [study];
-    const visible = segmentsByStudy.get(study.id),
-      segments = study.segments?.filter((segment) => visible?.has(segment.id)) || [];
-    return segments.length ? [{ ...study, segments }] : [];
-  });
-}
-
-function summarySourcesMatch(
-  studies: Study[],
-  sources: { studyId: string; segmentId: string; text: string }[],
-) {
-  return Boolean(
-    Array.isArray(sources) &&
-    sources.length &&
-    sources.every((source) => {
-      const study = studies.find((item) => item.id === source.studyId && item.status === 'ready');
-      const segment = study?.segments?.find((item) => item.id === source.segmentId);
-      return segment && (segment.correctedText ?? segment.text) === source.text;
-    }),
-  );
-}
-
-function summaryFindingsRevision(findings: Finding[]) {
-  return hash(
-    JSON.stringify(
-      findings
-        .filter((finding) => finding.status === 'verified')
-        .map((finding) => [
-          finding.id,
-          finding.title,
-          finding.kind,
-          finding.importance,
-          finding.origin,
-          finding.studyId,
-          finding.segmentId,
-          finding.evidence,
-        ]),
-    ),
-  );
-}
 
 export interface MnemaServerOptions {
   extension?: Awaited<ReturnType<typeof loadExtension>>;
@@ -3047,50 +2996,22 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           });
           return json(res, 200, view(person));
         }
-        if (/^\/api\/studies\/[^/]+\/summary(?:\/verify)?$/.test(path) && req.method === 'POST') {
-          if (person.role !== 'full')
-            fail(403, 'Создавать и проверять сводки может участник с полным доступом.');
-          const b = await body(req),
-            study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          if (deletingStudies.has(jobKey(currentWs(), study.id)))
-            fail(409, 'Материал удаляется. Дождитесь завершения.');
-          if (path.endsWith('/verify')) {
-            if (
-              study.summaryInfo?.state !== 'ready' ||
-              !study.summary?.length ||
-              study.summaryInfo.revision !== transcriptRevision(study.segments)
-            )
-              fail(
-                409,
-                'Сводка устарела или ещё не готова. Дождитесь результата или обновите сводку.',
-              );
-            mutate((s) => {
-              s.studies.find((x) => x.id === study.id).summaryInfo.review = 'verified';
-            });
-            return json(res, 200, view(person));
-          }
-          if (['queued', 'running'].includes(study.summaryInfo?.state))
-            return json(res, 202, view(person));
-          if (study.status !== 'ready' || !study.segments?.length)
-            fail(409, 'Сначала дождитесь расшифровки материала.');
-          const model = getState().state.models.find(
-            (m) => m.id === (b.modelId || getState().state.modelId) && m.enabled,
-          );
-          if (!model || !modelKey(model)) fail(503, 'Выберите подключённую модель в настройках.');
-          limit('summary:' + person.id, 3);
-          mutate((s) => {
-            s.studies.find((x) => x.id === study.id).summaryInfo = {
-              state: 'queued',
-              review: 'draft',
-              revision: transcriptRevision(study.segments),
-              modelId: model.id,
-              requestedBy: person.id,
-              startedAt: Date.now(),
-            };
-          });
-          return json(res, 202, view(person));
-        }
+        if (
+          path.startsWith('/api/studies/') &&
+          path.includes('/summary') &&
+          (await handleMaterialSummary(req, res, path, person, {
+            body,
+            getState,
+            currentWs,
+            deletingStudies,
+            jobKey,
+            mutate,
+            view,
+            modelKey,
+            limit,
+          }))
+        )
+          return;
         // Highlights: a quote a person marked in the material. The text must be in the transcript; readers see them, cannot change them.
         if (/^\/api\/studies\/[^/]+\/highlights$/.test(path) && req.method === 'POST') {
           if (person.role !== 'full')
@@ -3142,37 +3063,21 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           });
           return json(res, 200, view(person));
         }
-        if (/^\/api\/studies\/[^/]+\/suggest-findings$/.test(path) && req.method === 'POST') {
-          if (person.role !== 'full')
-            fail(403, 'Предлагать находки может участник с полным доступом.');
-          await body(req);
-          const { state } = getState();
-          const study = state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          if (deletingStudies.has(jobKey(currentWs(), study.id)))
-            fail(409, 'Материал удаляется. Дождитесь завершения.');
-          if (!study.segments?.length) fail(409, 'Дождитесь, пока материал будет обработан.');
-          const model =
-            state.models.find((m) => m.id === state.modelId && m.enabled) ||
-            state.models.find((m) => m.enabled);
-          if (!model) fail(400, 'Включите модель в разделе «Модели».');
-          if (['queued', 'running'].includes(study.findingsInfo?.state))
-            return json(res, 202, view(person));
-          limit('suggest:' + person.id, 6);
-          mutate((s) => {
-            const t = s.studies.find((x) => x.id === study.id);
-            if (t)
-              t.findingsInfo = {
-                state: 'queued',
-                progress: 'В очереди',
-                modelId: model.id,
-                requestedBy: person.id,
-                revision: transcriptRevision(t.segments),
-                startedAt: Date.now(),
-              };
-          });
-          return json(res, 202, view(person));
-        }
+        if (
+          path.startsWith('/api/studies/') &&
+          path.includes('/suggest-findings') &&
+          (await handleFindings(req, res, path, person, {
+            body,
+            getState,
+            currentWs,
+            deletingStudies,
+            jobKey,
+            mutate,
+            view,
+            limit,
+          }))
+        )
+          return;
         if (/^\/api\/studies\/[^/]+\/process$/.test(path) && req.method === 'POST') {
           if (person.role !== 'full') fail(403, 'Обработка недоступна.');
           await body(req);
@@ -3203,112 +3108,22 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        if (path === '/api/project-summary' && req.method === 'POST') {
-          // Build the shared summary from the same evidence a project reader can see.
-          if (person.role !== 'full')
-            fail(403, 'Собирать сводку может участник с полным доступом.');
-          limit('project-summary:' + person.id, 5);
-          await body(req);
-          const { state } = getState();
-          const model = state.models.find((m) => m.id === state.modelId && m.enabled);
-          if (!model || !modelKey(model) || !model.model)
-            fail(400, 'Подключите модель в настройках проекта.');
-          const corpus = view({ ...person, role: 'view' }).state;
-          if (!corpus.studies.some((s) => s.status === 'ready'))
-            fail(409, 'Дождитесь обработки материалов.');
-          const question = 'Обзор проекта';
-          const { sources, coverage, reviewedFindings } = selectEvidence(
-            corpus.studies,
-            question,
-            'all',
-            corpus.findings,
-          );
-          if (!sources.length) fail(409, 'В материалах пока нет текста для сводки.');
-          const evidence = sources.map(({ score, ...s }, i) => {
-            const st = state.studies.find((x) => x.id === s.studyId);
-            return {
-              ...s,
-              number: i + 1,
-              segmentId: s.id,
-              studyType: st.type,
-              basis: reportOf(st) === 'ready' ? 'report' : 'raw',
-            };
-          });
-          const reviewedRevision = reviewedFindings.length
-            ? summaryFindingsRevision(corpus.findings)
-            : null;
-          const requireCurrentEvidence = (current: any) => {
-            const findings = current.findings.map(legacyFinding);
-            const studies = studiesForReader(current.studies, findings);
-            if (
-              !summarySourcesMatch(studies, evidence) ||
-              (reviewedRevision && reviewedRevision !== summaryFindingsRevision(findings))
-            )
-              fail(409, 'Источники сводки изменились. Создайте сводку заново.');
-          };
-          const result = await requestChatAnswer(
-            model,
-            {
-              model: model.model,
-              temperature: 0.2,
-              messages: [
-                { role: 'system', content: answerSystem(answerTemplate, model.instructions) },
-                {
-                  role: 'user',
-                  content: JSON.stringify({
-                    question,
-                    coverage,
-                    reviewed_findings: reviewedFindings,
-                    instruction:
-                      'Дай 3–5 главных выводов исследования короткими пунктами списка, без заголовков и разделов. Каждый пункт опирается на источники.' +
-                      (coverage.sampled
-                        ? ' Доступна выборка фрагментов проекта, не утверждай, что изучил все материалы целиком.'
-                        : ''),
-                    sources: evidence.map((s) => ({
-                      number: s.number,
-                      type: s.studyType,
-                      basis: s.basis,
-                      title: s.title,
-                      time: s.time,
-                      page: s.page,
-                      speaker: s.speaker,
-                      text: s.text,
-                      ...(s.uncertain && s.correctedText === undefined ? { uncertain: true } : {}),
-                    })),
-                  }),
-                },
-              ],
-            },
-            async (payload) => {
-              const current = await session(req);
-              if (!current || current.workspaceId !== person.workspaceId || current.role !== 'full')
-                fail(409, 'Доступ к проекту изменился. Обновите страницу.');
-              requireCurrentEvidence(getState().state);
-              return callModel(current, model, payload);
-            },
-          );
-          const answer = result.choices?.[0]?.message?.content;
-          if (typeof answer !== 'string' || !answer.trim())
-            fail(502, 'Модель вернула неожиданный ответ. Повторите попытку.');
-          const latest = await session(req);
-          if (!latest || latest.workspaceId !== person.workspaceId || latest.role !== 'full')
-            fail(409, 'Доступ к проекту изменился. Обновите страницу.');
-          const summary = {
-            answer,
-            sources: evidence,
-            reviewedRevision,
-            model: (result.mnemaModel || model).name,
-            at: Date.now(),
-            materials: coverage.included,
-            fragments: coverage.fragments,
-            totalFragments: coverage.totalFragments,
-          };
-          mutate((s) => {
-            requireCurrentEvidence(s);
-            s.projectSummary = summary;
-          });
-          return json(res, 200, view(latest));
-        }
+        if (
+          path === '/api/project-summary' &&
+          (await handleProjectSummary(req, res, path, person, {
+            body,
+            getState,
+            view,
+            modelKey,
+            limit,
+            session,
+            reportOf,
+            legacyFinding,
+            callModel,
+            mutate,
+          }))
+        )
+          return;
         if (
           path === '/api/chat' &&
           (await handleProjectChat(req, res, path, person, {
