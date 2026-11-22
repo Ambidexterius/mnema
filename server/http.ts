@@ -42,3 +42,6 @@ export async function readJsonBody(chunks: AsyncIterable<Buffer>, max = 2 * 1024
     fail(400, 'Не удалось прочитать запрос.');
   }
 }
+
+export const text = (v: unknown, max = 200) =>
+  typeof v === 'string' ? v.trim().slice(0, max) : '';

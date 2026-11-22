@@ -1,10 +1,13 @@
+import { handleWorkspace } from './projects/workspace-route.ts';
+import { handleProjectState } from './projects/state-route.ts';
+import { handleDirectory, handleMembers } from './projects/membership-route.ts';
 import { backendBuildId } from './build-id.ts';
 import { handleAuth, handleProfile, isAuthPath } from './auth/routes.ts';
 import { handleMcpManagement, handlePublicMcp, matchPublicMcpRoute } from './mcp/routes.ts';
 import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
 import { handleModels } from './admin/models-route.ts';
 import type { Person } from './request-context.ts';
-import { fail, json, readJsonBody } from './http.ts';
+import { fail, json, readJsonBody, text } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration, corporateEmail } from './registration.ts';
 import { createProjectSharing } from './project-sharing.ts';
@@ -180,7 +183,6 @@ const safeEqual = (a, b) =>
   typeof b === 'string' &&
   a.length === b.length &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const text = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const roles = new Set(['view', 'full']);
 // Stage 1 of the UX brief: findings are reviewed by a person; readers only ever receive verified ones.
 const findingStatuses = new Set(['draft', 'verified', 'rejected']);
@@ -1916,7 +1918,7 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
         kind,
       ),
     );
-  const uploadBusy = new Set();
+  const uploadBusy = new Set<string>();
   // Both upload routes claim a name before accepting bytes. The SQLite writer lock
   // covers the check and reservation, including requests from different users.
   function checkUploadName(name: string, ownReservation?: string) {
@@ -2240,242 +2242,45 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        if (path === '/api/users' && req.method === 'GET') {
-          if (!person.manageUsers)
-            fail(403, 'Список пользователей доступен участникам с полным доступом.');
-          return json(res, 200, { users: userDirectory(person) });
-        }
-        if (/^\/api\/users\/[^/]+$/.test(path) && req.method === 'DELETE')
-          return await withRegistration(async () => {
-            const latest = await session(req);
-            if (!latest?.owner) fail(403, 'Удалять пользователей может только администратор.');
-            const id = path.split('/').at(-1);
-            if (id === latest.id) fail(403, 'Свой аккаунт удалить нельзя.');
-            const account = q(
-              'SELECT u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=?',
-            ).get(id);
-            const invite = account
-              ? null
-              : q('SELECT email,workspace_id FROM mnema_invites WHERE id=? AND used=0').get(id);
-            if (!account && !invite) return json(res, 200, { users: userDirectory(latest) });
-            if (account && q('SELECT 1 FROM mnema_project_sharing WHERE owner_id=?').get(id))
-              fail(409, 'Этот пользователь владеет проектом. Его аккаунт пока нельзя удалить.');
-            if (
-              invite &&
-              invite.workspace_id !== '*' &&
-              !latest.workspaces.some((w) => w.id === invite.workspace_id)
-            )
-              fail(404, 'Приглашение не найдено.');
-            db.exec('BEGIN IMMEDIATE');
-            try {
-              if (account) {
-                q('INSERT OR IGNORE INTO mnema_removed_emails VALUES(?)').run(
-                  hmacRemovedEmail(account.email),
-                );
-                q('DELETE FROM mnema_invites WHERE lower(email)=?').run(
-                  account.email.toLowerCase(),
-                );
-                q('DELETE FROM mnema_registration WHERE email=?').run(account.email.toLowerCase());
-                q('DELETE FROM mnema_members WHERE user_id=?').run(id);
-                q('DELETE FROM mnema_access WHERE user_id=?').run(id);
-                q('DELETE FROM mnema_chats WHERE user_id=?').run(id);
-                q('DELETE FROM user WHERE id=?').run(id);
-              } else {
-                // Remove superseded links, but keep any invitation created after this one.
-                q(
-                  'DELETE FROM mnema_invites WHERE email=? AND workspace_id=? AND used=0 AND rowid<=(SELECT rowid FROM mnema_invites WHERE id=?)',
-                ).run(invite.email, invite.workspace_id, id);
-              }
-              db.exec('COMMIT');
-            } catch (error) {
-              db.exec('ROLLBACK');
-              throw error;
-            }
-            return json(res, 200, { users: userDirectory(latest) });
-          });
+        if (
+          (path === '/api/users' || path.startsWith('/api/users/')) &&
+          (await handleDirectory(req, res, path, person, {
+            q,
+            db,
+            userDirectory,
+            session,
+            withRegistration,
+            hmacRemovedEmail,
+          }))
+        )
+          return;
         if (
           path.startsWith('/api/mcp/') &&
           (await handleMcpManagement(req, res, path, person, { mcpService, body, limit }))
         )
           return;
 
-        if (/^\/api\/workspaces\/[^/]+\/share$/.test(path) && req.method === 'POST') {
-          limit('project-share:' + person.id, 30);
-          const id = path.split('/')[3],
-            input = await body(req);
-          if (!sharing.validLink(id, input.token))
-            fail(
-              403,
-              'Ссылка недействительна или доступ закрыт. Попросите владельца прислать новую ссылку.',
-            );
-          const cookies = res.getHeader('Set-Cookie');
-          res.setHeader('Set-Cookie', [
-            ...(Array.isArray(cookies) ? cookies : cookies ? [cookies] : []),
-            'mnema_share_' +
-              id +
-              '=' +
-              input.token +
-              '; Path=/api; HttpOnly; SameSite=Lax; Max-Age=604800' +
-              (production ? '; Secure' : ''),
-          ]);
-          return json(res, 200, { id });
-        }
-        {
-          const match = path.match(
-            /^\/api\/workspaces\/([^/]+)\/sharing(?:\/(members)(?:\/([^/]+))?|\/(link\/rotate))?$/,
-          );
-          if (match) {
-            const [, id, members, memberId, rotate] = match;
-            if (!sharing.canManage(id, person.id))
-              fail(403, 'Управлять доступом может только владелец проекта.');
-            if (req.method === 'GET' && !members && !rotate)
-              return json(res, 200, sharing.info(id, person.id));
-            limit('project-sharing:' + person.id, 60);
-            const input = await body(req),
-              latest = await session(req);
-            if (!latest || !sharing.canManage(id, latest.id))
-              fail(403, 'Доступ к проекту изменился.');
-            if (req.method === 'PATCH' && !members && !rotate)
-              return json(res, 200, sharing.setMode(id, latest.id, input.mode));
-            if (req.method === 'POST' && rotate)
-              return json(res, 200, sharing.rotate(id, latest.id));
-            if (members && memberId && ['PATCH', 'DELETE'].includes(req.method))
-              return json(
-                res,
-                200,
-                sharing.member(
-                  id,
-                  latest.id,
-                  memberId,
-                  req.method === 'PATCH' ? (input.role ?? null) : undefined,
-                ),
-              );
-            if (members && !memberId && req.method === 'POST')
-              return await wsStore.run(id, async () => {
-                const result = await inviteToProject(
-                  { ...latest, workspaceId: id, admin: true, role: 'full' },
-                  {
-                    ...input,
-                    name: text(input.name, 70) || text(input.email, 150).split('@')[0],
-                    scope: 'project',
-                  },
-                );
-                return json(res, 201, { ...sharing.info(id, latest.id), ...result });
-              });
-            fail(405, 'Метод недоступен.');
-          }
-        }
-
         if (
-          /^\/api\/workspaces\/[^/]+(?:\/invitations)?$/.test(path) &&
-          ['PATCH', 'DELETE', 'POST'].includes(req.method)
-        ) {
-          const id = path.split('/')[3],
-            target = person.workspaces.find((w) => w.id === id);
-          if (!target?.admin) fail(403, 'Управление проектом доступно его владельцу.');
-          const b = await body(req);
-          // The request body is asynchronous: recheck membership before the mutation.
-          const latest = await session(req);
-          if (!latest?.workspaces.some((w) => w.id === id && w.admin))
-            fail(403, 'Доступ к проекту изменился.');
-          return await wsStore.run(id, async () => {
-            if (path.endsWith('/invitations') && req.method === 'POST')
-              return json(
-                res,
-                201,
-                await inviteToProject(
-                  { ...latest, workspaceId: id, admin: true, role: 'full' },
-                  { ...b, scope: 'project' },
-                ),
-              );
-            if (path.endsWith('/invitations')) fail(405, 'Метод недоступен.');
-            if (req.method === 'PATCH') {
-              if (typeof b.name !== 'string' || !b.name.trim() || b.name.trim().length > 60)
-                fail(400, 'Укажите название от 1 до 60 символов.');
-              q('UPDATE mnema_workspaces SET name=?,version=version+1 WHERE id=?').run(
-                b.name.trim(),
-                id,
-              );
-              return json(res, 200, { ok: true });
-            }
-            if (req.method !== 'DELETE') fail(405, 'Метод недоступен.');
-            const project = q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(id),
-              state = JSON.parse(project.data);
-            if (b.name !== project.name)
-              fail(409, 'Название проекта изменилось. Обновите страницу и повторите удаление.');
-            if (
-              q("SELECT 1 FROM mnema_jobs WHERE workspace_id=? AND status='running'").get(id) ||
-              state.studies.some(
-                (s) =>
-                  ['queued', 'running'].includes(s.summaryInfo?.state) ||
-                  ['queued', 'running'].includes(s.findingsInfo?.state),
-              )
-            )
-              fail(409, 'Дождитесь завершения обработки в проекте и повторите удаление.');
-            const sessions = q('SELECT id,metadata FROM mnema_upload_sessions')
-              .all()
-              .filter((s) => JSON.parse(s.metadata).workspaceId === id);
-            if (
-              sessions.some(
-                (s) =>
-                  uploadBusy.has(s.id) ||
-                  q("SELECT 1 FROM mnema_uploads WHERE id=? AND status='uploading'").get(s.id),
-              )
-            )
-              fail(409, 'Завершите или отмените загрузку файлов в проект и повторите удаление.');
-            const jobs = q('SELECT id FROM mnema_jobs WHERE workspace_id=?').all(id);
-            const fileIds = [
-              ...new Set<string>(state.studies.map((s) => s.fileId).filter(Boolean)),
-            ];
-            db.exec('BEGIN IMMEDIATE');
-            try {
-              for (const study of state.studies) feedback.forgetStudy(id, study.id);
-              q(
-                "DELETE FROM mnema_answer_feedback WHERE EXISTS(SELECT 1 FROM json_each(mnema_answer_feedback.example,'$.projectIds') WHERE value=?)",
-              ).run(id);
-              for (const item of sessions)
-                q('DELETE FROM mnema_upload_sessions WHERE id=?').run(item.id);
-              for (const file of fileIds) q('DELETE FROM mnema_uploads WHERE id=?').run(file);
-              for (const table of [
-                'mnema_jobs',
-                'mnema_completion_mail',
-                'mnema_model_keys',
-                'mnema_invites',
-                'mnema_members',
-              ])
-                q('DELETE FROM ' + table + ' WHERE workspace_id=?').run(id);
-              // Clear the obsolete single-workspace snapshot too, so a restart cannot restore deleted data.
-              if (id === 'main')
-                q('UPDATE mnema_workspace SET data=? WHERE id=1').run(
-                  JSON.stringify(initialState()),
-                );
-              q('DELETE FROM mnema_workspaces WHERE id=?').run(id);
-              db.exec('COMMIT');
-            } catch (error) {
-              db.exec('ROLLBACK');
-              throw error;
-            }
-            for (const file of fileIds) await unlink(join(dir, 'uploads', file)).catch(() => {});
-            if (extension) for (const study of state.studies) await extension.removeFiles(study);
-            for (const item of sessions)
-              await unlink(join(dir, 'uploads', item.id + '.part')).catch(() => {});
-            for (const job of jobs)
-              await rm(join(dir, 'processing', job.id), { recursive: true, force: true });
-            return json(res, 200, { ok: true });
-          });
-        }
-        if (path === '/api/workspaces' && req.method === 'POST') {
-          limit('workspace:' + person.id, 5);
-          const b = await body(req);
-          const name = text(b.name, 60);
-          if (b.mode !== undefined && !['private', 'all', 'link'].includes(b.mode))
-            fail(400, 'Выберите способ доступа к проекту.');
-          if (!name) fail(400, 'Назовите проект.');
-          if (person.workspaces.filter((w) => w.admin).length >= 20)
-            fail(409, 'Можно создать не больше 20 проектов.');
-          const id = createProject(name, person, b.mode || 'all');
-          return json(res, 201, { id, name });
-        }
+          (path === '/api/workspaces' || path.startsWith('/api/workspaces/')) &&
+          (await handleWorkspace(req, res, path, person, {
+            body,
+            session,
+            limit,
+            production,
+            sharing,
+            wsStore,
+            inviteToProject,
+            q,
+            db,
+            dir,
+            uploadBusy,
+            feedback,
+            extension,
+            initialState,
+            createProject,
+          }))
+        )
+          return;
         if (path === '/api/chats' && req.method === 'GET')
           return json(res, 200, { chats: chats.list(scopedPerson(person)) });
         if (path === '/api/chats' && req.method === 'POST') {
@@ -2836,275 +2641,42 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           void storageMirror.tick();
           return json(res, 202, storageMirror.status());
         }
-        if (path === '/api/workspaces/' + currentWs() + '/profile' && req.method === 'PATCH') {
-          const input = await body(req),
-            latest = await session(req);
-          if (!latest || latest.workspaceId !== currentWs() || latest.role !== 'full')
-            fail(403, 'Редактировать сведения может участник с полным доступом.');
-          const limits = {
-            category: 80,
-            conducted: 100,
-            method: 200,
-            audience: 10000,
-            contact: 200,
-            report: 10,
-          };
-          const fields = input?.fields;
-          if (
-            !fields ||
-            typeof fields !== 'object' ||
-            Array.isArray(fields) ||
-            Object.keys(fields).some((key) => !Object.hasOwn(limits, key) && key !== 'tags')
-          )
-            fail(400, 'Проверьте поля проекта.');
-          if (
-            fields.tags !== undefined &&
-            (!Array.isArray(fields.tags) ||
-              fields.tags.length > 20 ||
-              fields.tags.some((tag) => typeof tag !== 'string' || !tag.trim() || tag.length > 40))
-          )
-            fail(400, 'Тегов может быть до 20, каждый до 40 символов.');
-          for (const [key, max] of Object.entries(limits)) {
-            if (typeof fields[key] !== 'string' || fields[key].length > max)
-              fail(400, 'Проверьте значение поля проекта.');
-          }
-          if (!['', 'ready', 'none'].includes(fields.report)) fail(400, 'Выберите статус отчёта.');
-          mutate((state) => {
-            const revision = state.projectProfile?.revision || 0;
-            if (input.revision !== revision)
-              fail(409, 'Сведения изменились. Откройте редактирование заново.');
-            // Tags are optional so older clients keep the saved ones.
-            const tags = fields.tags
-              ? [...new Set(fields.tags.map((tag) => tag.trim()))]
-              : state.projectProfile?.tags;
-            state.projectProfile = {
-              ...Object.fromEntries(Object.keys(limits).map((key) => [key, fields[key].trim()])),
-              ...(tags ? { tags } : {}),
-              revision: revision + 1,
-            };
-          });
-          return json(res, 200, view(latest));
-        }
-        if (path === '/api/state' && req.method === 'GET') {
-          const data = view(person);
-          for (const study of data.state.studies) {
-            if (
-              study.status !== 'processing' ||
-              study.segments?.length ||
-              (study.importSource?.catalog && person.role !== 'full')
-            )
-              continue;
-            const preview = transcriptPreviews.get(jobKey(currentWs(), study.id));
-            if (preview) {
-              study.transcriptPreview = preview;
-              study.activity = materialActivity(study);
-            }
-          }
-          return json(res, 200, data);
-        }
-        if (path === '/api/state' && req.method === 'PATCH') {
-          if (person.role !== 'full') fail(403, 'У вас доступ только для просмотра.');
-          const b = await body(req);
-          const current = getState();
-          if (b.version !== current.version)
-            fail(
-              409,
-              'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.',
-            );
-          const changes = b.changes || {};
-          // Models are one team-wide setting: only account administrators change them.
-          const allowed = [
-            'findings',
-            ...(person.admin ? ['processors'] : []),
-            ...(person.owner ? ['models', 'modelId'] : []),
-          ];
-          if (Object.keys(changes).some((k) => !allowed.includes(k)))
-            fail(403, 'Недостаточно прав для этого изменения.');
-          if (changes.findings) {
-            if (!Array.isArray(changes.findings) || changes.findings.length > 10000)
-              fail(400, 'Некорректные находки.');
-            for (const f of changes.findings) {
-              const study = current.state.studies.find((s) => s.id === f.studyId);
-              if (!study || !study.segments?.some((t) => t.id === f.segmentId))
-                fail(400, 'Находке нужен существующий фрагмент источника.');
-              if (
-                f.evidence !== undefined &&
-                (!Array.isArray(f.evidence) ||
-                  f.evidence.some((id) => !study.segments.some((t) => t.id === id)))
-              )
-                fail(400, 'Доказательства находки должны быть фрагментами того же материала.');
-              if (
-                !text(f.title, 160) ||
-                f.title.length > 160 ||
-                String(f.description || '').length > (f.importSource ? 28000 : 4000)
-              )
-                fail(400, 'Сократите текст находки.');
-              if (f.status !== undefined && !findingStatuses.has(f.status))
-                fail(400, 'Неизвестный статус находки.');
-              if (f.importance !== undefined && !importanceLevels.includes(f.importance))
-                fail(400, 'Важность: Критично, Высокая, Средняя или Низкая.');
-            }
-          }
-          if (changes.models) {
-            if (!Array.isArray(changes.models) || changes.models.length > 20)
-              fail(400, 'Не больше 20 подключений.');
-            // A built-in connection that works stays (it can be switched off); one without a model or key may be removed.
-            const builtinReady = (m: any) =>
-              Boolean(m.model) &&
-              (modelKeys.has(currentWs(), m.id) ||
-                (slotPattern.test(m.keyRef || '') && Boolean(process.env[m.keyRef])));
-            for (const m of current.state.models.filter(isBuiltin))
-              if (builtinReady(m) && !changes.models.some((x: any) => x.id === m.id))
-                fail(400, 'Работающее встроенное подключение нельзя удалить, его можно выключить.');
-            const seen = new Set();
-            changes.models = changes.models.map((m: any) => {
-              if (m.apiKey !== undefined || m.sealed !== undefined)
-                fail(400, 'API-ключ сохраняется только через настройки подключения.');
-              if (
-                typeof m.id !== 'string' ||
-                !/^[a-zA-Z0-9_-]{1,100}$/.test(m.id) ||
-                seen.has(m.id)
-              )
-                fail(400, 'Проверьте идентификаторы подключений.');
-              seen.add(m.id);
-              const prev = current.state.models.find((x) => x.id === m.id),
-                next = cleanModel(m, prev, true);
-              if (
-                prev &&
-                modelKeys.has(currentWs(), m.id) &&
-                (modelBase(prev) !== modelBase(next) ||
-                  (prev.apiType !== next.apiType && Boolean(prev.apiType || next.apiType)))
-              )
-                fail(400, 'При смене поставщика сохраните новый ключ в настройках подключения.');
-              return { ...next, builtin: isBuiltin(prev || { id: '' }) };
-            });
-            if (changes.models.filter((m) => m.reserve).length > 1)
-              fail(400, 'Резервной может быть только одна модель.');
-          }
-          if (changes.findings) {
-            const now = Date.now();
-            const previous = new Map(current.state.findings.map((f) => [f.id, f]));
-            const seen = new Set();
-            changes.findings = changes.findings.map((f) => {
-              const prev = previous.get(f.id);
-              const next = reviewFinding(f, prev, person, now);
-              if (seen.has(next.id)) fail(400, 'Находка указана дважды.');
-              seen.add(next.id);
-              return next;
-            });
-          }
-          mutate((s) => {
-            if (changes.models)
-              for (const old of s.models)
-                if (!changes.models.some((m) => m.id === old.id))
-                  modelKeys.remove(currentWs(), old.id);
-            Object.assign(s, changes);
-            if (!s.models.some((m) => m.id === s.modelId && m.enabled))
-              s.modelId = s.models.find((m) => m.enabled)?.id || '';
-            return s;
-          });
-          if (changes.models || changes.modelId !== undefined) syncModels(currentWs());
-          return json(res, 200, view(person));
-        }
-        if (path === '/api/invitations' && req.method === 'POST') {
-          const b = await body(req),
-            fresh = await session(req);
-          if (!fresh) fail(401, 'Войдите в Мнемодак.');
-          const result = await inviteToProject(fresh, b);
-          const latest = await session(req),
-            access = latest?.workspaces.find((w) => w.id === currentWs());
-          if (!latest?.manageUsers && !access?.admin) fail(403, 'Доступ к проекту изменился.');
-          return json(res, 201, {
-            ...view({
-              ...latest,
-              workspaceId: currentWs(),
-              role: access.role,
-              admin: access.admin,
-            }),
-            ...result,
-          });
-        }
-        if (/^\/api\/users\/[^/]+$/.test(path) && req.method === 'PATCH') {
-          const id = path.split('/').at(-1);
-          if (id === person.id) fail(403, 'Собственный доступ изменять нельзя.');
-          const b = await body(req);
-          if (
-            (b.role !== undefined && !roles.has(b.role)) ||
-            (b.admin !== undefined && typeof b.admin !== 'boolean') ||
-            (b.status !== undefined &&
-              !['active', 'invited', 'expired', 'revoked'].includes(b.status))
-          )
-            fail(400, 'Неверные права или статус участника.');
-          const latest = await session(req);
-          if (!latest || (!latest.admin && !latest.manageUsers))
-            fail(403, 'Управление пользователями недоступно.');
-          if ((b.admin !== undefined || b.status !== undefined) && !latest.owner)
-            fail(403, 'Назначать администраторов и отзывать доступ может только администратор.');
-          const account = q('SELECT * FROM mnema_access WHERE user_id=?').get(id);
-          if (account) {
-            if (account.admin && !latest.owner)
-              fail(403, 'Права администратора изменяет только администратор.');
-            if (account.all_projects && !latest.manageUsers)
-              fail(403, 'Недостаточно прав для изменения общего доступа.');
-            const admin = b.admin === undefined ? Boolean(account.admin) : b.admin,
-              role = admin ? 'full' : b.role || account.role;
-            if (admin || account.all_projects || b.admin !== undefined || b.status !== undefined) {
-              if (!latest.manageUsers) fail(403, 'Недостаточно прав для изменения общего доступа.');
-              const revoked =
-                b.status === undefined ? account.revoked : b.status === 'revoked' ? 1 : 0;
-              db.exec('BEGIN');
-              try {
-                q('UPDATE mnema_access SET admin=?,role=?,revoked=? WHERE user_id=?').run(
-                  admin ? 1 : 0,
-                  role,
-                  revoked,
-                  id,
-                );
-                if (!revoked && (admin || account.all_projects || b.admin !== undefined))
-                  grantAllProjects(id, role);
-                db.exec('COMMIT');
-              } catch (error) {
-                db.exec('ROLLBACK');
-                throw error;
-              }
-            } else {
-              const workspace = typeof b.workspaceId === 'string' ? b.workspaceId : currentWs();
-              if (!sharing.canManage(workspace, latest.id))
-                fail(403, 'Управление этим проектом недоступно.');
-              const member = q(
-                'SELECT * FROM mnema_members WHERE workspace_id=? AND user_id=?',
-              ).get(workspace, id);
-              if (!member) fail(404, 'Участник не найден.');
-              if (sharing.canManage(workspace, id))
-                fail(403, 'Доступ владельца проекта не изменяется.');
-              q('UPDATE mnema_members SET role=?,revoked=? WHERE workspace_id=? AND user_id=?').run(
-                b.role || member.role,
-                b.status === undefined ? member.revoked : b.status === 'revoked' ? 1 : 0,
-                workspace,
-                id,
-              );
-            }
-          } else {
-            const invite = q('SELECT * FROM mnema_invites WHERE id=? AND used=0').get(id);
-            if (!invite) fail(404, 'Участник не найден.');
-            if (b.admin !== undefined)
-              fail(400, 'Назначить администратора можно после регистрации.');
-            if (b.status === 'active' && invite.expires <= Date.now())
-              fail(409, 'Срок приглашения истёк. Создайте новое приглашение.');
-            if (
-              invite.workspace_id === '*'
-                ? !latest.manageUsers
-                : !sharing.canManage(invite.workspace_id, latest.id)
-            )
-              fail(403, 'Управление приглашением недоступно.');
-            q('UPDATE mnema_invites SET role=?,revoked=? WHERE id=?').run(
-              b.role || invite.role,
-              b.status === undefined ? invite.revoked : b.status === 'revoked' ? 1 : 0,
-              id,
-            );
-          }
-          return json(res, 200, view(latest));
-        }
+        if (
+          (path === '/api/state' || path === '/api/workspaces/' + currentWs() + '/profile') &&
+          (await handleProjectState(req, res, path, person, {
+            body,
+            session,
+            currentWs,
+            getState,
+            mutate,
+            view,
+            transcriptPreviews,
+            jobKey,
+            findingStatuses,
+            importanceLevels,
+            modelKeys,
+            isBuiltin,
+            reviewFinding,
+            syncModels,
+          }))
+        )
+          return;
+        if (
+          (path === '/api/invitations' || path.startsWith('/api/users/')) &&
+          (await handleMembers(req, res, path, person, {
+            body,
+            session,
+            currentWs,
+            inviteToProject,
+            view,
+            roles,
+            q,
+            db,
+            grantAllProjects,
+            sharing,
+          }))
+        )
+          return;
         if (path === '/api/upload-sessions' && req.method === 'POST') {
           if (person.role !== 'full') fail(403, 'Добавление материалов недоступно.');
           limit('upload-init:' + person.id, 60);
