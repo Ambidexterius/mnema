@@ -7,9 +7,11 @@ import { legacyFinding } from '../analysis/review.ts';
 import type { modelKeyStore } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import { resumePendingSummaries } from '../summaries.ts';
+import type { initializeWorkspaceProjection } from './projection.ts';
 
 type Database = Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
 type Prepare = ReturnType<typeof openDatabase>['q'];
+type WriteProjection = ReturnType<typeof initializeWorkspaceProjection>['write'];
 
 const emptyState = () => ({
   studies: [],
@@ -78,18 +80,26 @@ interface WorkspaceFactoryServices {
   q: Prepare;
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'init'>;
   copyModels: (from: string, to: string) => void;
+  writeProjection: WriteProjection;
 }
 
-export function createWorkspaceFactory({ db, q, sharing, copyModels }: WorkspaceFactoryServices) {
+export function createWorkspaceFactory({
+  db,
+  q,
+  sharing,
+  copyModels,
+  writeProjection,
+}: WorkspaceFactoryServices) {
   const createProject = (name: string, person: Person, mode = 'all', state = initialState()) => {
     const id = randomUUID();
+    const data = JSON.stringify(state);
     db.exec('BEGIN IMMEDIATE');
     try {
       q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(
         id,
         name,
         0,
-        JSON.stringify(state),
+        data,
         Date.now(),
         person.id,
       );
@@ -99,6 +109,7 @@ export function createWorkspaceFactory({ db, q, sharing, copyModels }: Workspace
         'full',
       );
       sharing.init(id, person.id, mode);
+      writeProjection(id, data);
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
@@ -119,9 +130,17 @@ interface ProjectStoreServices {
   currentWs: () => string;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
   modelKeys: ReturnType<typeof modelKeyStore>;
+  writeProjection: WriteProjection;
 }
 
-export function createProjectStore({ q, db, currentWs, wsStore, modelKeys }: ProjectStoreServices) {
+export function createProjectStore({
+  q,
+  db,
+  currentWs,
+  wsStore,
+  modelKeys,
+  writeProjection,
+}: ProjectStoreServices) {
   const getState = () => {
     const row = q('SELECT * FROM mnema_workspaces WHERE id=?').get(currentWs());
     if (!row) fail(404, 'Пространство не найдено.');
@@ -132,14 +151,16 @@ export function createProjectStore({ q, db, currentWs, wsStore, modelKeys }: Pro
     try {
       const { state, version } = getState();
       fn(state);
-      const next = state;
+      const workspace = currentWs();
+      const data = JSON.stringify(state);
       q('UPDATE mnema_workspaces SET version=?,data=? WHERE id=?').run(
         version + 1,
-        JSON.stringify(next),
-        currentWs(),
+        data,
+        workspace,
       );
+      writeProjection(workspace, data);
       db.exec('COMMIT');
-      return { version: version + 1, state: next };
+      return { version: version + 1, state };
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;

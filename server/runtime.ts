@@ -1,4 +1,5 @@
 import { createInvitations } from './auth/invitations.ts';
+import { initializeWorkspaceProjection, projectionTotals } from './projects/projection.ts';
 import { createStaticHandler } from './static.ts';
 import {
   createProjectStore,
@@ -214,6 +215,15 @@ export async function createRuntime(
   if (!columns('mnema_jobs').includes('workspace_id'))
     db.exec("ALTER TABLE mnema_jobs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
   migrateLegacyWorkspace(db, q);
+  const projection = initializeWorkspaceProjection(db);
+  console.info(
+    'Workspace projection verified',
+    JSON.stringify({
+      rebuilt: projection.rebuilt,
+      elapsedMs: projection.elapsedMs,
+      ...projectionTotals(projection.report),
+    }),
+  );
   const sharing = createProjectSharing(db, baseURL, authSecret);
   const completionMail = createCompletionMailer({
     db,
@@ -234,8 +244,15 @@ export async function createRuntime(
     currentWs,
     wsStore,
     modelKeys,
+    writeProjection: projection.write,
   });
-  const createProject = createWorkspaceFactory({ db, q, sharing, copyModels });
+  const createProject = createWorkspaceFactory({
+    db,
+    q,
+    sharing,
+    copyModels,
+    writeProjection: projection.write,
+  });
   const storageMirror = createS3Mirror(db, dir, s3Config());
   const processors = () => {
     const r = processingReadiness();
