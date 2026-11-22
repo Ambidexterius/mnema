@@ -18,6 +18,7 @@ export interface SessionUser {
   id: string;
   name: string;
   email: string;
+  image?: string | null;
   role: 'view' | 'full';
   admin: boolean;
   owner: boolean;
