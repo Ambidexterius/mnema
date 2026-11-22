@@ -6,10 +6,12 @@ import {
 } from '../analysis/evidence.ts';
 import type { createMembership } from '../auth/membership.ts';
 import type { openDatabase } from '../db.ts';
-import type { ServerExtension } from '../extension.ts';
+import type { ExtensionContext, ServerExtension } from '../extension.ts';
 import { keySlot as slotPattern, type modelKeyStore } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import type { Person } from '../request-context.ts';
+
+type ProjectViewer = Person | Parameters<ExtensionContext['view']>[0];
 
 interface ProjectViewServices extends Pick<
   ReturnType<typeof createMembership>,
@@ -42,7 +44,7 @@ export function createProjectView({
   reportOf,
 }: ProjectViewServices) {
   // Only the active recording job owns a preview. Project reads still pass through view's access filters.
-  const view = (person: Person) => {
+  const view = (person: ProjectViewer) => {
     const extension = getExtension();
     const { state: raw, version } = getState();
     const full = person.role === 'full';
@@ -145,11 +147,12 @@ export function createProjectView({
             (slotPattern.test(m.keyRef || '') && Boolean(process.env[m.keyRef])),
         })),
         processors: processors(),
-        users: person.manageUsers
-          ? userDirectory(person)
-          : sharing.canManage(currentWs(), person.id)
-            ? users()
-            : [],
+        users:
+          'manageUsers' in person && person.manageUsers
+            ? userDirectory(person)
+            : sharing.canManage(currentWs(), person.id)
+              ? users()
+              : [],
       },
       user: person,
     };

@@ -21,6 +21,7 @@
     "strict": false,
     "alwaysStrict": true,
     "noImplicitThis": true,
+    "strictFunctionTypes": true,
     "noImplicitAny": false,
     "isolatedModules": true,
     "resolveJsonModule": true
