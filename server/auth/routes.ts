@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
-import { fail, handledJson } from '../http.ts';
+import { fail, handledJson, transferResponse } from '../http.ts';
 import type { openDatabase } from '../db.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import type { createRegistration } from '../registration.ts';
@@ -28,7 +28,6 @@ interface AuthServices extends RequestServices {
   ownerExists: () => boolean;
   register: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>;
   withRegistration: <T>(work: () => T | Promise<T>) => Promise<T>;
-  transfer: (res: ServerResponse, response: Response) => Promise<unknown>;
   enterWorkspace: (id: string) => void;
   corporateRegistration?: boolean;
   setupEnabled: boolean;
@@ -58,7 +57,6 @@ export async function handleAuth(
     ownerExists,
     register,
     withRegistration,
-    transfer,
     enterWorkspace,
     corporateRegistration,
     setupEnabled,
@@ -105,7 +103,7 @@ export async function handleAuth(
         await ctx.internalAdapter.deleteUserSessions(userId);
         signup.consume(req, res);
         signup.notifyPasswordChanged(email);
-        await transfer(
+        await transferResponse(
           res,
           await auth.api.signInEmail({
             body: { email, password, rememberMe: true },
