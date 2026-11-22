@@ -1,3 +1,7 @@
+import { createMembership } from './auth/membership.ts';
+import { createSession } from './auth/session.ts';
+import { createProjectCards } from './projects/cards.ts';
+import { createProjectView } from './projects/view.ts';
 import { createAccountRegistration } from './auth/account-registration.ts';
 import { createModelCaller } from './admin/model-provider.ts';
 import { createFileProcessor } from './processing/processor.ts';
@@ -9,11 +13,6 @@ import { handleFiles, handleStorage } from './materials/file-route.ts';
 import { handleStudy, handleHighlights } from './materials/study-route.ts';
 import { createUploads } from './materials/uploads.ts';
 import { handleMaterialSummary, handleFindings, handleProjectSummary } from './analysis/routes.ts';
-import {
-  studiesForReader,
-  summarySourcesMatch,
-  summaryFindingsRevision,
-} from './analysis/evidence.ts';
 import { handleGlobalChat, handleProjectChat, isGlobalChatPath } from './chat/routes.ts';
 import { handleWorkspace } from './projects/workspace-route.ts';
 import { handleProjectState } from './projects/state-route.ts';
@@ -34,7 +33,6 @@ import { loadExtension, type ServerExtension } from './extension.ts';
 import { mcpPlugins, createMcpService } from './mcp.ts';
 import { keySlot, modelBase, cleanModel, modelKeyStore } from './model-connections.ts';
 import { createS3Mirror, s3Config } from './s3-storage.ts';
-import { materialActivity } from '../app/material-activity.ts';
 import { collectGlobalResearch } from './global-research.ts';
 import {
   createCompletionMailer,
@@ -61,7 +59,7 @@ import {
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { betterAuth } from 'better-auth';
-import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
+import { toNodeHandler } from 'better-auth/node';
 import { getMigrations } from 'better-auth/db/migration';
 import type { Finding } from '../app/types.ts';
 
@@ -86,13 +84,6 @@ export interface MnemaServerOptions {
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels = new Set(['deepseek', 'amvera-deepseek-v4', 'local-stub']);
 const isBuiltin = (m: any) => builtinModels.has(m.id) || Boolean(m.builtin);
-const cookieValue = (req: any, name: string) =>
-  String(req.headers.cookie || '')
-    .split(';')
-    .map((c: string) => c.trim())
-    .find((c: string) => c.startsWith(name + '='))
-    ?.slice(name.length + 1) || '';
-
 process.umask(0o077);
 const packageInfo = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const VERSION: string = packageInfo.version;
@@ -558,325 +549,27 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
       },
     ];
   };
-  const ownerExists = () => Boolean(q('SELECT 1 FROM mnema_access WHERE admin=1 LIMIT 1').get());
-  const users = () =>
-    q(
-      `SELECT u.id,u.name,u.email,m.role,m.admin,m.revoked,a.all_projects FROM user u JOIN mnema_members m ON m.user_id=u.id JOIN mnema_access a ON a.user_id=u.id JOIN mnema_project_sharing s ON s.workspace_id=m.workspace_id WHERE m.workspace_id=? AND (m.grant_source='explicit' OR s.mode='legacy' OR s.owner_id=m.user_id)`,
-    )
-      .all(currentWs())
-      .map((u) => ({
-        ...u,
-        owner: Boolean(u.admin),
-        scope: u.all_projects ? 'all' : 'project',
-        status: u.revoked ? 'revoked' : 'active',
-      }))
-      .concat(
-        q(`SELECT i.id,i.name,i.email,i.role,i.expires,i.revoked,i.workspace_id FROM mnema_invites i
-   WHERE i.workspace_id IN (?,'*') AND i.used=0
-   AND NOT EXISTS(SELECT 1 FROM mnema_invites newer WHERE newer.workspace_id=i.workspace_id AND newer.email=i.email AND newer.used=0 AND newer.rowid>i.rowid)
-   AND NOT EXISTS(SELECT 1 FROM user u JOIN mnema_members m ON m.user_id=u.id WHERE lower(u.email)=i.email AND m.workspace_id=?)`)
-          .all(currentWs(), currentWs())
-          .map((u) => ({
-            ...u,
-            scope: u.workspace_id === '*' ? 'all' : 'project',
-            status: u.revoked ? 'revoked' : u.expires <= Date.now() ? 'expired' : 'invited',
-          })),
-      );
-  // Account-wide grants apply only to projects that retain their legacy access policy.
-  const grantAllProjects = (id: string, role: string) => {
-    q('UPDATE mnema_access SET all_projects=1,role=?,revoked=0 WHERE user_id=?').run(role, id);
-    q(`INSERT INTO mnema_members(workspace_id,user_id,role,admin,revoked,grant_source) SELECT w.id,?,?,0,0,'all' FROM mnema_workspaces w JOIN mnema_project_sharing s ON s.workspace_id=w.id WHERE s.mode='legacy'
-   ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=CASE WHEN mnema_members.admin=1 THEN 'full' WHEN mnema_members.grant_source='explicit' THEN mnema_members.role ELSE excluded.role END`).run(
-      id,
-      role,
-    );
-  };
-  // Apply the explicitly requested widening once; later explicit project-only invitations stay scoped.
-  if (!q("SELECT 1 FROM mnema_migrations WHERE name='all-existing-users-2026-11-13'").get()) {
-    db.exec('BEGIN');
-    try {
-      for (const user of q('SELECT user_id,role FROM mnema_access WHERE revoked=0').all())
-        grantAllProjects(user.user_id, user.role);
-      q("UPDATE mnema_invites SET workspace_id='*' WHERE used=0 AND revoked=0").run();
-      q("INSERT INTO mnema_migrations(name) VALUES('all-existing-users-2026-11-13')").run();
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-  const userDirectory = (person: Person) => {
-    const visible = new Set(person.workspaces.map((w) => w.id));
-    const members = q(
-      'SELECT m.*,w.name FROM mnema_members m JOIN mnema_workspaces w ON w.id=m.workspace_id ORDER BY w.created',
-    ).all();
-    const accounts = q(
-      'SELECT u.id,u.name,u.email,a.role,a.admin,a.revoked,a.all_projects FROM user u JOIN mnema_access a ON a.user_id=u.id',
-    )
-      .all()
-      .map((user) => {
-        const grants = members.filter((m) => m.user_id === user.id),
-          active = grants.filter((m) => !m.revoked),
-          shown = (active.length ? active : grants).filter((m) => visible.has(m.workspace_id));
-        return {
-          ...user,
-          admin: Boolean(user.admin),
-          owner: Boolean(user.admin),
-          scope: user.all_projects ? 'all' : 'project',
-          role: user.all_projects ? user.role : shown[0]?.role || user.role,
-          projectIds: shown.map((m) => m.workspace_id),
-          projectNames: shown.map((m) => m.name),
-          status: user.revoked ? 'revoked' : 'active',
-        };
-      });
-    const invites = q(
-      `SELECT i.* FROM mnema_invites i WHERE used=0 AND NOT EXISTS(SELECT 1 FROM mnema_invites newer WHERE newer.email=i.email AND newer.workspace_id=i.workspace_id AND newer.used=0 AND newer.rowid>i.rowid) ORDER BY i.rowid DESC`,
-    )
-      .all()
-      .filter(
-        (invite) =>
-          (invite.workspace_id === '*' || visible.has(invite.workspace_id)) &&
-          !accounts.some((account) => account.email.toLowerCase() === invite.email.toLowerCase()),
-      )
-      .map((user) => ({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        scope: user.workspace_id === '*' ? 'all' : 'project',
-        expires: user.expires,
-        projectIds: user.workspace_id === '*' ? [] : [user.workspace_id],
-        projectNames:
-          user.workspace_id === '*'
-            ? []
-            : [
-                q('SELECT name FROM mnema_workspaces WHERE id=?').get(user.workspace_id)?.name ||
-                  'Удалённый проект',
-              ],
-        status: user.revoked ? 'revoked' : user.expires <= Date.now() ? 'expired' : 'invited',
-      }));
-    return [...accounts, ...invites];
-  };
-  const session = async (req: any): Promise<Person | null> => {
-    const s = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-    if (!s) return null;
-    const access = q('SELECT * FROM mnema_access WHERE user_id=?').get(s.user.id);
-    if (!access || access.revoked) return null;
-    const active = sharing.projects(s.user.id);
-    const requestURL = new URL(req.url, 'http://localhost'),
-      redeeming = /^\/api\/workspaces\/[^/]+\/share$/.test(requestURL.pathname),
-      explicit = redeeming
-        ? ''
-        : String(
-            req.headers['x-mnema-workspace'] || requestURL.searchParams.get('workspace') || '',
-          );
-    const wanted = explicit || cookieValue(req, 'mnema_ws');
-    let current = active.find((m: any) => m.id === wanted) || (!explicit ? active[0] : null),
-      sharedProject;
-    if (wanted && !active.some((m) => m.id === wanted)) {
-      const share = String(
-        req.headers['x-mnema-share'] ||
-          requestURL.searchParams.get('share') ||
-          cookieValue(req, 'mnema_share_' + wanted),
-      );
-      if (sharing.validLink(wanted, share)) {
-        current = sharing.linkProject(wanted);
-        sharedProject = {
-          id: current.id,
-          name: current.name,
-          role: 'view' as const,
-          admin: false,
-          sharingMode: 'link',
-          shareVersion: current.nonce,
-        };
-      } else if (explicit) fail(403, 'Доступ к проекту закрыт. Обновите список проектов.');
-    }
-    const recordingProcessing = active.some((project) =>
-      projectCard(project).processingOwners.has(s.user.id),
-    );
-    return {
-      ...s.user,
-      newsId: news.latest(),
-      recordingProcessing,
-      welcomePending: Boolean(access.welcome_pending),
-      role: current?.role || 'view',
-      admin: Boolean(current?.role === 'full'),
-      owner: Boolean(access.admin),
-      manageUsers: Boolean(
-        access.admin || (!access.self_registered && access.all_projects && access.role === 'full'),
-      ),
-      workspaceId: current?.id || null,
-      ...(sharedProject ? { sharedProject } : {}),
-      workspaces: active.map((m: any) => {
-        const card = projectCard(m);
-        return {
-          id: m.id,
-          name: m.name,
-          role: m.role,
-          admin: Boolean(m.admin),
-          sharingMode: m.mode,
-          fileCount: card.fileCount,
-          filePreviews: card.filePreviews,
-          emptyDefault:
-            m.id === 'main' && m.name === 'Команда' && card.studyCount === 0 && m.member_count <= 1,
-        };
-      }),
-    };
-  };
-  // Every request lists the user's projects. Parsing each project's full transcripts here made
-  // project switching and polling slow, so folder cards are cached per stored revision and role.
-  const projectCards = new Map<
-    string,
-    {
-      key: string;
-      card: {
-        fileCount: number;
-        filePreviews: { name: string; format: string }[];
-        studyCount: number;
-        processingOwners: Set<string>;
-      };
-    }
-  >();
-  const projectCard = (m: any) => {
-    const key = m.version + ':' + m.data_length + ':' + m.role;
-    const cached = projectCards.get(m.id);
-    if (cached?.key === key) return cached.card;
-    const state = JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);
-    const files = (
-      m.role === 'full' ? state.studies : studiesForReader(state.studies, state.findings)
-    ).filter((study) => study.fileId);
-    const processingOwners = new Set<string>();
-    for (const study of files)
-      if (
-        study.format === 'Видео' &&
-        study.uploadedById &&
-        (study.status === 'processing' || ['queued', 'running'].includes(study.speakerInfo?.state))
-      )
-        processingOwners.add(study.uploadedById);
-    const card = {
-      fileCount: files.length,
-      filePreviews: files.slice(0, 3).map((study) => ({
-        name: study.fileName || study.title || 'Материал',
-        format: (study.fileName?.split('.').at(-1) || study.format || '').toUpperCase(),
-      })),
-      studyCount: state.studies.length,
-      processingOwners,
-    };
-    projectCards.set(m.id, { key, card });
-    return card;
-  };
-  // Only the active recording job owns a preview. Project reads still pass through view's access filters.
-  const view = (person) => {
-    const { state: raw, version } = getState();
-    const full = person.role === 'full';
-    // Readers never receive drafts or rejected findings: not in the list, counters or any other field.
-    const findings = raw.findings
-      .map(legacyFinding)
-      .filter((f) => full || f.status === 'verified')
-      .map((f) => ({
-        ...f,
-        basis: reportOf(raw.studies.find((s) => s.id === f.studyId)) === 'ready' ? 'report' : 'raw',
-      }));
-    const pendingJobs = new Map(
-      q(
-        "SELECT study_id,status FROM mnema_jobs WHERE workspace_id=? AND status IN ('queued','running') AND kind!='speakers'",
-      )
-        .all(currentWs())
-        .map((job) => [job.study_id, job.status]),
-    );
-    const uploadSizes = new Map(
-      q("SELECT id,size FROM mnema_uploads WHERE status='ready'")
-        .all()
-        .map((file) => [file.id, file.size]),
-    );
-    const studies = (full ? raw.studies : studiesForReader(raw.studies, findings)).map((s) => ({
-      ...s,
-      ...extension?.studyFields(s, raw, person, version),
-      fileSize: uploadSizes.get(s.fileId),
-      processingState: pendingJobs.get(s.id),
-      activity: materialActivity({ ...s, processingState: pendingJobs.get(s.id) }),
-      ...(!full && s.summaryInfo?.review !== 'verified'
-        ? { summary: [], summaryInfo: undefined }
-        : {}),
-      ...(!full ? { findingsInfo: undefined } : {}),
-      report: reportOf(s),
-      findings: findings.filter((f) => f.studyId === s.id && f.status === 'verified').length,
-      drafts: full ? findings.filter((f) => f.studyId === s.id && f.status === 'draft').length : 0,
-    }));
-    let highlights = raw.highlights;
-    if (!full && highlights?.length) {
-      const visible = new Map<string, Set<string>>(
-        studies.map((study) => [study.id, new Set(study.segments?.map((segment) => segment.id))]),
-      );
-      highlights = highlights.filter((highlight) =>
-        visible.get(highlight.studyId)?.has(highlight.segmentId),
-      );
-    }
-    // projectSummary is always present, so switching projects never keeps the previous project's summary on the client.
-    const summary = raw.projectSummary;
-    // A legacy overview does not record the findings sent to the model before a mask.
-    const currentFindings =
-      summary &&
-      (Object.hasOwn(summary, 'reviewedRevision')
-        ? summary.reviewedRevision === null ||
-          summary.reviewedRevision === summaryFindingsRevision(findings)
-        : !raw.studies.some((study) => study.redactionCount));
-    const canReadSummary =
-      currentFindings &&
-      summarySourcesMatch(
-        full ? studiesForReader(raw.studies, findings) : studies,
-        summary.sources,
-      );
-    const state = {
-      ...raw,
-      ...extension?.stateFields(raw, person),
-      projectSummary: canReadSummary ? summary : null,
-      ...(!full && raw.importSource
-        ? {
-            importSource: {
-              provider: raw.importSource.provider,
-              url: raw.importSource.url,
-              importedAt: raw.importSource.importedAt,
-            },
-          }
-        : {}),
-      findings,
-      studies,
-      highlights,
-    };
-    return {
-      version,
-      state: {
-        ...state,
-        workspace: {
-          id: currentWs(),
-          ...q(
-            'SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?',
-          ).get(currentWs()),
-          profile: raw.projectProfile || {},
-          canManageSharing: sharing.canManage(currentWs(), person.id),
-          sharingMode: q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(
-            currentWs(),
-          )?.mode,
-        },
-        models: state.models.map((m) => ({
-          ...m,
-          builtin: isBuiltin(m),
-          hasStoredKey: modelKeys.has(currentWs(), m.id),
-          keyConfigured:
-            modelKeys.has(currentWs(), m.id) ||
-            (slotPattern.test(m.keyRef || '') && Boolean(process.env[m.keyRef])),
-        })),
-        processors: processors(),
-        users: person.manageUsers
-          ? userDirectory(person)
-          : sharing.canManage(currentWs(), person.id)
-            ? users()
-            : [],
-      },
-      user: person,
-    };
-  };
+  const { ownerExists, users, grantAllProjects, userDirectory } = createMembership({
+    db,
+    q,
+    currentWs,
+  });
+  const projectCard = createProjectCards(q);
+  const session = createSession({ auth, q, sharing, projectCard, news });
+  const view = createProjectView({
+    q,
+    getState,
+    currentWs,
+    getExtension: () => extension,
+    isBuiltin,
+    modelKeys,
+    sharing,
+    users,
+    userDirectory,
+    processors,
+    legacyFinding,
+    reportOf,
+  });
   const modelKey = (model: any, workspace = currentWs()) =>
     modelKeys.get(workspace, model.id) ||
     (slotPattern.test(model.keyRef || '') ? process.env[model.keyRef] : null);
