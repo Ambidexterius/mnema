@@ -1,4 +1,6 @@
-import { handleNews } from './admin/news-route.ts';
+import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
+import { handleModels } from './admin/models-route.ts';
+import type { Person } from './request-context.ts';
 import { fail, json, readJsonBody } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration, corporateEmail } from './registration.ts';
@@ -17,7 +19,6 @@ import {
   providerHeaders,
   providerRequest,
   providerResult,
-  availableModels,
   answerSystem,
   requestChatAnswer,
 } from './model-connections.ts';
@@ -148,31 +149,6 @@ export interface MnemaServerOptions {
   authCookiePrefix?: string;
   setupToken?: string;
   providerFetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-}
-interface WorkspaceRef {
-  id: string;
-  name: string;
-  role: 'view' | 'full';
-  admin: boolean;
-  sharingMode?: string;
-  shareVersion?: string;
-  fileCount?: number;
-  filePreviews?: { name: string; format: string }[];
-}
-interface Person {
-  newsId?: string;
-  id: string;
-  name: string;
-  email: string;
-  role: 'view' | 'full';
-  admin: boolean;
-  owner: boolean;
-  manageUsers?: boolean;
-  recordingProcessing?: boolean;
-  welcomePending: boolean;
-  workspaceId: string | null;
-  workspaces: WorkspaceRef[];
-  sharedProject?: WorkspaceRef;
 }
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels = new Set(['deepseek', 'amvera-deepseek-v4', 'local-stub']);
@@ -2362,61 +2338,20 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           });
           return res.end(Buffer.from(profile.photo));
         }
-        if (path === '/api/chat/feedback' && req.method === 'POST') {
-          limit('answer-feedback:' + person.id, 60);
-          const input = await body(req);
-          const current = await session(req);
-          if (!current) fail(401, 'Войдите в Мнемодак.');
-          return json(res, 200, feedback.rate(scopedPerson(current), input.token, input.rating));
-        }
-        if (path === '/api/chat/feedback' && req.method === 'GET') {
-          if (!(person.owner || person.manageUsers))
-            fail(403, 'Оценки ответов доступны администратору.');
-          return json(res, 200, { feedback: feedback.list(person) });
-        }
         if (
-          (path === '/api/news' || path.startsWith('/api/news/')) &&
-          (await handleNews(req, res, path, person.owner, { news, body, session }))
+          isModerationPath(path) &&
+          (await handleModeration(req, res, path, person, {
+            feedback,
+            ideas,
+            news,
+            scopedPerson,
+            ideaLocationAccess,
+            body,
+            session,
+            limit,
+          }))
         )
           return;
-        if (path === '/api/ideas' && req.method === 'GET')
-          return json(res, 200, {
-            ideas: ideas.list(person, ideaLocationAccess(person)),
-            admin: person.owner,
-          });
-        if (path === '/api/ideas' && req.method === 'POST') {
-          limit('ideas:' + person.id, 20);
-          const b = await body(req);
-          const latest = await session(req);
-          if (!latest) fail(401, 'Войдите в Мнемодак.');
-          return json(res, 200, ideas.create(latest, b, ideaLocationAccess(latest)));
-        }
-        if (/^\/api\/ideas\/[\w-]{1,64}$/.test(path) && req.method === 'PATCH') {
-          limit('ideas:' + person.id, 60);
-          return json(res, 200, ideas.edit(person, path.split('/').pop(), await body(req)));
-        }
-        if (/^\/api\/ideas\/[\w-]{1,64}$/.test(path) && req.method === 'DELETE') {
-          limit('ideas:' + person.id, 60);
-          return json(res, 200, ideas.remove(person, path.split('/').pop()));
-        }
-        if (path === '/api/interface-rating' && req.method === 'POST') {
-          limit('rating:' + person.id, 20);
-          return json(res, 200, ideas.rate(person, (await body(req)).rating));
-        }
-        {
-          const m = path.match(/^\/api\/ideas\/([\w-]{1,64})\/(vote|comments|status)$/);
-          if (m) {
-            const [, id, action] = m;
-            if (action === 'comments' && req.method === 'GET')
-              return json(res, 200, { comments: ideas.comments(person, id) });
-            if (req.method !== 'POST') fail(405, 'Метод недоступен.');
-            limit('ideas:' + person.id, 60);
-            const b = await body(req);
-            if (action === 'vote') return json(res, 200, ideas.vote(person, id, b.vote));
-            if (action === 'comments') return json(res, 200, ideas.comment(person, id, b));
-            return json(res, 200, await ideas.moderate(person, id, b));
-          }
-        }
         if (path === '/api/users' && req.method === 'GET') {
           if (!person.manageUsers)
             fail(403, 'Список пользователей доступен участникам с полным доступом.');
@@ -4010,123 +3945,23 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           enqueue(study, study.format === 'Видео' ? 'asr' : 'document');
           return json(res, 202, view(person));
         }
-        if (path === '/api/models/catalog' && req.method === 'POST') {
-          if (!person.owner) fail(403, 'Модели настраивает администратор.');
-          limit('model-catalog:' + person.id, 10);
-          const b = await body(req),
-            saved = b.connectionId
-              ? getState().state.models.find((m) => m.id === b.connectionId)
-              : null;
-          if (b.connectionId && !saved) fail(404, 'Подключение не найдено.');
-          const model = {
-            apiType: b.apiType || saved?.apiType || 'compatible',
-            url: b.url || saved?.url,
-          };
-          modelBase(model);
-          if (
-            saved &&
-            !b.apiKey &&
-            !b.keyRef &&
-            (modelBase(saved) !== modelBase(model) ||
-              (saved.apiType || 'compatible') !== model.apiType)
-          )
-            fail(400, 'Введите ключ нового поставщика.');
-          const key =
-            String(b.apiKey || '').trim() ||
-            (b.keyRef
-              ? slotPattern.test(b.keyRef)
-                ? process.env[b.keyRef]
-                : null
-              : saved
-                ? modelKey(saved)
-                : null);
-          if (!key) fail(400, 'Введите API-ключ или выберите настроенный серверный ключ.');
-          if (!/^[\x21-\x7e]{8,4096}$/.test(key))
-            fail(400, 'Проверьте API-ключ: пробелы и переносы строк не допускаются.');
-          return json(res, 200, {
-            models: await availableModels(model, key, options.providerFetch || fetch),
-          });
-        }
         if (
-          (path === '/api/models' && req.method === 'POST') ||
-          (/^\/api\/models\/[^/]+$/.test(path) && req.method === 'PUT')
-        ) {
-          if (!person.owner) fail(403, 'Модели настраивает администратор.');
-          limit('model-save:' + person.id, 20);
-          const b = await body(req),
-            state = getState().state,
-            id = req.method === 'PUT' ? path.split('/')[3] : randomUUID(),
-            previous = state.models.find((m) => m.id === id);
-          if (req.method === 'PUT' && !previous) fail(404, 'Подключение не найдено.');
-          if (!previous && state.models.length >= 20) fail(400, 'Не больше 20 подключений.');
-          const next = cleanModel({ ...b, id }, previous),
-            apiKey = String(b.apiKey || '').trim(),
-            useServer = b.keySource === 'server';
-          if (apiKey && !/^[\x21-\x7e]{8,4096}$/.test(apiKey))
-            fail(400, 'Проверьте API-ключ: пробелы и переносы строк не допускаются.');
-          if (useServer && !slotPattern.test(next.keyRef)) fail(400, 'Выберите серверный ключ.');
-          if (!useServer && !apiKey && (!previous || !modelKeys.has(currentWs(), id)))
-            fail(400, 'Введите API-ключ.');
-          if (
-            previous &&
-            !useServer &&
-            !apiKey &&
-            (modelBase(previous) !== modelBase(next) ||
-              (previous.apiType || 'compatible') !== next.apiType)
-          )
-            fail(400, 'Введите ключ нового поставщика.');
-          mutate((s) => {
-            if (useServer) modelKeys.remove(currentWs(), id);
-            else if (apiKey) modelKeys.set(currentWs(), id, apiKey);
-            s.models = (
-              previous ? s.models.map((m) => (m.id === id ? next : m)) : [...s.models, next]
-            ).map((m) => (next.reserve && m.id !== id && m.reserve ? { ...m, reserve: false } : m));
-          });
-          syncModels(currentWs());
-          return json(res, req.method === 'POST' ? 201 : 200, view(person));
-        }
-        if (/^\/api\/models\/[^/]+\/test$/.test(path) && req.method === 'POST') {
-          if (!person.owner) fail(403, 'Модели настраивает администратор.');
-          limit('model-test:' + person.id, 3);
-          await body(req);
-          const model = getState().state.models.find((m) => m.id === path.split('/')[3]);
-          if (!model) fail(404, 'Модель не найдена.');
-          const started = Date.now();
-          if (new URL(model.url).hostname === 'inference.waw0.amvera.ru') {
-            try {
-              const ping = await fetch(model.url.replace(/\/$/, '') + '/models', {
-                headers: { Authorization: 'Bearer ' + modelKey(model) },
-                signal: AbortSignal.timeout(15000),
-              });
-              console.log('Amvera models preflight', ping.status);
-              await ping.arrayBuffer();
-              if (!ping.ok) fail(502, 'API Amvera вернул HTTP ' + ping.status);
-            } catch (e) {
-              if (e.status) throw e;
-              fail(504, 'API Amvera недоступен из контейнера. ' + e.name);
-            }
-          }
-          const result = await callModel(
-            person,
-            model,
-            {
-              model: model.model,
-              max_tokens: 1024,
-              messages: [{ role: 'user', content: 'Reply with one word: OK' }],
-            },
-            currentWs(),
-            false,
-          );
-          const content = result.choices?.[0]?.message?.content;
-          if (!content?.trim()) fail(502, 'API доступен, но модель не вернула текст.');
-          return json(res, 200, {
-            ok: true,
-            model: model.model,
-            answer: content.slice(0, 500),
-            usage: result.usage,
-            seconds: (Date.now() - started) / 1000,
-          });
-        }
+          (path === '/api/models' || path.startsWith('/api/models/')) &&
+          (await handleModels(req, res, path, person, {
+            body,
+            limit,
+            getState,
+            modelKey,
+            modelKeys,
+            currentWs,
+            mutate,
+            syncModels,
+            view,
+            providerFetch: options.providerFetch || fetch,
+            callModel,
+          }))
+        )
+          return;
         if (path === '/api/project-summary' && req.method === 'POST') {
           // Build the shared summary from the same evidence a project reader can see.
           if (person.role !== 'full')

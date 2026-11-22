@@ -23,6 +23,11 @@ export function json(
   });
 }
 
+export function handledJson(...args: Parameters<typeof json>): true {
+  json(...args);
+  return true;
+}
+
 export async function readJsonBody(chunks: AsyncIterable<Buffer>, max = 2 * 1024 ** 2) {
   let size = 0;
   const buffers: Buffer[] = [];
