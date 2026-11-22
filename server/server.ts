@@ -1,3 +1,4 @@
+import { handleMcpManagement, handlePublicMcp, matchPublicMcpRoute } from './mcp/routes.ts';
 import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
 import { handleModels } from './admin/models-route.ts';
 import type { Person } from './request-context.ts';
@@ -2201,39 +2202,13 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
       const path = url.pathname;
       if (path === '/healthz')
         return json(res, 200, { ok: true, version: VERSION, build: BUILD_ID });
-      if (path === '/mcp') return await mcpNodeHandler(req, res);
-      if (
-        [
-          '/.well-known/oauth-protected-resource',
-          '/.well-known/oauth-protected-resource/mcp',
-          '/.well-known/oauth-authorization-server/api/auth',
-          '/.well-known/oauth-authorization-server',
-          '/.well-known/openid-configuration/api/auth',
-          '/api/auth/.well-known/openid-configuration',
-          '/api/auth/.well-known/oauth-authorization-server',
-        ].includes(path)
-      ) {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS' });
-          return res.end();
-        }
-        return await toNodeHandler(auth)(req, res);
-      }
-      if (
-        [
-          '/api/auth/jwks',
-          '/api/auth/oauth2/authorize',
-          '/api/auth/oauth2/token',
-          '/api/auth/oauth2/register',
-          '/api/auth/oauth2/userinfo',
-          '/api/auth/oauth2/revoke',
-          '/api/auth/oauth2/introspect',
-        ].includes(path)
-      ) {
-        if (path.endsWith('/register')) limit('mcp-register:' + req.socket.remoteAddress, 10);
-        return await toNodeHandler(auth)(req, res);
-      }
+      const publicMcp = matchPublicMcpRoute(path);
+      if (publicMcp)
+        return await handlePublicMcp(req, res, path, publicMcp, {
+          transport: mcpNodeHandler,
+          auth: (request, response) => toNodeHandler(auth)(request, response),
+          limit,
+        });
       if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method)) {
         if (req.headers.origin && req.headers.origin !== origin)
           fail(403, 'Запрос с другого сайта запрещён.');
@@ -2405,41 +2380,11 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
             }
             return json(res, 200, { users: userDirectory(latest) });
           });
-        if (path === '/api/mcp/settings' && req.method === 'GET')
-          return json(res, 200, mcpService.settings(person));
-        if (path === '/api/mcp/consent/context' && req.method === 'POST') {
-          limit('mcp-consent:' + person.id, 30);
-          const b = await body(req);
-          return json(
-            res,
-            200,
-            await mcpService.consentContext(
-              person,
-              String(b.query || ''),
-              fromNodeHeaders(req.headers),
-            ),
-          );
-        }
-        if (path === '/api/mcp/consent' && req.method === 'POST') {
-          limit('mcp-consent:' + person.id, 30);
-          return json(
-            res,
-            200,
-            await mcpService.consent(person, await body(req), fromNodeHeaders(req.headers)),
-          );
-        }
-        if (path === '/api/mcp/tokens' && req.method === 'POST') {
-          limit('mcp-token:' + person.id, 5);
-          return json(res, 201, mcpService.createToken(person, await body(req)));
-        }
-        if (/^\/api\/mcp\/grants\/[^/]+\/revoke$/.test(path) && req.method === 'POST') {
-          await body(req);
-          return json(
-            res,
-            200,
-            await mcpService.revoke(person, path.split('/')[4], fromNodeHeaders(req.headers)),
-          );
-        }
+        if (
+          path.startsWith('/api/mcp/') &&
+          (await handleMcpManagement(req, res, path, person, { mcpService, body, limit }))
+        )
+          return;
 
         if (/^\/api\/workspaces\/[^/]+\/share$/.test(path) && req.method === 'POST') {
           limit('project-share:' + person.id, 30);
