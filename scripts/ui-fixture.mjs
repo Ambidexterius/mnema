@@ -12,7 +12,8 @@ export async function createUIFixture(port=4461,answer='Синтетически
  process.env.MNEMA_S3_ENABLED='0';
  const app=await createMnemaServer({production:false,dataDir:dir,publicDir:fileURLToPath(new URL('../dist',import.meta.url)),baseURL:base,setupToken:setup,authSecret:randomBytes(48).toString('hex'),sendInvitationMail:async()=>{},sendCompletionMail:async()=>{},speakerProcessor,providerFetch:async()=>new Response(JSON.stringify({choices:[{message:{content:answer}}],usage:{total_tokens:12}}),{headers:{'Content-Type':'application/json'}})});
  await new Promise(r=>app.server.listen(port,'127.0.0.1',r));
- const response=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({email:'ui@example.test',name:'Проверка интерфейса',password:randomBytes(24).toString('hex'),setupToken:setup})});
+ const credentials={email:'ui@example.test',password:randomBytes(24).toString('hex')};
+ const response=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({...credentials,name:'Проверка интерфейса',setupToken:setup})});
  if(response.status!==200)throw Error('Cannot create UI fixture');
  const cookies=response.headers.getSetCookie().map(c=>{const pair=c.split(';')[0],i=pair.indexOf('=');return{name:pair.slice(0,i),value:pair.slice(i+1),url:base}}),cookie=cookies.map(c=>c.name+'='+c.value).join('; ');
  const dismissed=await fetch(base+'/api/welcome/dismiss',{method:'POST',headers:{Cookie:cookie,'X-Mnema-Request':'1'}});
@@ -29,5 +30,5 @@ export async function createUIFixture(port=4461,answer='Синтетически
  state.projectProfile={category:'Продукт',report:'none',conducted:'',method:'Тест',audience:'Синтетические данные',contact:'',revision:1};
  app.db.prepare("UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'").run('Тест интерфейса',JSON.stringify(state),user.id);
  for(const name of ['Другой раздел','Длинное название для проверки переноса текста на телефоне']){const r=await fetch(base+'/api/workspaces',{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({name})});if(r.status!==201)throw Error('Cannot create project fixture')}
- return {base,cookies,app,async close(){app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true});delete process.env.LLM_KEY_CUSTOM2}};
+ return {base,cookies,credentials,app,async close(){app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true});delete process.env.LLM_KEY_CUSTOM2}};
 }

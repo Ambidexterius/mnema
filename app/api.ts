@@ -1,6 +1,20 @@
-import {setRouteWorkspace} from './routes.ts';
+import {readRoute,setRouteWorkspace} from './routes.ts';
 let activeWorkspace:string|null=null;
 export const setApiWorkspace=(id:string|null)=>{activeWorkspace=id;setRouteWorkspace(id)};
+export function rememberWorkspace(id:string|null){
+ document.cookie='mnema_ws='+encodeURIComponent(id??'')+'; Path=/; SameSite=Lax'+
+  (location.protocol==='https:'?'; Secure':'')+(id===null?'; Max-Age=0':'');
+}
+export async function redeemWorkspaceLink(id:string){
+ const link=new URL(location.href),token=link.searchParams.get('share');
+ if(!token||readRoute(link).workspace!==id)return;
+ await api('/api/workspaces/'+encodeURIComponent(id)+'/share',{token},'POST',false);
+ const current=new URL(location.href);
+ if(readRoute(current).workspace===id&&current.searchParams.get('share')===token){
+  current.searchParams.delete('share');
+  history.replaceState(history.state,'',current);
+ }
+}
 export const projectFile=(id:string)=>'/api/files/'+encodeURIComponent(id)+(activeWorkspace?'?workspace='+encodeURIComponent(activeWorkspace):'');
 /** Same file, served as an attachment so the browser saves it instead of opening it. */
 /** Every file of the active project in one ZIP. */
@@ -18,6 +32,40 @@ export type UploadControl={
  onSession?:(discard:()=>Promise<any>)=>void;
  onSaving?:()=>void;
 };
+const uploadPrefix='mnemonio.upload.';
+const hashedUploadPrefix=uploadPrefix+'v2.';
+const uploadLifetime=24*60*60*1000;
+type UploadEntry={id:string;storedAt:number};
+const sha256=async(bytes:ArrayBuffer|Uint8Array<ArrayBuffer>)=>
+ Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');
+const hashedUploadKey=async(legacy:string)=>hashedUploadPrefix+await sha256(new TextEncoder().encode(legacy));
+function readUploadEntry(key:string):UploadEntry|null{
+ try{
+  const value=JSON.parse(localStorage.getItem(key)||'null');
+  return typeof value?.id==='string'&&value.id?value:null;
+ }catch{return null}
+}
+async function cleanUploadCache(){
+ try{
+  const keys=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i));
+  for(const key of keys){
+   if(!key?.startsWith(uploadPrefix))continue;
+   const entry=readUploadEntry(key);
+   if(!entry){localStorage.removeItem(key);continue}
+   if(key.startsWith(hashedUploadPrefix)){
+    if(!Number.isFinite(entry.storedAt)||Date.now()-entry.storedAt>=uploadLifetime)localStorage.removeItem(key);
+    continue;
+   }
+   const hashed=await hashedUploadKey(key);
+   if(readUploadEntry(key)?.id!==entry.id)continue;
+   if(!localStorage.getItem(hashed))localStorage.setItem(hashed,JSON.stringify({id:entry.id,storedAt:Date.now()}));
+   localStorage.removeItem(key);
+  }
+ }catch{/* Browser storage can be disabled without disabling file uploads. */}
+}
+let uploadCacheReady:Promise<void>|undefined;
+export const maintainUploadCache=()=>uploadCacheReady??=cleanUploadCache();
+
 export async function uploadFile(file:File,metadata:Record<string,unknown>,onProgress:(percent:number)=>void,control:UploadControl={}){
  const {signal}=control;
  if(!file.size||file.size>2*1024**3)throw new Error('Выберите непустой файл до 2 ГБ.');
@@ -26,11 +74,14 @@ export async function uploadFile(file:File,metadata:Record<string,unknown>,onPro
  const request=(path:string,body?:unknown,method=body===undefined?'GET':'POST')=>
    api(path+'?workspace='+encodeURIComponent(workspace),body,method,false);
  const sample=await new Blob([file.slice(0,65536),file.slice(Math.max(0,file.size-65536))]).arrayBuffer();
- const signature=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',sample))).map(x=>x.toString(16).padStart(2,'0')).join('');
- const key='mnemonio.upload.'+workspace+'.'+encodeURIComponent(file.name)+'.'+file.size+'.'+file.lastModified+'.'+signature;
- const clear=()=>{try{localStorage.removeItem(key)}catch{}};
- let storedId:string|undefined;
- try{storedId=JSON.parse(localStorage.getItem(key)||'null')?.id}catch{}
+ const signature=await sha256(sample);
+ const legacyKey=uploadPrefix+workspace+'.'+encodeURIComponent(file.name)+'.'+file.size+'.'+file.lastModified+'.'+signature;
+ const key=await hashedUploadKey(legacyKey);
+ await maintainUploadCache();
+ const clear=()=>{try{localStorage.removeItem(key);localStorage.removeItem(legacyKey)}catch{}};
+ const entry=readUploadEntry(key)??readUploadEntry(legacyKey);
+ const storedId=entry&&(entry.storedAt===undefined||Date.now()-entry.storedAt<uploadLifetime)?entry.id:null;
+ if(entry&&!storedId)clear();
  let upload:any;
  if(storedId){
    try{upload=await request('/api/upload-sessions/'+encodeURIComponent(storedId))}
@@ -42,7 +93,7 @@ export async function uploadFile(file:File,metadata:Record<string,unknown>,onPro
    signal?.throwIfAborted();
    // Receive the ID even when the user cancels during creation, so we can release the reservation.
    upload=await request('/api/upload-sessions',{name:file.name,mime:file.type,size:file.size,...metadata});
-   try{localStorage.setItem(key,JSON.stringify({id:upload.id}))}catch{}
+   try{localStorage.setItem(key,JSON.stringify({id:upload.id,storedAt:Date.now()}));localStorage.removeItem(legacyKey)}catch{}
  }
  const path='/api/upload-sessions/'+encodeURIComponent(upload.id);
  control.onSession?.(async()=>{
