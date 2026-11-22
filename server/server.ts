@@ -1,3 +1,6 @@
+import { createFileProcessor } from './processing/processor.ts';
+import { createProcessingQueue, jobKey } from './processing/queue.ts';
+import { handleProcessing, isProcessingPath } from './processing/routes.ts';
 import { createAnalysisWorker } from './analysis/worker.ts';
 import { handleImports } from './materials/import-route.ts';
 import { handleFiles, handleStorage } from './materials/file-route.ts';
@@ -49,25 +52,24 @@ import { createIdeas } from './ideas.ts';
 import type { FeedbackLocation } from '../app/feedback-context.ts';
 import { sendInvitationEmail } from './invitation-mail.ts';
 import { sendBody, encode, pickEncoding, compressible, MIN_COMPRESS_BYTES } from './compression.ts';
-import { transcriptRevision, resumePendingSummaries } from './summaries.ts';
+import { resumePendingSummaries } from './summaries.ts';
 import http from 'node:http';
 import { configureDatabase, createCoreTables, openDatabase } from './db.ts';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import {
-  extractDocument,
-  transcribeRecording,
+  type transcribeRecording,
   processingReadiness,
-  detectSpeakers,
+  type detectSpeakers,
 } from './processing.ts';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { betterAuth } from 'better-auth';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { getMigrations } from 'better-auth/db/migration';
-import type { Finding, Study } from '../app/types.ts';
+import type { Finding } from '../app/types.ts';
 
 export interface MnemaServerOptions {
   extension?: Awaited<ReturnType<typeof loadExtension>>;
@@ -775,7 +777,6 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     return card;
   };
   // Only the active recording job owns a preview. Project reads still pass through view's access filters.
-  const transcriptPreviews = new Map<string, NonNullable<Study['transcriptPreview']>>();
   const view = (person) => {
     const { state: raw, version } = getState();
     const full = person.role === 'full';
@@ -1235,153 +1236,17 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
       return viaReserve();
     }
   };
-  const processSpeakers = async (study, fileId: string | undefined, signal: AbortSignal) => {
-    const setInfo = (info) => {
-      if (signal.aborted) return;
-      mutate((s) => {
-        const item = s.studies.find((x) => x.id === study.id);
-        if (item) item.speakerInfo = { ...item.speakerInfo, ...info };
-      });
-    };
-    setInfo({ state: 'running', progress: 'Подготовка аудио' });
-    try {
-      if (!fileId) throw new Error('Исходник не найден.');
-      const result = await (options.speakerProcessor || detectSpeakers)({
-        filePath: join(dir, 'uploads', fileId),
-        segments: study.segments || [],
-        participants: study.participants,
-        signal,
-        onProgress: (progress) => setInfo({ progress }),
-      });
-      signal.throwIfAborted();
-      mutate((s) => {
-        const item = s.studies.find((x) => x.id === study.id);
-        if (!item) return;
-        const before = new Map((item.segments || []).map((x) => [x.id, x.speaker]));
-        for (const seg of item.segments || []) seg.speaker = result.speakers[seg.id] || 'Запись';
-        item.speakerInfo = {
-          state: 'ready',
-          count: result.count,
-          engine: result.engine,
-          finishedAt: Date.now(),
-        };
-        item.speakerEdits = [
-          ...(item.speakerEdits || []),
-          {
-            action: 'detected',
-            count: result.count,
-            changed: (item.segments || []).filter((x) => before.get(x.id) !== x.speaker).length,
-            by: 'Мнемодак',
-            at: Date.now(),
-          },
-        ].slice(-500);
-      });
-    } catch (e) {
-      signal.throwIfAborted();
-      console.error('Speakers failed', e.name);
-      setInfo({
-        state: 'error',
-        progress: null,
-        error: 'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.',
-      });
-    }
-  };
-  const processStudy = async (study, kind, checkpointDir, signal: AbortSignal) => {
-    signal.throwIfAborted();
-    const record = q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);
-    if (kind === 'speakers') return processSpeakers(study, record?.id, signal);
-    if (!record) throw new Error('Исходник не найден. Добавьте файл заново.');
-    const started = Date.now();
-    const args = {
-      filePath: join(dir, 'uploads', record.id),
-      fileName: record.name,
-      fileId: record.id,
-      checkpointDir,
-      participants: study.participants,
-      wordTimes: extension?.wordTimes,
-      signal,
-      onProgress: (progress) => {
-        if (signal.aborted) return;
-        mutate((s) => {
-          const item = s.studies.find((x) => x.id === study.id);
-          if (item) {
-            item.progress = progress;
-            item.processingUpdatedAt = Date.now();
-          }
-        });
-      },
-    };
-    const key = jobKey(currentWs(), study.id);
-    let result;
-    try {
-      result =
-        kind === 'document'
-          ? await extractDocument(args)
-          : await (options.recordingProcessor || transcribeRecording)({
-              ...args,
-              onTranscript: (segments) => {
-                if (!signal.aborted) transcriptPreviews.set(key, segments);
-              },
-            });
-    } finally {
-      transcriptPreviews.delete(key);
-    }
-    signal.throwIfAborted();
-    mutate((s) => {
-      const item = s.studies.find((x) => x.id === study.id);
-      if (item)
-        Object.assign(item, {
-          status: 'ready',
-          step: 4,
-          segments: result.segments,
-          summary: [],
-          summaryInfo: undefined,
-          speakerInfo:
-            kind === 'document'
-              ? undefined
-              : result.diarization
-                ? {
-                    state: 'ready',
-                    count: result.speakers,
-                    engine: 'pyannote-segmentation-3.0 + WeSpeaker ResNet34',
-                    finishedAt: Date.now(),
-                  }
-                : result.diarizationError
-                  ? {
-                      state: 'error',
-                      error:
-                        'Не удалось различить голоса. Расшифровка сохранена, попробуйте ещё раз.',
-                    }
-                  : undefined,
-          error: null,
-          progress: null,
-          duration: result.duration || 0,
-          processing: {
-            ...result,
-            segments: undefined,
-            processingSeconds: (Date.now() - started) / 1000,
-          },
-        });
-      if (item?.autoSummary) {
-        const request = item.autoSummary;
-        item.summaryInfo = {
-          state: 'queued',
-          review: 'draft',
-          revision: transcriptRevision(item.segments),
-          modelId: request.modelId,
-          requestedBy: request.requestedBy,
-          autoFindings: true,
-          startedAt: Date.now(),
-          progress: 'В очереди',
-        };
-        delete item.autoSummary;
-      }
-    });
-  };
-  let workerBusy = false;
+  const { processStudy, transcriptPreviews } = createFileProcessor({
+    q,
+    dir,
+    currentWs,
+    mutate,
+    jobKey,
+    extension: () => extension,
+    recordingProcessor: options.recordingProcessor,
+    speakerProcessor: options.speakerProcessor,
+  });
   const deletingStudies = new Set<string>();
-  const activeCPU = new Map<string, { controller: AbortController; done: Promise<void> }>();
-  const jobKey = (workspaceId: string, studyId: string) => workspaceId + '\0' + studyId;
   const runAnalysis = createAnalysisWorker({
     q,
     wsStore,
@@ -1394,157 +1259,18 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     jobKey,
     hash,
   });
-  const processingLog = (event, job, extra = {}) =>
-    console.info(
-      'Processing',
-      JSON.stringify({
-        event,
-        jobId: job.id,
-        studyId: job.study_id,
-        workspaceId: job.workspace_id,
-        kind: job.kind,
-        ...extra,
-      }),
-    );
-  const work = async (lane: 'files' | 'analysis') => {
-    if (lane === 'analysis') return runAnalysis();
-    if (workerBusy) return;
-    const job = q(
-      "SELECT * FROM mnema_jobs WHERE status='queued' ORDER BY CASE WHEN kind='document' THEN 0 ELSE 1 END,created LIMIT 1",
-    ).get();
-    if (!job) return;
-    const activeKey = jobKey(job.workspace_id || 'main', job.study_id);
-    if (deletingStudies.has(activeKey)) return;
-    workerBusy = true;
-    const controller = new AbortController();
-    let finishJob!: () => void;
-    const done = new Promise<void>((resolve) => {
-      finishJob = resolve;
-    });
-    activeCPU.set(activeKey, { controller, done });
-    try {
-      await wsStore.run(job.workspace_id || 'main', async () => {
-        q("UPDATE mnema_jobs SET status='running' WHERE id=?").run(job.id);
-        const started = Date.now();
-        processingLog('started', job);
-        const heartbeat = setInterval(() => {
-          const item = getState().state.studies.find((s) => s.id === job.study_id);
-          processingLog('heartbeat', job, {
-            elapsedSeconds: Math.floor((Date.now() - started) / 1000),
-            progressAgeSeconds: item?.processingUpdatedAt
-              ? Math.floor((Date.now() - item.processingUpdatedAt) / 1000)
-              : null,
-            progress: item?.progress || null,
-          });
-        }, 30000);
-        heartbeat.unref();
-        try {
-          const study = getState().state.studies.find((x) => x.id === job.study_id);
-          if (!study) throw new Error('Материал удалён.');
-          if (job.kind !== 'speakers')
-            mutate((s) => {
-              const item = s.studies.find((x) => x.id === job.study_id);
-              if (item)
-                Object.assign(item, {
-                  processingStartedAt: started,
-                  processingUpdatedAt: started,
-                  progress: 'Начинаем обработку',
-                });
-            });
-          await processStudy(study, job.kind, join(dir, 'processing', job.id), controller.signal);
-          controller.signal.throwIfAborted();
-          if (job.kind === 'asr')
-            completionMail.queue(
-              job.id,
-              currentWs(),
-              study.id,
-              study.uploadedById ||
-                q('SELECT user_id FROM mnema_upload_sessions WHERE id=?').get(study.fileId)
-                  ?.user_id ||
-                '',
-            );
-          q("UPDATE mnema_jobs SET status='done',error=NULL WHERE id=?").run(job.id);
-          processingLog('completed', job, {
-            elapsedSeconds: Math.floor((Date.now() - started) / 1000),
-          });
-        } catch (e) {
-          if (controller.signal.aborted) {
-            q("UPDATE mnema_jobs SET status='cancelled',error=NULL WHERE id=?").run(job.id);
-            processingLog('cancelled', job, {
-              elapsedSeconds: Math.floor((Date.now() - started) / 1000),
-            });
-            mutate((s) => {
-              const item = s.studies.find((x) => x.id === job.study_id);
-              if (item)
-                Object.assign(item, {
-                  status: 'error',
-                  progress: null,
-                  error: 'Обработка остановлена.',
-                });
-            });
-            return;
-          }
-          processingLog('failed', job, {
-            errorType: e.name,
-            errorCode: e.code || null,
-            signal: e.signal || null,
-            killed: Boolean(e.killed),
-            elapsedSeconds: Math.floor((Date.now() - started) / 1000),
-          });
-          const message = text(e.message, 500);
-          q("UPDATE mnema_jobs SET status='error',error=? WHERE id=?").run(message, job.id);
-          mutate((s) => {
-            const item = s.studies.find((x) => x.id === job.study_id);
-            if (item) Object.assign(item, { status: 'error', error: message });
-          });
-        } finally {
-          clearInterval(heartbeat);
-          await rm(join(dir, 'processing', job.id), { recursive: true, force: true });
-        }
-      });
-    } finally {
-      activeCPU.delete(activeKey);
-      workerBusy = false;
-      finishJob();
-    }
-  };
-  const worker = setInterval(() => {
-    for (const lane of ['files', 'analysis'] as const)
-      work(lane).catch((error) =>
-        console.error('Worker failed', lane, error.name, error.code || ''),
-      );
-  }, 1000);
-  worker.unref();
-  const activeStudyJob = (studyId: string) =>
-    q(
-      "SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status IN ('queued','running')",
-    ).get(studyId, currentWs());
-  const queueStudy = (study, kind) => {
-    if (deletingStudies.has(jobKey(currentWs(), study.id)))
-      fail(409, 'Материал удаляется. Дождитесь завершения.');
-    if (activeStudyJob(study.id)) fail(409, 'Этот материал уже обрабатывается.');
-    const now = Date.now();
-    q(
-      'INSERT INTO mnema_jobs(id,study_id,status,kind,created,workspace_id) VALUES(?,?,?,?,?,?)',
-    ).run(randomUUID(), study.id, 'queued', kind, now, currentWs());
-    if (kind === 'speakers') study.speakerInfo = { state: 'queued', startedAt: now };
-    else
-      Object.assign(study, {
-        status: 'processing',
-        step: 1,
-        processingStartedAt: undefined,
-        processingUpdatedAt: now,
-        progress: 'В очереди на обработку',
-        error: null,
-      });
-  };
-  const enqueue = (study, kind) =>
-    mutate((s) =>
-      queueStudy(
-        s.studies.find((x) => x.id === study.id),
-        kind,
-      ),
-    );
+  const { stopWorker, activeCPU, activeStudyJob, enqueue, queueStudy } = createProcessingQueue({
+    q,
+    dir,
+    currentWs,
+    getState,
+    mutate,
+    wsStore,
+    deletingStudies,
+    runAnalysis,
+    processStudy,
+    completionMail,
+  });
   const { uploadBusy, handleUpload } = createUploads({
     q,
     db,
@@ -1885,76 +1611,20 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        if (/^\/api\/studies\/[^/]+\/speaker-count$/.test(path) && req.method === 'PATCH') {
-          if (person.role !== 'full')
-            fail(403, 'Изменять число участников можно с полным доступом.');
-          const b = await body(req),
-            id = path.split('/')[3];
-          const study = getState().state.studies.find((s) => s.id === id);
-          if (!study) fail(404, 'Материал не найден.');
-          if (study.format !== 'Видео') fail(400, 'Число участников можно указать для записи.');
-          if (b.count !== null && (!Number.isSafeInteger(b.count) || b.count < 1))
-            fail(400, 'Введите целое число больше нуля.');
-          if (b.before !== undefined && b.before !== (study.participants || 0))
-            fail(409, 'Число участников изменилось. Откройте поле ещё раз.');
-          mutate((s) => {
-            s.studies.find((x) => x.id === id).participants = b.count ?? 0;
-          });
-          return json(res, 200, view(person));
-        }
         if (
-          /^\/api\/studies\/[^/]+\/speakers$/.test(path) &&
-          ['POST', 'PATCH'].includes(req.method)
-        ) {
-          if (person.role !== 'full')
-            fail(403, 'Менять спикеров может участник с полным доступом.');
-          const b = await body(req),
-            study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          if (study.format !== 'Видео') fail(400, 'Спикеры есть только у записей.');
-          if (req.method === 'POST') {
-            if (study.status !== 'ready' || !study.segments?.length)
-              fail(409, 'Сначала дождитесь расшифровки.');
-            if (!options.speakerProcessor && !processingReadiness().diarization)
-              fail(503, 'Определение спикеров не установлено на этом сервере.');
-            if (['queued', 'running'].includes(study.speakerInfo?.state))
-              return json(res, 202, view(person));
-            enqueue(study, 'speakers');
-            return json(res, 202, view(person));
-          }
-          if (['queued', 'running'].includes(study.speakerInfo?.state))
-            fail(409, 'Дождитесь завершения определения спикеров.');
-          const name = text(b.speaker, 60);
-          if (!name) fail(400, 'Введите имя спикера до 60 символов.');
-          if (['Запись', 'Документ'].includes(name) || name.startsWith('Страница '))
-            fail(400, 'Это имя зарезервировано. Выберите другое.');
-          const ids = Array.isArray(b.segmentIds)
-            ? new Set(b.segmentIds.filter((x) => typeof x === 'string'))
-            : null;
-          const from = typeof b.from === 'string' ? b.from : null;
-          if (!ids?.size && !from) fail(400, 'Укажите фрагменты или спикера.');
-          const targets = (study.segments || []).filter((seg) =>
-            ids?.size ? ids.has(seg.id) : seg.speaker === from,
-          );
-          if (!targets.length) fail(404, 'Фрагменты не найдены. Обновите страницу.');
-          mutate((s) => {
-            const item = s.studies.find((x) => x.id === study.id);
-            const set = new Set(targets.map((x) => x.id));
-            for (const seg of item.segments) if (set.has(seg.id)) seg.speaker = name;
-            item.speakerEdits = [
-              ...(item.speakerEdits || []),
-              {
-                action: ids?.size ? 'reassigned' : 'renamed',
-                from: from || targets[0].speaker,
-                to: name,
-                changed: set.size,
-                by: person.name,
-                at: Date.now(),
-              },
-            ].slice(-500);
-          });
-          return json(res, 200, view(person));
-        }
+          isProcessingPath(path) &&
+          (await handleProcessing(req, res, path, person, {
+            body,
+            getState,
+            mutate,
+            view,
+            enqueue,
+            extension,
+            recordingProcessor: options.recordingProcessor,
+            speakerProcessor: options.speakerProcessor,
+          }))
+        )
+          return;
         if (
           path.startsWith('/api/studies/') &&
           path.includes('/summary') &&
@@ -1991,19 +1661,6 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        if (/^\/api\/studies\/[^/]+\/process$/.test(path) && req.method === 'POST') {
-          if (person.role !== 'full') fail(403, 'Обработка недоступна.');
-          await body(req);
-          const study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          extension?.beforeProcess(study);
-          if (study.format === 'Видео' && !options.recordingProcessor && !processingReadiness().asr)
-            fail(503, 'Локальная модель речи ещё не установлена.');
-          if (['queued', 'running'].includes(study.summaryInfo?.state))
-            fail(409, 'Дождитесь завершения сводки перед повторным распознаванием.');
-          enqueue(study, study.format === 'Видео' ? 'asr' : 'document');
-          return json(res, 202, view(person));
-        }
         if (
           (path === '/api/models' || path.startsWith('/api/models/')) &&
           (await handleModels(req, res, path, person, {
@@ -2126,7 +1783,7 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
   });
   server.once('close', () => {
     storageMirror.close();
-    clearInterval(worker);
+    stopWorker();
     mcpService.close().catch(() => {});
   });
   server.requestTimeout = 30 * 60 * 1000;
@@ -2140,7 +1797,7 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     close: () => {
       storageMirror.close();
       completionMail.close();
-      clearInterval(worker);
+      stopWorker();
       server.close();
       db.close();
     },
