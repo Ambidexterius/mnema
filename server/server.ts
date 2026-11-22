@@ -1,3 +1,4 @@
+import { fail, json, readJsonBody } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration, corporateEmail } from './registration.ts';
 import { createProjectSharing } from './project-sharing.ts';
@@ -218,9 +219,6 @@ const safeEqual = (a, b) =>
   a.length === b.length &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const text = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-const fail = (status, message, extra = {}) => {
-  throw Object.assign(new Error(message), { status, ...extra });
-};
 const roles = new Set(['view', 'full']);
 // Stage 1 of the UX brief: findings are reviewed by a person; readers only ever receive verified ones.
 const findingStatuses = new Set(['draft', 'verified', 'rejected']);
@@ -1091,18 +1089,6 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
   });
   const mcpNodeHandler = toNodeHandler(mcpService.fetch);
 
-  const json = (res, status, data, extra = {}) => {
-    void sendBody(
-      res.req,
-      res,
-      status,
-      { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra },
-      Buffer.from(JSON.stringify(data)),
-    ).catch(() => {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
-    });
-  };
   const staticCache = new Map<string, Buffer>();
   const writingUsers = new WeakMap<object, Person>();
   const recheckWrite = async (req) => {
@@ -1119,20 +1105,8 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     )
       fail(403, 'Доступ изменился. Обновите страницу и повторите действие.');
   };
-  const body = async (req, max = 2 * 1024 ** 2) => {
-    let size = 0;
-    const chunks = [];
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > max) fail(413, 'Слишком большой запрос.');
-      chunks.push(chunk);
-    }
-    let value;
-    try {
-      value = JSON.parse(Buffer.concat(chunks).toString() || '{}');
-    } catch {
-      fail(400, 'Не удалось прочитать запрос.');
-    }
+  const body = async (req, max?: number) => {
+    const value = await readJsonBody(req, max);
     await recheckWrite(req);
     return value;
   };
