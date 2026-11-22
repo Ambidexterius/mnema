@@ -20,6 +20,7 @@
     "skipLibCheck": true,
     "strict": false,
     "alwaysStrict": true,
+    "noImplicitThis": true,
     "noImplicitAny": false,
     "isolatedModules": true,
     "resolveJsonModule": true
