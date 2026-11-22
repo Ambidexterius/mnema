@@ -95,14 +95,14 @@ def main():
                         'end': round(duration + segment.end, 2),
                         'speaker': 'Запись', 'text': content}
                 words = getattr(segment, 'words', None)
-                if words:  # [time, text, unsure]: lets speakers split a segment mid-way
-                    item['words'] = [[round(duration + t, 2), w, u] for t, w, u in words]
-                    unsure = any(u for _, _, u in words)
+                if gigaam:  # [time, text, unsure]: lets speakers split a segment mid-way
+                    item['words'] = [[round(duration + t, 2), w, u] for t, w, u in words or ()]
+                    unsure = any(u for _, _, u in words or ())
                 else:
                     unsure = segment.avg_logprob < -1 or segment.no_speech_prob > 0.6
-                    if args.word_times and segment.words:
+                    if args.word_times and words:
                         item['wordTimes'] = word_times(content, [(duration + w.start, w.word, duration + w.end)
-                                                                 for w in segment.words])
+                                                                 for w in words])
                         if item['wordTimes'] is None:
                             del item['wordTimes']
                 if unsure:

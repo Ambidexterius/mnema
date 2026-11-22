@@ -228,8 +228,10 @@ test('Python ASR resumes completed chunks after restart, repeats interrupted chu
     await writeFile(
       wrapper,
       `import sys, os, json, runpy
+from collections import namedtuple
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+Word = namedtuple('Word', ['start', 'end', 'word', 'probability'])
 class Model:
     live = 0
     def __init__(self, *args, **kwargs): Model.live += 1
@@ -238,7 +240,8 @@ class Model:
         name = Path(audio).name
         with open(os.environ['FIXTURE_CALLS'], 'a') as log: log.write(name + '\\n')
         def segments():
-            yield SimpleNamespace(start=0, end=10, text=name, avg_logprob=-0.2, no_speech_prob=0.01)
+            words = [Word(1.25, 2.75, name, 0.95)] if kwargs.get('word_timestamps') else None
+            yield SimpleNamespace(start=0, end=10, text=name, avg_logprob=-0.2, no_speech_prob=0.01, words=words)
             if name == os.environ.get('FIXTURE_FAIL'): raise RuntimeError('interrupted chunk fixture')
         return segments(), SimpleNamespace(duration=900, language='ru')
 module = ModuleType('faster_whisper'); module.WhisperModel = Model
@@ -256,7 +259,7 @@ script = sys.argv.pop(1)
 runpy.run_path(script, run_name='__main__')
 `,
     );
-    const run = (path: string, fail = '') =>
+    const run = (path: string, fail = '', wordTimes = false) =>
       promisify(execFile)(
         process.env.DOC_PYTHON || 'python3',
         [
@@ -270,6 +273,7 @@ runpy.run_path(script, run_name='__main__')
           '2700',
           '--checkpoint',
           path,
+          ...(wordTimes ? ['--word-times'] : []),
         ],
         {
           env: { ...process.env, FIXTURE_CALLS: calls, FIXTURE_FAIL: fail, ASR_DIARIZATION: '1' },
@@ -311,6 +315,11 @@ runpy.run_path(script, run_name='__main__')
       3,
       'malformed checkpoint must restart ASR safely',
     );
+    await run(join(dir, 'words.json'), '', true);
+    const withWords = JSON.parse(await readFile(output, 'utf8'));
+    assert.deepEqual(withWords.segments[2].wordTimes, [
+      { from: 0, to: 'audio-00002.flac'.length, start: 1801.25, end: 1802.75 },
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
