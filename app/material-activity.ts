@@ -28,15 +28,15 @@ export function materialActivity(s: Study): MaterialActivity {
       label: 'Ошибка обработки',
       detail: 'Материал сохранён. Откройте его, чтобы повторить обработку.',
     };
-  if (['queued', 'running'].includes(s.summaryInfo?.state))
+  if (s.summaryInfo?.state === 'queued' || s.summaryInfo?.state === 'running')
     return {
-      state: s.summaryInfo.state as 'queued' | 'running',
+      state: s.summaryInfo.state,
       label: s.summaryInfo.state === 'queued' ? 'В очереди на анализ' : 'Анализируем материал',
       detail: s.summaryInfo.progress || 'Создаём сводку. Текст материала уже можно читать.',
     };
-  if (['queued', 'running'].includes(s.speakerInfo?.state))
+  if (s.speakerInfo?.state === 'queued' || s.speakerInfo?.state === 'running')
     return {
-      state: s.speakerInfo.state as 'queued' | 'running',
+      state: s.speakerInfo.state,
       label: 'Определяем спикеров',
       detail: s.speakerInfo.progress || 'Расшифровку уже можно читать.',
     };

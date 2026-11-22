@@ -8,7 +8,7 @@
     "build": "vite build app --outDir ../dist --emptyOutDir",
     "start": "node server/server.ts",
     "test": "node --test server/*.test.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.strict.json",
     "format": "prettier --write app server",
     "format:check": "prettier --check app server",
     "lint:hooks": "eslint app",

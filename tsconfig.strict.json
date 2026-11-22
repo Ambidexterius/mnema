@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  },
+  "include": [
+    "app/file-name.ts",
+    "app/highlight-text.ts",
+    "app/material-activity.ts",
+    "server/build-id.ts",
+    "server/http.ts",
+    "server/request-context.ts",
+    "server/summary-request.ts"
+  ]
+}
