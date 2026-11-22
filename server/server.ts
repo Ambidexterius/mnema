@@ -1,3 +1,17 @@
+import { createStaticHandler } from './static.ts';
+import {
+  createProjectStore,
+  createWorkspaceFactory,
+  initialState,
+  migrateLegacyWorkspace,
+} from './projects/store.ts';
+import {
+  findingStatuses,
+  importanceLevels,
+  legacyFinding,
+  reportOf,
+  reviewFinding,
+} from './analysis/review.ts';
 import { createMembership } from './auth/membership.ts';
 import { createSession } from './auth/session.ts';
 import { createProjectCards } from './projects/cards.ts';
@@ -22,8 +36,8 @@ import { handleAuth, handleProfile, isAuthPath } from './auth/routes.ts';
 import { handleMcpManagement, handlePublicMcp, matchPublicMcpRoute } from './mcp/routes.ts';
 import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
 import { handleModels } from './admin/models-route.ts';
-import type { Person } from './request-context.ts';
-import { fail, json, readJsonBody, text } from './http.ts';
+import { createRequestContext, type Person } from './request-context.ts';
+import { fail, json, text } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration } from './registration.ts';
 import { createProjectSharing } from './project-sharing.ts';
@@ -31,7 +45,7 @@ import { createChatHistory } from './chat-history.ts';
 import { createAnswerFeedback } from './answer-feedback.ts';
 import { loadExtension, type ServerExtension } from './extension.ts';
 import { mcpPlugins, createMcpService } from './mcp.ts';
-import { keySlot, modelBase, cleanModel, modelKeyStore } from './model-connections.ts';
+import { keySlot, modelKeyStore } from './model-connections.ts';
 import { createS3Mirror, s3Config } from './s3-storage.ts';
 import { collectGlobalResearch } from './global-research.ts';
 import {
@@ -43,13 +57,11 @@ import {
 import { createIdeas } from './ideas.ts';
 import type { FeedbackLocation } from '../app/feedback-context.ts';
 import { sendInvitationEmail } from './invitation-mail.ts';
-import { sendBody, encode, pickEncoding, compressible, MIN_COMPRESS_BYTES } from './compression.ts';
-import { resumePendingSummaries } from './summaries.ts';
 import http from 'node:http';
 import { configureDatabase, createCoreTables, openDatabase } from './db.ts';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import {
   type transcribeRecording,
@@ -61,7 +73,6 @@ import { fileURLToPath } from 'node:url';
 import { betterAuth } from 'better-auth';
 import { toNodeHandler } from 'better-auth/node';
 import { getMigrations } from 'better-auth/db/migration';
-import type { Finding } from '../app/types.ts';
 
 export interface MnemaServerOptions {
   extension?: Awaited<ReturnType<typeof loadExtension>>;
@@ -97,132 +108,7 @@ export const BUILD_ID = backendBuildId(
 );
 const hash = (v) => createHash('sha256').update(v).digest('hex');
 const roles = new Set(['view', 'full']);
-// Stage 1 of the UX brief: findings are reviewed by a person; readers only ever receive verified ones.
-const findingStatuses = new Set(['draft', 'verified', 'rejected']);
-const importanceLevels = ['Критично', 'Высокая', 'Средняя', 'Низкая'];
-const findingKinds = ['Проблема', 'Инсайт', 'Рекомендация', 'Цифра'];
-const legacyKinds = {
-  Наблюдение: 'Инсайт',
-  Гипотеза: 'Инсайт',
-  'Открытый вопрос': 'Инсайт',
-  Решение: 'Рекомендация',
-};
-const reportOf = (study) =>
-  study?.report === 'ready' || study?.report === 'none'
-    ? study.report
-    : study?.type === 'Отчёт'
-      ? 'ready'
-      : 'none';
-const legacyFinding = (f) =>
-  f.status
-    ? f
-    : {
-        ...f,
-        status: f.verified ? 'verified' : 'draft',
-        importance: importanceLevels.includes(f.importance)
-          ? f.importance
-          : importanceLevels.includes(f.priority)
-            ? f.priority
-            : 'Средняя',
-        kind: findingKinds.includes(f.kind) ? f.kind : legacyKinds[f.kind] || 'Инсайт',
-        origin: f.origin || 'human',
-        significant: Boolean(f.significant),
-        history: Array.isArray(f.history) ? f.history : [],
-      };
-const historyAction = (prev, next) =>
-  !prev
-    ? next.origin === 'ai'
-      ? 'suggested'
-      : 'created'
-    : prev.status !== next.status
-      ? {
-          verified: prev.status === 'draft' ? 'accepted' : 'restored',
-          rejected: 'rejected',
-          draft: 'reopened',
-        }[next.status]
-      : prev.title !== next.title ||
-          prev.description !== next.description ||
-          prev.kind !== next.kind ||
-          prev.importance !== next.importance ||
-          prev.significant !== next.significant
-        ? 'edited'
-        : null;
-// Further evidence fragments of a finding: up to 8 distinct segment ids besides the main one.
-const evidenceOf = (f: any, base: any): string[] =>
-  [
-    ...new Set<string>(
-      (Array.isArray(f.evidence) ? f.evidence : base?.evidence || []).filter(
-        (id: unknown): id is string =>
-          typeof id === 'string' && id.length <= 120 && id !== f.segmentId,
-      ),
-    ),
-  ].slice(0, 8);
-// The model's reason explains its importance; once a person changes the importance the old reason no longer applies.
-const reasonOf = (f: any, base: any): string =>
-  typeof f.reason === 'string'
-    ? f.reason.trim().slice(0, 240)
-    : base?.reason && (!f.importance || f.importance === base.importance)
-      ? base.reason
-      : '';
-function reviewFinding(f: any, prev: any, person: { name: string }, now: number): Finding {
-  const base = prev ? legacyFinding(prev) : null;
-  const next: Finding = {
-    id: text(f.id, 80) || randomUUID(),
-    studyId: f.studyId,
-    segmentId: f.segmentId,
-    title: text(f.title, 160),
-    description: String(f.description || '')
-      .trim()
-      .slice(0, base?.importSource ? 28000 : 4000),
-    kind: findingKinds.includes(f.kind) ? f.kind : legacyKinds[f.kind] || base?.kind || 'Инсайт',
-    importance: importanceLevels.includes(f.importance)
-      ? f.importance
-      : importanceLevels.includes(f.priority)
-        ? f.priority
-        : base?.importance || 'Средняя',
-    significant: Boolean(f.significant),
-    origin: base?.origin || 'human',
-    ...(evidenceOf(f, base).length ? { evidence: evidenceOf(f, base) } : {}),
-    ...(reasonOf(f, base) ? { reason: reasonOf(f, base) } : {}),
-    // A person who creates a finding has reviewed it; AI drafts are only created by the server.
-    status: base ? (findingStatuses.has(f.status) ? f.status : base.status) : 'verified',
-    ...(base?.importSource ? { importSource: base.importSource } : {}),
-    createdAt: base?.createdAt || now,
-    createdBy: base?.createdBy || person.name,
-    history: [...(base?.history || [])].slice(-49),
-  };
-  const action = historyAction(base, next);
-  if (action) next.history.push({ action, status: next.status, by: person.name, at: now });
-  return next;
-}
 const slotPattern = keySlot;
-const mimes = {
-  '.mp3': 'audio/mpeg',
-  '.svg': 'image/svg+xml',
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.ttf': 'font/ttf',
-};
-const emptyState = () => ({
-  studies: [],
-  findings: [],
-  processors: [],
-  models: [
-    {
-      id: 'deepseek',
-      name: 'DeepSeek',
-      provider: 'Совместимый API',
-      url: 'https://api.deepseek.com/v1',
-      model: process.env.LLM_MODEL_DEEPSEEK || '',
-      keyRef: 'LLM_KEY_DEEPSEEK',
-      enabled: true,
-      description: 'Укажите модель и настройте серверный ключ',
-    },
-  ],
-  modelId: 'deepseek',
-});
 export { answerTemplate } from './chat/prompt.ts';
 
 export async function createMnemaServer(options: MnemaServerOptions = {}) {
@@ -354,76 +240,8 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
     db.exec("ALTER TABLE mnema_invites ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
   if (!columns('mnema_jobs').includes('workspace_id'))
     db.exec("ALTER TABLE mnema_jobs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'main'");
-  const amveraPreset = {
-    id: 'amvera-deepseek-v4',
-    name: 'DeepSeek V4 · Amvera',
-    provider: 'Amvera',
-    url: 'https://inference.waw0.amvera.ru/v1',
-    model: 'deepseek-V4',
-    keyRef: 'LLM_KEY_DEEPSEEK',
-    enabled: true,
-    description: 'Подписка Amvera, серверный ключ',
-    builtin: true,
-  };
-  const initialState = () => {
-    const st: any = emptyState();
-    if (process.env.MNEMA_LLM_PRESET === 'amvera-deepseek-v4') {
-      st.models = st.models.map((m) => ({ ...m, enabled: false }));
-      st.models.push(amveraPreset as any);
-      st.modelId = amveraPreset.id;
-    }
-    return st;
-  };
-  // One-time migration: the single legacy workspace becomes «Команда»; existing access rows become its members.
-  db.exec('CREATE TABLE IF NOT EXISTS mnema_migrations(name TEXT PRIMARY KEY)');
-  if (
-    !q("SELECT 1 FROM mnema_migrations WHERE name='workspaces-v1'").get() &&
-    !q('SELECT 1 FROM mnema_workspaces LIMIT 1').get()
-  ) {
-    const legacy = q('SELECT * FROM mnema_workspace WHERE id=1').get();
-    q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,NULL)').run(
-      'main',
-      'Команда',
-      legacy?.version || 0,
-      legacy?.data || JSON.stringify(initialState()),
-      Date.now(),
-    );
-  }
-  if (!q("SELECT 1 FROM mnema_migrations WHERE name='workspaces-v1'").get())
-    q(
-      "INSERT OR IGNORE INTO mnema_members(workspace_id,user_id,role,admin,revoked) SELECT 'main',user_id,role,admin,revoked FROM mnema_access WHERE EXISTS(SELECT 1 FROM mnema_workspaces w WHERE w.id='main') AND NOT EXISTS(SELECT 1 FROM mnema_members m WHERE m.user_id=mnema_access.user_id)",
-    ).run();
-  q("INSERT OR IGNORE INTO mnema_migrations(name) VALUES('workspaces-v1')").run();
+  migrateLegacyWorkspace(db, q);
   const sharing = createProjectSharing(db, baseURL, authSecret);
-  const createProject = (name: string, person: Person, mode = 'all', state = initialState()) => {
-    const id = randomUUID();
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(
-        id,
-        name,
-        0,
-        JSON.stringify(state),
-        Date.now(),
-        person.id,
-      );
-      q('INSERT INTO mnema_members(workspace_id,user_id,role,admin) VALUES(?,?,?,1)').run(
-        id,
-        person.id,
-        'full',
-      );
-      sharing.init(id, person.id, mode);
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
-    const source = q('SELECT id FROM mnema_workspaces WHERE id<>? ORDER BY created LIMIT 1').get(
-      id,
-    );
-    if (source) copyModels(source.id, id);
-    return id;
-  };
   const completionMail = createCompletionMailer({
     db,
     baseURL,
@@ -437,86 +255,14 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
   q("UPDATE mnema_jobs SET status='queued' WHERE status='running'").run();
   if (interruptedJobs)
     console.info('Processing recovery', JSON.stringify({ requeued: interruptedJobs }));
-  const getState = () => {
-    const row = q('SELECT * FROM mnema_workspaces WHERE id=?').get(currentWs());
-    if (!row) fail(404, 'Пространство не найдено.');
-    return { version: row.version, state: JSON.parse(row.data) };
-  };
-  const mutate = (fn) => {
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const { state, version } = getState();
-      fn(state);
-      const next = state;
-      q('UPDATE mnema_workspaces SET version=?,data=? WHERE id=?').run(
-        version + 1,
-        JSON.stringify(next),
-        currentWs(),
-      );
-      db.exec('COMMIT');
-      return { version: version + 1, state: next };
-    } catch (e) {
-      db.exec('ROLLBACK');
-      throw e;
-    }
-  };
-  // Model connections, the default model and their keys are one team-wide setting: the account owner's change reaches every project.
-  const copyModels = (from: string, to: string) => {
-    const { state: source } = wsStore.run(from, getState);
-    wsStore.run(to, () =>
-      mutate((s) => {
-        for (const old of s.models)
-          if (!source.models.some((m) => m.id === old.id)) modelKeys.remove(to, old.id);
-        s.models = source.models;
-        s.modelId = source.modelId;
-      }),
-    );
-    for (const m of source.models) {
-      const key = modelKeys.get(from, m.id);
-      if (key) modelKeys.set(to, m.id, key);
-      else modelKeys.remove(to, m.id);
-    }
-  };
-  const syncModels = (from: string) => {
-    for (const w of q('SELECT id FROM mnema_workspaces WHERE id<>?').all(from))
-      copyModels(from, w.id);
-  };
-  // One-time migration: boolean `verified` becomes a review status. Unverified legacy findings wait for review.
-  for (const w of q('SELECT id FROM mnema_workspaces').all())
-    wsStore.run(w.id, () => {
-      if (getState().state.findings.some((f) => !f.status))
-        mutate((s) => {
-          s.findings = s.findings.map(legacyFinding).map(({ verified, priority, ...f }) => f);
-        });
-    });
-  for (const w of q('SELECT id FROM mnema_workspaces').all())
-    wsStore.run(w.id, () => {
-      if (
-        getState().state.studies.some(
-          (s) => s.summaryInfo?.state === 'running' || s.findingsInfo?.state === 'running',
-        )
-      )
-        mutate((s) => {
-          resumePendingSummaries(s.studies);
-          for (const study of s.studies)
-            if (study.findingsInfo?.state === 'running')
-              study.findingsInfo = {
-                ...study.findingsInfo,
-                state: 'queued',
-                progress: 'В очереди после перезапуска',
-              };
-        });
-    });
-  if (process.env.MNEMA_LLM_PRESET === 'amvera-deepseek-v4')
-    for (const w of q('SELECT id FROM mnema_workspaces').all())
-      wsStore.run(w.id, () => {
-        if (!getState().state.models.some((m) => m.id === amveraPreset.id))
-          mutate((s) => {
-            s.models = s.models.map((m) => ({ ...m, enabled: false }));
-            s.models.push(amveraPreset);
-            s.modelId = amveraPreset.id;
-          });
-      });
+  const { getState, mutate, copyModels, syncModels } = createProjectStore({
+    q,
+    db,
+    currentWs,
+    wsStore,
+    modelKeys,
+  });
+  const createProject = createWorkspaceFactory({ db, q, sharing, copyModels });
   const storageMirror = createS3Mirror(db, dir, s3Config());
   const processors = () => {
     const r = processingReadiness();
@@ -642,39 +388,8 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
   });
   const mcpNodeHandler = toNodeHandler(mcpService.fetch);
 
-  const staticCache = new Map<string, Buffer>();
-  const writingUsers = new WeakMap<object, Person>();
-  const recheckWrite = async (req) => {
-    const before = writingUsers.get(req);
-    if (!before) return;
-    const now = await session(req);
-    if (!now) fail(401, 'Войдите в Мнемодак.');
-    if (
-      before.workspaceId !== now.workspaceId ||
-      (before.role === 'full' && now.role !== 'full') ||
-      (before.admin && !now.admin) ||
-      (before.owner && !now.owner) ||
-      (before.manageUsers && !now.manageUsers)
-    )
-      fail(403, 'Доступ изменился. Обновите страницу и повторите действие.');
-  };
-  const body = async (req, max?: number) => {
-    const value = await readJsonBody(req, max);
-    await recheckWrite(req);
-    return value;
-  };
-  const limits = new Map();
-  const limit = (key, max = 30) => {
-    const now = Date.now();
-    const l = limits.get(key);
-    if (!l || now - l.time > 60000) {
-      limits.set(key, { time: now, n: 1 });
-      return;
-    }
-    if (++l.n > max) fail(429, 'Слишком много запросов. Подождите минуту.');
-    if (limits.size > 10000)
-      for (const [k, v] of limits) if (now - v.time > 60000) limits.delete(k);
-  };
+  const serveStatic = createStaticHandler(publicDir);
+  const { writingUsers, body, recheckWrite, limit } = createRequestContext(session);
   const { hmacRemovedEmail, register, withRegistration } = createAccountRegistration({
     options,
     authSecret,
@@ -1173,47 +888,7 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           return;
         fail(404, 'Метод не найден.');
       }
-      if (!['GET', 'HEAD'].includes(req.method)) fail(405, 'Метод недоступен.');
-      const name =
-        path === '/' || !path.split('/').at(-1).includes('.')
-          ? 'index.html'
-          : path.replace(/^\//, '');
-      const abs = resolve(publicDir, name);
-      if (!abs.startsWith(publicDir + '/')) fail(404, 'Страница не найдена.');
-      let data;
-      try {
-        data = await readFile(abs);
-      } catch {
-        fail(404, 'Страница не найдена.');
-      }
-      const suffix = name.slice(name.lastIndexOf('.'));
-      const type = mimes[suffix] || 'application/octet-stream';
-      const headers = {
-        'Content-Type': type,
-        'Cache-Control': name === 'index.html' ? 'no-cache' : 'public, max-age=3600',
-      };
-      // Hashed assets are immutable: compress once per encoding. index.html stays fresh on every request.
-      const encoding =
-        name !== 'index.html' && compressible(type) && data.length >= MIN_COMPRESS_BYTES
-          ? pickEncoding(req.headers['accept-encoding'])
-          : null;
-      if (encoding) {
-        const key = encoding + ':' + abs;
-        let encoded = staticCache.get(key);
-        if (!encoded) {
-          encoded = await encode(data, encoding);
-          staticCache.set(key, encoded);
-        }
-        res.writeHead(200, {
-          ...headers,
-          Vary: 'Accept-Encoding',
-          'Content-Encoding': encoding,
-          'Content-Length': encoded.length,
-        });
-        res.end(req.method === 'HEAD' ? undefined : encoded);
-        return;
-      }
-      await sendBody(req, res, 200, headers, data);
+      await serveStatic(req, res, path);
     } catch (e) {
       if (res.headersSent) {
         res.destroy();
