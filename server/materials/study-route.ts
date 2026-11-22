@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Person, RequestServices } from '../request-context.ts';
-import { fail, handledJson, text } from '../http.ts';
+import { fail, handledJson } from '../http.ts';
 import type { openDatabase } from '../db.ts';
 import { randomUUID } from 'node:crypto';
 import { rm, unlink } from 'node:fs/promises';

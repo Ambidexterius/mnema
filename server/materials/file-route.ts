@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Person, RequestServices } from '../request-context.ts';
-import { fail, handledJson, text } from '../http.ts';
+import { fail, handledJson } from '../http.ts';
 import type { openDatabase } from '../db.ts';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';

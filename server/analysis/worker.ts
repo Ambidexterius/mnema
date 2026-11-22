@@ -4,7 +4,6 @@ import type { createProjectSharing } from '../project-sharing.ts';
 import { requestSummary } from '../summary-request.ts';
 import { summarizeMaterial, transcriptRevision } from '../summaries.ts';
 import { extractFindings, dedupeWithModel } from '../finding-extraction.ts';
-import type { Study } from '../../app/types.ts';
 
 interface AnalysisWorkerServices {
   q: ReturnType<typeof openDatabase>['q'];
