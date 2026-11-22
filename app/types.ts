@@ -17,6 +17,7 @@ export interface Segment {
   speaker: string;
   text: string;
   correctedText?: string;
+  wordTimes?: {from:number;to:number;start:number;end:number}[];
   /** The speech model was unsure about a word here; cleared by a manual correction. */
   uncertain?: boolean;
 }

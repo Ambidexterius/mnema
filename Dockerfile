@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-fund --no-audit
 COPY app ./app
+ARG MNEMA_APP_EXTENSION=0
 RUN npm run build && npm prune --omit=dev --ignore-scripts --no-fund --no-audit
 
 FROM node:24.15.0-bookworm-slim@sha256:4e6b70dd6cbfc88c8157ba19aa3d9f9cce6ba4703576d55459e45efcbc9c5f5d
@@ -29,6 +30,8 @@ COPY app/corporate-email.ts ./app/corporate-email.ts
 COPY app/feedback-context.ts ./app/feedback-context.ts
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod 755 /app/docker-entrypoint.sh && mkdir -p /data/uploads && chown node:node /data /data/uploads
+ARG MNEMA_APP_EXTENSION=0
+ENV MNEMA_APP_EXTENSION=$MNEMA_APP_EXTENSION
 ENV NODE_ENV=production MNEMA_CORPORATE_REGISTRATION=1 PORT=3000 MNEMA_DATA_DIR=/data MNEMA_PUBLIC_DIR=/app/public ASR_MODEL_DIR=/app/models/gigaam-v3 ASR_DIARIZATION_DIR=/app/models/diarization ASR_CPU_THREADS=1 OCR_LANGUAGES=rus+eng HF_HUB_OFFLINE=1
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

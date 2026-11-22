@@ -26,6 +26,8 @@
   "include": [
     "app/*.ts",
     "app/*.tsx",
-    "server/*.ts"
+    "server/*.ts",
+    "app/private/**/*",
+    "server/private/**/*"
   ]
 }

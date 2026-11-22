@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--duration', type=float, default=0)
     parser.add_argument('--checkpoint')
+    parser.add_argument('--word-times', action='store_true')
     parser.add_argument('--max-speakers', type=int, default=0)
     args = parser.parse_args()
     os.umask(0o077)
@@ -42,6 +43,8 @@ def main():
     checkpoint = Path(args.checkpoint) if args.checkpoint else None
     identity = {'schema': 1, 'model': args.model, 'audioSeconds': args.duration,
                 'chunks': len(chunks), 'pipeline': 'gigaam-v3-rnnt-silero-v2' if gigaam else 'small-int8-beam1-vad-v1'}
+    if args.word_times:
+        identity['wordTimes'] = True
     if checkpoint:
         try:
             saved = json.loads(checkpoint.read_text(encoding='utf-8'))
@@ -82,7 +85,7 @@ def main():
             iterator, info = model.transcribe(str(audio), beam_size=1, best_of=1,
                                              temperature=0, vad_filter=True,
                                              condition_on_previous_text=False,
-                                             word_timestamps=False)
+                                             word_timestamps=args.word_times)
         language = language or info.language
         for segment in iterator:
             progress('transcribing', duration + segment.end, index, len(chunks))
@@ -97,6 +100,11 @@ def main():
                     unsure = any(u for _, _, u in words)
                 else:
                     unsure = segment.avg_logprob < -1 or segment.no_speech_prob > 0.6
+                    if args.word_times and segment.words:
+                        item['wordTimes'] = word_times(content, [(duration + w.start, w.word, duration + w.end)
+                                                                 for w in segment.words])
+                        if item['wordTimes'] is None:
+                            del item['wordTimes']
                 if unsure:
                     item['uncertain'] = True
                 segments.append(item)
@@ -114,8 +122,19 @@ def main():
     gc.collect()
     speakers, diarization_error = 0, None
     output = Path(args.output)
+    def finished(segment):
+        item = {k: v for k, v in segment.items() if k != 'words'}
+        words = segment.get('words')
+        # Express word times as character ranges of the final text, so they are
+        # built after speakers may have cut the segment.
+        if args.word_times and words:
+            ends = [at for at, _, _ in words[1:]] + [segment['end']]
+            times = word_times(segment['text'], [(at, word, end) for (at, word, _), end in zip(words, ends)])
+            if times is not None:
+                item['wordTimes'] = times
+        return item
     def save_result():
-        result = {'segments': [{k: v for k, v in s.items() if k != 'words'} for s in segments],
+        result = {'segments': [finished(s) for s in segments],
                   'duration': round(duration, 2),
                   'language': language, 'model': 'GigaAM v3 int8' if gigaam else 'Whisper Small int8',
                   'processingSeconds': round(time.monotonic() - started, 2),
@@ -151,6 +170,21 @@ def main():
     # Log measurements only; transcript is written to the private output file.
     print(json.dumps({'segments': len(segments), 'duration': result['duration'],
                       'processingSeconds': result['processingSeconds']}))
+
+
+def word_times(content, words):
+    """[(start, word, end)] → [{from, to, start, end}] in UTF-16 offsets of content; None if a word is missing."""
+    result, offset = [], 0
+    for start, word, end in words:
+        value = word.strip()
+        at = content.find(value, offset)
+        if not value or at < 0:
+            return None
+        offset = at + len(value)
+        result.append({'from': len(content[:at].encode('utf-16-le')) // 2,
+                       'to': len(content[:offset].encode('utf-16-le')) // 2,
+                       'start': round(start, 3), 'end': round(end, 3)})
+    return result
 
 
 LOOKAHEAD = 25  # seconds of the next part: longer than the longest VAD piece (20 s)

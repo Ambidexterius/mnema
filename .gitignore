@@ -12,5 +12,7 @@ dist/
 
 
 /app/__design/
+/app/private/
+/server/private/
 
 /artifacts/

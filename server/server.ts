@@ -5,6 +5,7 @@ import {createChatHistory} from './chat-history.ts';
 import {fileNameKey,existingFileMessage,uploadingFileMessage} from '../app/file-name.ts';
 import {createAnswerFeedback} from './answer-feedback.ts';
 import {requestSummary} from './summary-request.ts';
+import {loadExtension,type ServerExtension} from './extension.ts';
 import {mcpPlugins,createMcpService} from './mcp.ts';
 import {keySlot,modelBase,cleanModel,modelKeyStore,providerHeaders,providerRequest,providerResult,availableModels,answerSystem,requestChatAnswer} from './model-connections.ts';
 import {createS3Mirror,s3Config} from './s3-storage.ts';
@@ -66,7 +67,7 @@ function summaryFindingsRevision(findings:Finding[]){
  ])));
 }
 
-export interface MnemaServerOptions{registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
+export interface MnemaServerOptions{extension?:Awaited<ReturnType<typeof loadExtension>>;registrationCode?:()=>string;corporateRegistration?:boolean;sendRegistrationMail?:(message:CompletionMail)=>Promise<void>;sendInvitationMail?:(message:CompletionMail)=>Promise<void>;sendCompletionMail?:(message:CompletionMail)=>Promise<void>;recordingProcessor?:typeof transcribeRecording;speakerProcessor?:typeof detectSpeakers;production?:boolean;dataDir?:string;publicDir?:string;baseURL?:string;authSecret?:string;authCookiePrefix?:string;setupToken?:string;providerFetch?:(input:string|URL|Request,init?:RequestInit)=>Promise<Response>}
 interface WorkspaceRef{id:string;name:string;role:'view'|'full';admin:boolean;sharingMode?:string;shareVersion?:string;fileCount?:number;filePreviews?:{name:string;format:string}[]}
 interface Person{newsId?:string;id:string;name:string;email:string;role:'view'|'full';admin:boolean;owner:boolean;manageUsers?:boolean;recordingProcessing?:boolean;welcomePending:boolean;workspaceId:string|null;workspaces:WorkspaceRef[];sharedProject?:WorkspaceRef}
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
@@ -80,7 +81,9 @@ const VERSION:string=packageInfo.version;
 // Identify the loaded backend even when several fixes share one product version.
 const sourceBuild=createHash('sha256').update(JSON.stringify({version:VERSION,dependencies:Object.fromEntries(Object.entries(packageInfo.dependencies).sort(([a],[b])=>a<b?-1:a>b?1:0))}));
 for(const name of readdirSync(new URL('.',import.meta.url)).filter(name=>name.endsWith('.ts')&&!name.endsWith('.test.ts')).sort())sourceBuild.update(name).update('\0').update(readFileSync(new URL(name,import.meta.url)));
-const BUILD_ID=sourceBuild.digest('hex').slice(0,16);
+const bundledExtension=await loadExtension(process.env.MNEMA_APP_EXTENSION==='1');
+if(bundledExtension)for(const name of readdirSync(new URL('./private/',import.meta.url)).filter(name=>name.endsWith('.ts')&&!name.endsWith('.test.ts')).sort())sourceBuild.update('private/'+name).update('\0').update(readFileSync(new URL('./private/'+name,import.meta.url)));
+export const BUILD_ID=sourceBuild.digest('hex').slice(0,16);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const safeEqual=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const text=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -139,6 +142,13 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const db=new DatabaseSync(join(dir,'mnema.sqlite'));
  // node:sqlite returns loosely typed rows; the schema below is the source of truth.
  const q=(sql:string)=>db.prepare(sql) as unknown as {get:(...a:unknown[])=>any;all:(...a:unknown[])=>any[];run:(...a:unknown[])=>unknown};
+ const factory=options.extension??bundledExtension;
+ const extensionMarker='app-extension-v1';
+ if(!factory&&q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mnema_migrations'").get()&&
+    q('SELECT 1 FROM mnema_migrations WHERE name=?').get(extensionMarker)){
+  db.close();throw new Error('The database requires the application extension');
+ }
+ let extension:ServerExtension|undefined;
  db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
  const auth=betterAuth({database:db,secret:authSecret,baseURL,basePath:'/api/auth',trustedOrigins:[origin],disabledPaths:['/token'],plugins:mcpPlugins(baseURL,db),emailAndPassword:{enabled:true,minPasswordLength:8,maxPasswordLength:128,requireEmailVerification:false},session:{expiresIn:7*86400,updateAge:86400,cookieCache:{enabled:false}},advanced:{useSecureCookies:production,...(options.authCookiePrefix?{cookiePrefix:options.authCookiePrefix}:{})},rateLimit:{enabled:true,window:60,max:20}});
  await (await getMigrations(auth.options)).runMigrations();
@@ -155,7 +165,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
  const readableStudies=(person,workspaceId)=>{const project=person.workspaces.find(w=>w.id===workspaceId);return project?wsStore.run(workspaceId,()=>view({...person,workspaceId,role:project.role,admin:Boolean(project.admin)}).state.studies):[]};
  const chats=createChatHistory(db,readableStudies);
  const feedback=createAnswerFeedback(db,authSecret,BUILD_ID,readableStudies);
- const news=createProductNews(db);
+ const news=createProductNews(db,factory?.news);
  const ideas=createIdeas(db,{baseURL,send:options.sendCompletionMail||(smtpConfigured()?sendSmtp:undefined)});
  const ratedReply=(person:Person,question:string,scope:'global'|'project',reply:any,modelId?:string)=>{
   person=scopedPerson(person);
@@ -257,7 +267,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const findings=raw.findings.map(legacyFinding).filter(f=>full||f.status==='verified').map(f=>({...f,basis:reportOf(raw.studies.find(s=>s.id===f.studyId))==='ready'?'report':'raw'}));
   const pendingJobs=new Map(q("SELECT study_id,status FROM mnema_jobs WHERE workspace_id=? AND status IN ('queued','running') AND kind!='speakers'").all(currentWs()).map(job=>[job.study_id,job.status]));
   const uploadSizes=new Map(q("SELECT id,size FROM mnema_uploads WHERE status='ready'").all().map(file=>[file.id,file.size]));
-  const studies=(full?raw.studies:studiesForReader(raw.studies,findings)).map(s=>({...s,fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
+  const studies=(full?raw.studies:studiesForReader(raw.studies,findings)).map(s=>({...s,...extension?.studyFields(s,raw,person,version),fileSize:uploadSizes.get(s.fileId),processingState:pendingJobs.get(s.id),activity:materialActivity({...s,processingState:pendingJobs.get(s.id)}),...(!full&&s.summaryInfo?.review!=='verified'?{summary:[],summaryInfo:undefined}:{}),...(!full?{findingsInfo:undefined}:{}),report:reportOf(s),findings:findings.filter(f=>f.studyId===s.id&&f.status==='verified').length,drafts:full?findings.filter(f=>f.studyId===s.id&&f.status==='draft').length:0}));
   let highlights=raw.highlights;
   if(!full&&highlights?.length){
    const visible=new Map<string,Set<string>>(studies.map(study=>[study.id,new Set(study.segments?.map(segment=>segment.id))]));
@@ -270,7 +280,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
    ?summary.reviewedRevision===null||summary.reviewedRevision===summaryFindingsRevision(findings)
    :!raw.studies.some(study=>study.redactionCount));
   const canReadSummary=currentFindings&&summarySourcesMatch(full?studiesForReader(raw.studies,findings):studies,summary.sources);
-  const state={...raw,projectSummary:canReadSummary?summary:null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies,highlights};
+  const state={...raw,...extension?.stateFields(raw,person),projectSummary:canReadSummary?summary:null,...(!full&&raw.importSource?{importSource:{provider:raw.importSource.provider,url:raw.importSource.url,importedAt:raw.importSource.importedAt}}:{}),findings,studies,highlights};
   return {version,state:{...state,workspace:{id:currentWs(),...q('SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?').get(currentWs()),profile:raw.projectProfile||{},canManageSharing:sharing.canManage(currentWs(),person.id),sharingMode:q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(currentWs())?.mode},models:state.models.map(m=>({...m,builtin:isBuiltin(m),hasStoredKey:modelKeys.has(currentWs(),m.id),keyConfigured:modelKeys.has(currentWs(),m.id)||slotPattern.test(m.keyRef||'')&&Boolean(process.env[m.keyRef])})),processors:processors(),users:person.manageUsers?userDirectory(person):sharing.canManage(currentWs(),person.id)?users():[]},user:person}};
  const modelKey=(model:any,workspace=currentWs())=>modelKeys.get(workspace,model.id)||(slotPattern.test(model.keyRef||'')?process.env[model.keyRef]:null);
  const scopedPerson=(person:Person):Person=>person.sharedProject&&!person.workspaces.some(w=>w.id===person.sharedProject.id)?{...person,workspaces:[...person.workspaces,person.sharedProject]}:person;
@@ -380,7 +390,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const record=q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);
   if(kind==='speakers')return processSpeakers(study,record?.id,signal);
   if(!record)throw new Error('Исходник не найден. Добавьте файл заново.');
-  const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,participants:study.participants,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
+  const started=Date.now();const args={filePath:join(dir,'uploads',record.id),fileName:record.name,fileId:record.id,checkpointDir,participants:study.participants,wordTimes:extension?.wordTimes,signal,onProgress:progress=>{if(signal.aborted)return;mutate(s=>{const item=s.studies.find(x=>x.id===study.id);if(item){item.progress=progress;item.processingUpdatedAt=Date.now()}})}};
   const key=jobKey(currentWs(),study.id);
   let result;
   try{
@@ -541,6 +551,11 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
   const emailStatus=await sendInvitationEmail({...mailArgs,inviteURL},options.sendInvitationMail);
   return {inviteURL,emailStatus};
  };
+ if(factory){
+  extension=factory.activate({db,q,dir,getState,mutate,currentWs,session,body,json,view,fail,
+   canManage:sharing.canManage,deletingStudies,jobKey,forgetStudy:feedback.forgetStudy,localStorage:!s3Config()});
+  q('INSERT OR IGNORE INTO mnema_migrations(name) VALUES(?)').run(extensionMarker);
+ }
  const handler=async(req,res)=>{
   try{
    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','SAMEORIGIN');
@@ -714,6 +729,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
         q('DELETE FROM mnema_workspaces WHERE id=?').run(id);db.exec('COMMIT');
        }catch(error){db.exec('ROLLBACK');throw error}
        for(const file of fileIds)await unlink(join(dir,'uploads',file)).catch(()=>{});
+       if(extension)for(const study of state.studies)await extension.removeFiles(study);
        for(const item of sessions)await unlink(join(dir,'uploads',item.id+'.part')).catch(()=>{});
        for(const job of jobs)await rm(join(dir,'processing',job.id),{recursive:true,force:true});
        return json(res,200,{ok:true});
@@ -758,6 +774,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      if(!person.workspaceId){if(path==='/api/state'&&req.method==='GET')return json(res,200,{version:0,state:{studies:[],findings:[],models:[],processors:[],users:person.manageUsers?userDirectory(person):[],modelId:''},user:person});fail(409,'Сначала создайте проект.')}
      // Everything below reads and writes the workspace chosen by the mnema_ws cookie.
      wsStore.enterWith(person.workspaceId);
+     if(extension&&await extension.handle(req,res,person,path))return;
     if(path==='/api/imports/source/status'&&req.method==='GET'){
      if(!person.admin)fail(403,'Перенос доступен владельцу проекта.');const used=q("SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')").get().n;return json(res,200,{workspaceId:currentWs(),quota,used,files:getState().state.studies.filter(s=>s.importSource?.provider==='external'&&s.importSource.fileId).map(s=>({sourceId:s.importSource.fileId,studyId:s.id,ready:s.status==='ready'}))});
     }
@@ -984,8 +1001,10 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
       const latest=await session(req);if(!latest||latest.workspaceId!==workspaceId||latest.role!=='full')fail(403,'Доступ изменился. Удаление недоступно.');
       if(q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status='running'").get(id,workspaceId))fail(409,'Не удалось остановить обработку. Повторите удаление позже.');
       const discardedJobs=q('SELECT id FROM mnema_jobs WHERE study_id=? AND workspace_id=?').all(id,workspaceId);
+      extension?.forget(workspaceId,id);
       feedback.forgetStudy(workspaceId,id);q('DELETE FROM mnema_jobs WHERE study_id=? AND workspace_id=?').run(id,workspaceId);mutate(s=>{s.studies=s.studies.filter(x=>x.id!==id);s.findings=s.findings.filter(f=>f.studyId!==id);s.highlights=(s.highlights||[]).filter(h=>h.studyId!==id)});
       for(const job of discardedJobs)await rm(join(dir,'processing',job.id),{recursive:true,force:true});
+      await extension?.removeFiles(study);
       if(study.fileId){await unlink(join(dir,'uploads',study.fileId)).catch(()=>{});q('DELETE FROM mnema_uploads WHERE id=?').run(study.fileId)}return json(res,200,view(latest));
      }finally{deletingStudies.delete(key)}
     }
@@ -1000,7 +1019,8 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
     }
     if(/^\/api\/studies\/[^/]+\/transcript\/[^/]+$/.test(path)&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'Исправлять текст может участник с полным доступом.');const b=await body(req),study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(['queued','running'].includes(study.summaryInfo?.state))fail(409,'Дождитесь сводки перед исправлением текста.');const seg=study.segments?.find(s=>s.id===path.split('/')[5]);if(!seg)fail(404,'Фрагмент не найден.');if(typeof b.text!=='string'||!b.text.trim()||b.text.length>4000)fail(400,'Введите исправленный текст до 4000 символов.');if(b.before!==undefined&&b.before!==(seg.correctedText??seg.text))fail(409,'Фрагмент изменился. Откройте его заново и повторите правку.');
-     mutate(s=>{const target=s.studies.find(x=>x.id===study.id),part=target.segments.find(x=>x.id===seg.id);target.transcriptEdits=[...(target.transcriptEdits||[]),{segmentId:part.id,before:part.correctedText??part.text,after:b.text.trim(),by:person.name,at:Date.now()}].slice(-1000);part.correctedText=b.text.trim();target.summary=[];target.summaryInfo=undefined});return json(res,200,view(person));
+     extension?.beforeEditTranscript(seg);
+     mutate(s=>{const target=s.studies.find(x=>x.id===study.id),part=target.segments.find(x=>x.id===seg.id);target.transcriptEdits=[...(target.transcriptEdits||[]),{segmentId:part.id,before:part.correctedText??part.text,after:b.text.trim(),by:person.name,at:Date.now()}].slice(-1000);part.correctedText=b.text.trim();extension?.afterEditTranscript(part);target.summary=[];target.summaryInfo=undefined});return json(res,200,view(person));
     }
     if(/^\/api\/studies\/[^/]+\/speaker-count$/.test(path)&&req.method==='PATCH'){
      if(person.role!=='full')fail(403,'Изменять число участников можно с полным доступом.');
@@ -1056,7 +1076,7 @@ export async function createMnemaServer(options:MnemaServerOptions={}){
      return json(res,202,view(person));
     }
     if(/^\/api\/studies\/[^/]+\/process$/.test(path)&&req.method==='POST'){
-     if(person.role!=='full')fail(403,'Обработка недоступна.');await body(req);const study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');if(study.format==='Видео'&&!options.recordingProcessor&&!processingReadiness().asr)fail(503,'Локальная модель речи ещё не установлена.');if(['queued','running'].includes(study.summaryInfo?.state))fail(409,'Дождитесь завершения сводки перед повторным распознаванием.');enqueue(study,study.format==='Видео'?'asr':'document');return json(res,202,view(person));
+     if(person.role!=='full')fail(403,'Обработка недоступна.');await body(req);const study=getState().state.studies.find(s=>s.id===path.split('/')[3]);if(!study)fail(404,'Материал не найден.');extension?.beforeProcess(study);if(study.format==='Видео'&&!options.recordingProcessor&&!processingReadiness().asr)fail(503,'Локальная модель речи ещё не установлена.');if(['queued','running'].includes(study.summaryInfo?.state))fail(409,'Дождитесь завершения сводки перед повторным распознаванием.');enqueue(study,study.format==='Видео'?'asr':'document');return json(res,202,view(person));
     }
     if(path==='/api/models/catalog'&&req.method==='POST'){
      if(!person.owner)fail(403,'Модели настраивает администратор.');limit('model-catalog:'+person.id,10);

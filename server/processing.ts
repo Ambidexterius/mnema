@@ -9,7 +9,7 @@ import {createHash} from 'node:crypto';
 import type {Segment,Study} from '../app/types.ts';
 
 type Run=(cmd:string,args:string[],options?:Record<string,unknown>)=>Promise<{stdout:string;stderr?:string}>;
-interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;participants?:number;signal?:AbortSignal;onTranscript?:(segments:NonNullable<Study['transcriptPreview']>)=>void;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number}
+interface JobArgs{filePath:string;fileName?:string;fileId:string;checkpointDir?:string;participants?:number;signal?:AbortSignal;onTranscript?:(segments:NonNullable<Study['transcriptPreview']>)=>void;onProgress?:(progress:string)=>void;run?:Run;maxPages?:number;wordTimes?:boolean}
 // execFile still bounds captured output; progress lines contain measurements only.
 // Reading them while the child runs avoids waiting hours for its final stdout.
 export const runProcessingCommand:Run=(cmd,args,options={})=>new Promise((resolve,reject)=>{
@@ -89,7 +89,7 @@ export function suggestModerator<T extends {speaker:string;text:string;corrected
  return segments.map(s=>s.speaker===top.speaker?{...s,speaker:'Модератор?'}:s);
 }
 const speakerCountArgs=(n?:number)=>Number.isSafeInteger(n)&&n>0?['--max-speakers',String(n)]:[];
-export async function transcribeRecording({filePath,fileId,checkpointDir,participants,signal,onTranscript,onProgress=()=>{},run=runProcessingCommand}:JobArgs){
+export async function transcribeRecording({filePath,fileId,checkpointDir,participants,signal,onTranscript,onProgress=()=>{},run=runProcessingCommand,wordTimes=false}:JobArgs){
  signal?.throwIfAborted();run=interruptibleRun(run,signal);onProgress=interruptibleProgress(onProgress,signal);
  const readiness=processingReadiness();if(!readiness.asr)throw new Error('Локальная модель речи ещё не установлена. Дождитесь обновления сервера.');
  const probe=await run('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration,format_name','-of','json',filePath],{timeout:30000,maxBuffer:1024**2});const info=JSON.parse(probe.stdout).format||{};
@@ -114,7 +114,7 @@ export async function transcribeRecording({filePath,fileId,checkpointDir,partici
    }).catch(()=>{console.warn('Transcript preview unavailable')});
   };
   try{
-   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/gigaam-v3','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:onLine});
+   await run(process.env.ASR_PYTHON||'/opt/asr/bin/python',[script,working,output,'--model',process.env.ASR_MODEL_DIR||'/app/models/gigaam-v3','--threads',String(Number(process.env.ASR_CPU_THREADS||1)),'--duration',String(duration),...speakerCountArgs(participants),...(wordTimes?['--word-times']:[]),...(checkpointDir?['--checkpoint',join(checkpointDir,'asr.json')]:[])],{timeout:Math.min(6*3600000,Math.max(10*60000,Math.ceil(duration*5000))),maxBuffer:2*1024**2,env:{...process.env,OMP_NUM_THREADS:process.env.ASR_CPU_THREADS||'1'},onStdoutLine:onLine});
   }catch(error){
    signal?.throwIfAborted();
    // The Python checkpoint is written only after ALL speech chunks finish.

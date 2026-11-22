@@ -11,7 +11,7 @@ function newsFields(body:any){
  return {title:title.trim(),description:body.description};
 }
 
-export function createProductNews(db:DatabaseSync){
+export function createProductNews(db:DatabaseSync,extend?:(posts:NewsPost[])=>NewsPost[]){
  db.exec('CREATE TABLE IF NOT EXISTS mnema_news(seq INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,date TEXT,title TEXT NOT NULL,description TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1)');
  const insert=db.prepare('INSERT INTO mnema_news(id,date,title,description) VALUES(?,?,?,?)');
  const exists=db.prepare('SELECT 1 FROM mnema_news WHERE id=?');
@@ -20,7 +20,7 @@ export function createProductNews(db:DatabaseSync){
   if(!db.prepare('PRAGMA table_info(mnema_news)').all().some(column=>column.name==='deleted')){
    db.exec('ALTER TABLE mnema_news ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0');
   }
-  for(const post of [...initialNews].reverse())if(!exists.get(post.id))insert.run(post.id,post.date,post.title,post.description);
+  for(const post of [...(extend?.(initialNews)??initialNews)].reverse())if(!exists.get(post.id))insert.run(post.id,post.date,post.title,post.description);
   db.exec('COMMIT');
  }catch(error){db.exec('ROLLBACK');throw error}
  const list=db.prepare('SELECT id,date,title,description,revision FROM mnema_news WHERE deleted=0 ORDER BY seq DESC');

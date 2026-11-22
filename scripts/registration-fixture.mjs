@@ -27,7 +27,14 @@ export async function startRegistrationFixture({port,dataDir}){
  });
  await new Promise(resolve=>app.server.listen(port,'127.0.0.1',resolve));
  if(!app.db.prepare('SELECT 1 FROM mnema_access WHERE admin=1').get()){
-  const response=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:base},body:JSON.stringify({email:'local.owner@sutochno.ru',password:randomBytes(24).toString('hex'),name:'Локальный владелец',setupToken:setup})});if(response.status!==200)throw Error('Cannot seed local owner');
+  // Scenarios restart the fixture on the same port. Do not pool a socket across them.
+  const response=await fetch(base+'/api/register',{
+   method:'POST',
+   headers:{'Content-Type':'application/json','X-Mnema-Request':'1',Origin:base,Connection:'close'},
+   body:JSON.stringify({email:'local.owner@sutochno.ru',password:randomBytes(24).toString('hex'),name:'Локальный владелец',setupToken:setup}),
+  });
+  if(response.status!==200)throw Error('Cannot seed local owner');
+  await response.body?.cancel();
  }
  if(!app.db.prepare("SELECT 1 FROM mnema_migrations WHERE name='registration-local-projects-v1'").get()){
   const owner=app.db.prepare('SELECT user_id FROM mnema_access WHERE admin=1').get().user_id;
