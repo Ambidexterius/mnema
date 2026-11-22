@@ -42,7 +42,7 @@ export async function startRegistrationFixture({port,dataDir}){
   const empty=JSON.parse(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);empty.models=[];empty.modelId='';
   seedWorkspaceFixture(app.db,"UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'",'UX-тест чатов · локальный пример',JSON.stringify(empty),owner);
   for(const [id,name] of [['booking','Бронирование · локальный пример'],['gallery','Галерея · локальный пример']]){
-   app.db.prepare('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(empty),Date.now(),owner);
+   seedWorkspaceFixture(app.db,'INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)',id,name,0,JSON.stringify(empty),Date.now(),owner);
    app.db.prepare("INSERT INTO mnema_project_sharing VALUES(?,'all',?,lower(hex(randomblob(32))))").run(id,owner);
    app.db.prepare('INSERT INTO mnema_members(workspace_id,user_id,role,admin) SELECT ?,user_id,role,admin FROM mnema_access WHERE all_projects=1 AND revoked=0').run(id);
   }
