@@ -110,6 +110,9 @@ type StoredState = Pick<WorkspaceState, 'studies' | 'findings' | 'highlights'> &
 type LegacyFindings = WorkspaceState['findings'][number] & { updatedAt?: number };
 type Source = { id: string; data: string };
 const hash = (data: string) => createHash('sha256').update(data).digest('hex');
+const tablesOnlyMigration = 'workspace-tables-only-v1';
+// Invalid JSON makes older images fail at startup instead of rebuilding from stale data.
+export const tableOnlyPlaceholder = 'workspace stored in tables';
 const canonical = (value: unknown) =>
   JSON.stringify(value, (_name, item) =>
     item && typeof item === 'object' && !Array.isArray(item)
@@ -300,14 +303,28 @@ function rowsMatch(left: ReadonlyMap<string, Row>, right: ReadonlyMap<string, Ro
   );
 }
 
+export function workspaceTablesOnly(db: DatabaseSync) {
+  return Boolean(
+    db.prepare('SELECT 1 FROM mnema_migrations WHERE name=?').get(tablesOnlyMigration),
+  );
+}
+
 /** A read-only check of all populated columns and ordered child rows. It emits counts and IDs only. */
 export function compareWorkspaceProjection(db: DatabaseSync) {
+  const tablesOnly = workspaceTablesOnly(db);
   const reads = readTables(db);
   const readMeta = db.prepare(
-    'SELECT meta FROM ' + workspaceReadMetaTable + ' WHERE workspace_id=?',
+    'SELECT meta,data_hash FROM ' + workspaceReadMetaTable + ' WHERE workspace_id=?',
+  );
+  const sourceHash = db.prepare(
+    'SELECT data_hash FROM mnema_projection_source WHERE workspace_id=?',
   );
   const sources = db
-    .prepare('SELECT id,data FROM mnema_workspaces ORDER BY id')
+    .prepare(
+      tablesOnly
+        ? 'SELECT id FROM mnema_workspaces ORDER BY id'
+        : 'SELECT id,data FROM mnema_workspaces ORDER BY id',
+    )
     .iterate() as Iterable<Source>;
   const projects: {
     id: string;
@@ -315,33 +332,46 @@ export function compareWorkspaceProjection(db: DatabaseSync) {
     differences: (ProjectionTable | typeof workspaceReadMetaTable)[];
   }[] = [];
   for (const source of sources) {
-    const expected = projectRows(source.data);
     const differences: (ProjectionTable | typeof workspaceReadMetaTable)[] = [];
     const actual = {} as Rows;
     const counts: Record<string, number> = {};
-    for (const table of reads) {
-      const stored = table.read(source.id);
-      const rows = expected[table.name];
-      counts[table.name] = stored.size;
-      actual[table.name] = [...stored.values()];
+    const storedRows = reads.map((table) => {
+      const rows = table.read(source.id);
+      counts[table.name] = rows.size;
+      actual[table.name] = [...rows.values()];
+      return rows;
+    });
+    const supplemental = readMeta.get(source.id);
+    const decoded =
+      supplemental && canonical(decodeWorkspaceProjection(String(supplemental.meta), actual));
+    const data = tablesOnly ? decoded : source.data;
+    const expected = data && projectRows(data);
+    for (const [index, table] of reads.entries()) {
+      const stored = storedRows[index];
+      const rows = expected ? expected[table.name] : [];
       if (
         !rowsMatch(new Map(rows.map((row) => [table.rowKey(row), row])), stored) ||
         rows.length !== stored.size
       )
         differences.push(table.name);
     }
-    const supplemental = readMeta.get(source.id);
     if (
       !supplemental ||
-      (!differences.length &&
-        canonical(decodeWorkspaceProjection(String(supplemental.meta), actual)) !==
-          canonical(JSON.parse(source.data)))
+      !data ||
+      (tablesOnly
+        ? supplemental.data_hash !== hash(data) ||
+          sourceHash.get(source.id)?.data_hash !== supplemental.data_hash
+        : !differences.length && decoded !== canonical(JSON.parse(data)))
     )
       differences.push(workspaceReadMetaTable);
     projects.push({ id: source.id, counts, differences });
   }
   // A write from an older connection with foreign keys off must also be detectable.
-  const orphans = [...tables.map(({ name }) => name), workspaceReadMetaTable].flatMap((name) =>
+  const orphans = [
+    ...tables.map(({ name }) => name),
+    workspaceReadMetaTable,
+    'mnema_projection_source',
+  ].flatMap((name) =>
     db
       .prepare(
         'SELECT 1 FROM ' +
@@ -360,11 +390,13 @@ export function compareWorkspaceProjection(db: DatabaseSync) {
 }
 
 /** Install and fill once, then reconcile workspaces modified while an older release was active. */
-export function initializeWorkspaceProjection(db: DatabaseSync) {
+export function initializeWorkspaceProjection(db: DatabaseSync, target?: 'dual' | 'tables') {
   const started = performance.now();
   db.exec('BEGIN IMMEDIATE');
   try {
     createProjectionTables(db);
+    const wasTablesOnly = workspaceTablesOnly(db);
+    const tablesOnly = target === undefined ? wasTablesOnly : target === 'tables';
     const writers = readTables(db).map((table) => ({
       ...table,
       remove: db.prepare(
@@ -408,9 +440,11 @@ export function initializeWorkspaceProjection(db: DatabaseSync) {
         '(workspace_id,data_hash,meta) VALUES(?,?,?) ' +
         'ON CONFLICT(workspace_id) DO UPDATE SET data_hash=excluded.data_hash,meta=excluded.meta',
     );
-    // The caller's SQLite transaction commits the original JSON, all changed rows and this marker together.
-    function write(workspace: string, data: string, checksum = hash(data)) {
+    // The checksum covers the logical state when there is no JSON snapshot.
+    function write(workspace: string, data: string) {
       if (!db.isTransaction) throw new Error('Workspace projection requires a transaction');
+      const state = JSON.parse(data);
+      const checksum = hash(tablesOnly ? canonical(state) : data);
       const expected = projectRows(data);
       for (const table of writers) {
         const existing = table.read(workspace);
@@ -424,30 +458,58 @@ export function initializeWorkspaceProjection(db: DatabaseSync) {
           table.remove.run(workspace, ...row.slice(0, table.key));
       }
       recordHash.run(workspace, checksum);
-      saveReadMeta.run(workspace, checksum, encodeWorkspaceReadMeta(JSON.parse(data), expected));
+      saveReadMeta.run(workspace, checksum, encodeWorkspaceReadMeta(state, expected));
     }
 
     let rebuilt = 0;
-    const sources = db
-      .prepare('SELECT id,data FROM mnema_workspaces ORDER BY id')
-      .iterate() as Iterable<Source>;
-    for (const source of sources) {
-      const checksum = hash(source.data);
-      if (
-        sourceHash.get(source.id)?.data_hash !== checksum ||
-        readShapeHash.get(source.id)?.data_hash !== checksum
-      ) {
-        write(source.id, source.data, checksum);
-        rebuilt++;
+    if (wasTablesOnly !== tablesOnly) {
+      if (!compareWorkspaceProjection(db).ok)
+        throw new Error('Workspace projection drift before switch');
+      const read = createWorkspaceProjectionReader(db);
+      const saveJson = db.prepare('UPDATE mnema_workspaces SET data=? WHERE id=?');
+      for (const { id } of db.prepare('SELECT id FROM mnema_workspaces ORDER BY id').all() as {
+        id: string;
+      }[]) {
+        const data = canonical(read(id));
+        write(id, data);
+        saveJson.run(tablesOnly ? tableOnlyPlaceholder : data, id);
+      }
+      if (tablesOnly)
+        db.prepare('INSERT INTO mnema_migrations(name) VALUES(?)').run(tablesOnlyMigration);
+      else db.prepare('DELETE FROM mnema_migrations WHERE name=?').run(tablesOnlyMigration);
+    } else if (!tablesOnly) {
+      const sources = db
+        .prepare('SELECT id,data FROM mnema_workspaces ORDER BY id')
+        .iterate() as Iterable<Source>;
+      for (const source of sources) {
+        const checksum = hash(source.data);
+        if (
+          sourceHash.get(source.id)?.data_hash !== checksum ||
+          readShapeHash.get(source.id)?.data_hash !== checksum
+        ) {
+          write(source.id, source.data);
+          rebuilt++;
+        }
       }
     }
     const report = compareWorkspaceProjection(db);
-    if (!report.ok) throw new Error('Workspace projection differs from JSON');
+    if (!report.ok)
+      throw new Error(
+        tablesOnly
+          ? 'Workspace table integrity check failed'
+          : 'Workspace projection differs from JSON',
+      );
     db.prepare('INSERT OR IGNORE INTO mnema_migrations(name) VALUES(?)').run(
       'workspace-projection-v1',
     );
     db.exec('COMMIT');
-    return { write, report, rebuilt, elapsedMs: Math.round(performance.now() - started) };
+    return {
+      write,
+      report,
+      rebuilt,
+      tablesOnly,
+      elapsedMs: Math.round(performance.now() - started),
+    };
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;

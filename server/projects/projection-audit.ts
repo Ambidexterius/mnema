@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { compareWorkspaceProjection, projectionTotals } from './projection.ts';
+import { compareWorkspaceProjection, projectionTotals, workspaceTablesOnly } from './projection.ts';
 
 export const projectionAuditIntervalMs = 5 * 60_000;
 const maxGapMs = projectionAuditIntervalMs + 60_000;
@@ -14,7 +14,10 @@ export function readWorkspaceProjection(path: string) {
   try {
     // JSON and its projection must be read from one SQLite snapshot.
     db.exec('PRAGMA query_only=ON; PRAGMA busy_timeout=5000; BEGIN');
-    return compareWorkspaceProjection(db);
+    return {
+      ...compareWorkspaceProjection(db),
+      source: workspaceTablesOnly(db) ? 'tables' : 'dual',
+    };
   } finally {
     db.close();
   }
@@ -25,6 +28,7 @@ function checkProjection(path: string) {
     const report = readWorkspaceProjection(path);
     return {
       status: report.ok ? ('ok' as const) : ('drift' as const),
+      source: report.source,
       ...projectionTotals(report),
       differences: report.projects
         .filter(({ differences }) => differences.length)

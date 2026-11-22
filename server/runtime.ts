@@ -227,9 +227,11 @@ export async function createRuntime(
       ...projectionTotals(projection.report),
     }),
   );
-  const fromTables = process.env.MNEMA_READ_WORKSPACE_TABLES === '1';
+  const { tablesOnly } = projection;
+  const fromTables = tablesOnly || process.env.MNEMA_READ_WORKSPACE_TABLES === '1';
   const readWorkspace = createWorkspaceReader(db, q, fromTables);
   console.info('Workspace state read source:', fromTables ? 'tables' : 'json');
+  console.info('Workspace state write target:', tablesOnly ? 'tables' : 'dual');
   const sharing = createProjectSharing(db, baseURL, authSecret, fromTables);
   const completionMail = createCompletionMailer({
     db,
@@ -253,6 +255,7 @@ export async function createRuntime(
     modelKeys,
     writeProjection: projection.write,
     readWorkspace,
+    tablesOnly,
   });
   const createProject = createWorkspaceFactory({
     db,
@@ -260,6 +263,7 @@ export async function createRuntime(
     sharing,
     copyModels,
     writeProjection: projection.write,
+    tablesOnly,
   });
   const storageMirror = createS3Mirror(db, dir, s3Config());
   const processors = () => {

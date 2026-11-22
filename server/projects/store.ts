@@ -9,6 +9,7 @@ import type { createProjectSharing } from '../project-sharing.ts';
 import { resumePendingSummaries } from '../summaries.ts';
 import {
   createWorkspaceProjectionReader,
+  tableOnlyPlaceholder,
   type initializeWorkspaceProjection,
 } from './projection.ts';
 
@@ -109,11 +110,12 @@ export function migrateLegacyWorkspace(db: Database, q: Prepare) {
 }
 
 interface WorkspaceFactoryServices {
-  db: Database;
+  db: ReturnType<typeof openDatabase>['db'];
   q: Prepare;
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'init'>;
   copyModels: (from: string, to: string) => void;
   writeProjection: WriteProjection;
+  tablesOnly?: boolean;
 }
 
 export function createWorkspaceFactory({
@@ -122,17 +124,28 @@ export function createWorkspaceFactory({
   sharing,
   copyModels,
   writeProjection,
+  tablesOnly = false,
 }: WorkspaceFactoryServices) {
+  const hasJson =
+    !tablesOnly ||
+    Boolean(
+      db.prepare("SELECT 1 FROM pragma_table_info('mnema_workspaces') WHERE name='data'").get(),
+    );
+  const insert = q(
+    hasJson
+      ? 'INSERT INTO mnema_workspaces(id,name,version,data,created,created_by) VALUES(?,?,?,?,?,?)'
+      : 'INSERT INTO mnema_workspaces(id,name,version,created,created_by) VALUES(?,?,?,?,?)',
+  );
   const createProject = (name: string, person: Person, mode = 'all', state = initialState()) => {
     const id = randomUUID();
     const data = JSON.stringify(state);
     db.exec('BEGIN IMMEDIATE');
     try {
-      q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(
+      insert.run(
         id,
         name,
         0,
-        data,
+        ...(hasJson ? [tablesOnly ? tableOnlyPlaceholder : data] : []),
         Date.now(),
         person.id,
       );
@@ -165,6 +178,7 @@ interface ProjectStoreServices {
   modelKeys: ReturnType<typeof modelKeyStore>;
   writeProjection: WriteProjection;
   readWorkspace?: WorkspaceReader;
+  tablesOnly?: boolean;
 }
 
 export function createProjectStore({
@@ -174,7 +188,8 @@ export function createProjectStore({
   wsStore,
   modelKeys,
   writeProjection,
-  readWorkspace = createWorkspaceReader(db, q, false),
+  tablesOnly = false,
+  readWorkspace = createWorkspaceReader(db, q, tablesOnly),
 }: ProjectStoreServices) {
   const getState = () => {
     const row = readWorkspace(currentWs());
@@ -188,11 +203,14 @@ export function createProjectStore({
       fn(state);
       const workspace = currentWs();
       const data = JSON.stringify(state);
-      q('UPDATE mnema_workspaces SET version=?,data=? WHERE id=?').run(
-        version + 1,
-        data,
-        workspace,
-      );
+      if (tablesOnly)
+        q('UPDATE mnema_workspaces SET version=? WHERE id=?').run(version + 1, workspace);
+      else
+        q('UPDATE mnema_workspaces SET version=?,data=? WHERE id=?').run(
+          version + 1,
+          data,
+          workspace,
+        );
       writeProjection(workspace, data);
       db.exec('COMMIT');
       return { version: version + 1, state };
