@@ -22,18 +22,9 @@ import { invitationMailNotice } from './invitation-mail-status.ts';
 import EmptyState from './EmptyState.tsx';
 import ThinkingIndicator from './ThinkingIndicator.tsx';
 import Mascot, { type MascotMood } from './Mascot.tsx';
-// The agent reads the error: an exhausted limit makes it sleepy, a provider refusal angry, a lost connection dizzy.
-const errorMood = (text: string): MascotMood =>
-  /лимит/i.test(text)
-    ? 'sleepy'
-    : /отклонил|403/.test(text)
-      ? 'angry'
-      : /недоступ|соединени|сеть|504|тайм/i.test(text)
-        ? 'dizzy'
-        : 'sad';
 import ResearchCatalog from './ResearchCatalog.tsx';
 import { useResearchChats } from './useResearchChats.ts';
-import { ProjectMenu, ProjectDialog, fileCount } from './ProjectActions.tsx';
+import { ProjectMenu, ProjectDialog } from './ProjectActions.tsx';
 import {
   CreateProjectPrivacy,
   ProjectShareButton,
@@ -84,7 +75,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { flushSync } from 'react-dom';
 import {
   configure,
-  Accordion,
   Modal,
   Avatar,
   Button,
@@ -96,7 +86,6 @@ import {
   Label,
   Hotkey,
   Loader,
-  Progress,
   SegmentedRadioGroup,
   Select,
   Switch,
@@ -111,21 +100,15 @@ import {
 import {
   Megaphone,
   RefreshCw,
-  Link as LinkIcon,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
   Minimize2,
   Download,
-  Bookmark,
   BrainCircuit,
   Check,
-  ChevronRight,
-  Clock,
-  Copy,
   File,
   FileAudio,
-  FileDown,
   FileSpreadsheet,
   Files,
   FileText,
@@ -147,23 +130,19 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
-  Play,
   Plug,
   Monitor,
   Settings,
   Trash2,
   UserPlus,
-  ChevronsUpDown,
   Plus,
   Quote,
   RotateCcw,
-  Search,
   Sparkles,
   Sun,
   ThumbsUp,
   Upload,
   Users,
-  Video,
   LogOut,
   X,
 } from 'lucide-react';
@@ -172,106 +151,41 @@ import type { Finding, Study, Segment, ChatSource, WorkspaceUser } from './types
 import '@gravity-ui/uikit/styles/styles.css';
 import './gravity.css';
 import './theme-wipe.css';
+import { transcript, initialStudies } from './data.ts';
+import { DEMO, load, qa, storage, KINDS, importanceOrder, IMPORTANCE } from './state/constants.ts';
+import { settingsBackdrop, backdropRoute } from './state/overlay-routes.ts';
+import { normalize, reportOf } from './state/normalize.ts';
 import {
-  transcript,
-  initialStudies,
-  initialFindings,
-  initialModels,
-  initialProcessors,
-  initialUsers,
-  processingSteps,
-} from './data.ts';
+  plural,
+  materialDate,
+  importanceTheme,
+  actionLabel,
+  stamp,
+  segmentsOf,
+  where,
+  fullDate,
+  time,
+  uid,
+} from './shared/format.ts';
+
+// The agent reads the error: an exhausted limit makes it sleepy, a provider refusal angry, a lost connection dizzy.
+const errorMood = (text: string): MascotMood =>
+  /лимит/i.test(text)
+    ? 'sleepy'
+    : /отклонил|403/.test(text)
+      ? 'angry'
+      : /недоступ|соединени|сеть|504|тайм/i.test(text)
+        ? 'dizzy'
+        : 'sad';
 
 configure({ lang: 'ru' });
 
 const NewsDialog = React.lazy(() => import('./NewsDialog.tsx'));
-const DEMO = import.meta.env.VITE_DEMO === 'true';
-const qa = DEMO && new URLSearchParams(location.search).get('qa') === '1';
-const storage = qa ? 'ai-hyposut.qa.v1' : 'ai-hyposut.demo.v1';
-const defaults = {
-  studies: initialStudies,
-  findings: initialFindings,
-  models: initialModels,
-  processors: initialProcessors,
-  users: initialUsers,
-  modelId: 'deepseek',
-  theme: 'dark',
-  sidebarCollapsed: false,
-  soundEnabled: true,
-  messages: [],
-};
-const uid = () => crypto.randomUUID();
-const time = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const materialDate = new Intl.DateTimeFormat('ru', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-});
-const plural = (n, one, few, many) =>
-  `${n} ${{ one, few, many, other: many }[new Intl.PluralRules('ru').select(n)]}`;
-// Stage 1 of the UX brief: review statuses, one importance scale, source basis.
-const KINDS = ['Проблема', 'Инсайт', 'Рекомендация', 'Цифра'];
-const IMPORTANCE = ['Критично', 'Высокая', 'Средняя', 'Низкая'];
-const importanceOrder = Object.fromEntries(IMPORTANCE.map((x, i) => [x, i]));
-const legacyKinds = {
-  Наблюдение: 'Инсайт',
-  Гипотеза: 'Инсайт',
-  'Открытый вопрос': 'Инсайт',
-  Решение: 'Рекомендация',
-};
-const normalize = (f) =>
-  f.status
-    ? f
-    : {
-        ...f,
-        status: f.verified ? 'verified' : 'draft',
-        importance: f.importance || f.priority || 'Средняя',
-        kind: legacyKinds[f.kind] || f.kind || 'Инсайт',
-        origin: f.origin || 'human',
-        history: f.history || [],
-      };
-const reportOf = (s) =>
-  s?.report === 'ready' || s?.report === 'none' ? s.report : s?.type === 'Отчёт' ? 'ready' : 'none';
-
-const importanceTheme = (i) =>
-  i === 'Критично' ? 'danger' : i === 'Высокая' ? 'warning' : 'normal';
-const actionLabel = {
-  created: 'создал(а)',
-  suggested: 'предложил(а)',
-  accepted: 'принял(а)',
-  rejected: 'отклонил(а)',
-  restored: 'вернул(а) в проверенные',
-  reopened: 'вернул(а) на проверку',
-  edited: 'изменил(а)',
-};
-const stamp = (ms) =>
-  new Intl.DateTimeFormat('ru', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(ms));
-const fullDate = (s) =>
-  new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'long' }).format(
-    new Date(s + 'T12:00:00'),
-  ) +
-  ' ' +
-  s.slice(0, 4);
-// Documents without pages (TXT) have no timecode: show «Текст», not a misleading 0:00.
-const where = (seg) =>
-  seg?.page
-    ? 'Стр. ' + seg.page
-    : seg?.speaker === 'Документ' && !seg?.time
-      ? 'Текст'
-      : time(seg?.time || 0);
-const escapeHTML = (s) =>
-  String(s).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
 
 for (const { id } of settingsExtensions) projectExtensionRoutes.add(id);
+
 const extraSettings = new Map(settingsExtensions.map((section) => [section.id, section]));
+
 const management: [string, string, LucideIcon][] = [
   ['models', 'Модели', BrainCircuit],
   ['integrations', 'Интеграции', Plug],
@@ -284,39 +198,7 @@ const management: [string, string, LucideIcon][] = [
   ['feedback', 'Оценки ответов', ThumbsUp],
   ['users', 'Пользователи', Users],
 ];
-function load() {
-  try {
-    const v = JSON.parse(localStorage.getItem(storage));
-    const local = v?.version === 1 ? v.data : {};
-    return DEMO
-      ? { ...structuredClone(defaults), ...local }
-      : {
-          ...structuredClone(defaults),
-          studies: [],
-          findings: [],
-          users: [],
-          models: [],
-          processors: [],
-          messages: [],
-          theme: local.theme || 'light',
-          sidebarCollapsed: !!local.sidebarCollapsed,
-          soundEnabled: local.soundEnabled !== false,
-        };
-  } catch {
-    return DEMO
-      ? structuredClone(defaults)
-      : {
-          ...structuredClone(defaults),
-          studies: [],
-          findings: [],
-          users: [],
-          models: [],
-          processors: [],
-          messages: [],
-          theme: 'light',
-        };
-  }
-}
+
 function IconButton({
   icon: Icon,
   label,
@@ -335,6 +217,7 @@ function IconButton({
     </Tooltip>
   );
 }
+
 function Notice({ children }: { children: React.ReactNode }) {
   return (
     <div className="notice">
@@ -343,6 +226,7 @@ function Notice({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
 function Empty({
   title,
   children,
@@ -363,6 +247,7 @@ function Empty({
     </div>
   );
 }
+
 function Status({ study }: { study: Study }) {
   const activity = study.activity || materialActivity(study);
   const active = ['queued', 'running'].includes(activity.state);
@@ -387,6 +272,7 @@ function Status({ study }: { study: Study }) {
     </div>
   );
 }
+
 function PageHeading({
   overline,
   title,
@@ -425,6 +311,7 @@ function PageHeading({
     </div>
   );
 }
+
 /** Sections of a project, under the page title: overview, findings, materials with counts. */
 function ProjectTabs() {
   const { state, route } = useApp();
@@ -468,6 +355,7 @@ function ProjectTabs() {
     </TabList>
   );
 }
+
 function ProjectBreadcrumbs({ project, studyTitle }: { project?: string; studyTitle?: string }) {
   const compact = useCompactLayout();
   if (compact) {
@@ -537,6 +425,7 @@ function ProjectBreadcrumbs({ project, studyTitle }: { project?: string; studyTi
     </nav>
   );
 }
+
 function FindingsBreadcrumbs({
   project,
   finding,
@@ -625,6 +514,7 @@ function FindingsBreadcrumbs({
     </nav>
   );
 }
+
 function AddMaterial() {
   const compact = useCompactLayout();
   const { open, reader } = useApp();
@@ -635,6 +525,7 @@ function AddMaterial() {
     </Button>
   );
 }
+
 export function App() {
   const [authInfo, setAuthInfo] = useState<{
     loading: boolean;
@@ -2051,7 +1942,7 @@ export function App() {
                         Создайте папку для материалов по одной теме, затем добавьте файлы.
                       </Empty>
                     ) : (
-                      <Study key={pageRoute} />
+                      <StudyScreen key={pageRoute} />
                     )}
                     {!globalView && !DEMO && authInfo.user && !authInfo.user.workspaceId ? (
                       <Empty
@@ -2214,6 +2105,7 @@ export function App() {
     </ThemeProvider>
   );
 }
+
 function FileWindow() {
   const { state, route } = useApp();
   const study = state.studies.find((s) => s.id === route.slice(5));
@@ -2252,6 +2144,7 @@ const projectQuestions = [
   'Какие проблемы повторяются?',
   'Что осталось невыясненным?',
 ];
+
 /** Project overview chat: a real saved conversation, pinned to the project and listed in recent chats. */
 function ProjectChatDock() {
   const {
@@ -2696,14 +2589,18 @@ function Home() {
     </div>
   );
 }
+
 const summaryQuestions = [
   'Что исправить в первую очередь?',
   'Какие проблемы повторяются?',
   'Подготовь текст для презентации',
 ];
+
 const summaryDate = new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'short' });
+
 const isActive = (s: Study) =>
   ['queued', 'running'].includes((s.activity || materialActivity(s)).state);
+
 /** «Кратко»: the saved project summary from the model, with citations. A question chip swaps the block to its answer; «Общий обзор» swaps back. */
 function ProjectSummary() {
   const { state, reader, real, receive, panel, setPanel } = useApp();
@@ -2940,6 +2837,7 @@ function ProjectSummary() {
     </section>
   );
 }
+
 /** The same file-type icons as the materials table. */
 function MaterialIcon({ study }: { study: Study }) {
   const ext = study.fileName
@@ -2954,6 +2852,7 @@ function MaterialIcon({ study }: { study: Study }) {
         : File;
   return <Icon className="material-rail-icon" size={20} aria-hidden="true" />;
 }
+
 const materialMeta = (s: Study) =>
   [
     s.type,
@@ -2966,6 +2865,7 @@ const materialMeta = (s: Study) =>
   ]
     .filter((x) => x && x !== '—')
     .join(' · ');
+
 /** Second line of a material in the overview column: its facts, or what is happening to it, as plain text. */
 function MaterialProgress({ study: s }: { study: Study }) {
   const activity = s.activity || materialActivity(s);
@@ -2986,9 +2886,12 @@ function MaterialProgress({ study: s }: { study: Study }) {
     </span>
   );
 }
+
 // The overview card stays short: the full list lives on the materials tab.
 const RAIL_LIMIT = 8;
+
 const isRecording = (s: Study) => s.format === 'Видео' || s.duration >= 60;
+
 /** One file of a row as a small link: a recording shows its length, a document its size. */
 function MaterialChip({ study: s, single }: { study: Study; single: boolean }) {
   const activity = s.activity || materialActivity(s),
@@ -3017,6 +2920,7 @@ function MaterialChip({ study: s, single }: { study: Study; single: boolean }) {
     </a>
   );
 }
+
 /** Overview card of materials: report first, then work in progress and fresh files, grouped by name; one ZIP for all files. */
 function ProjectMaterials() {
   const { state, open, reader } = useApp(),
@@ -3137,6 +3041,7 @@ function ProjectMaterials() {
     </section>
   );
 }
+
 const sourceIcons: Record<string, LucideIcon> = {
   mp4: FileVideo,
   mov: FileVideo,
@@ -3151,6 +3056,7 @@ const sourceIcons: Record<string, LucideIcon> = {
   xls: FileSpreadsheet,
   xlsx: FileSpreadsheet,
 };
+
 function MaterialLink({ study }: { study: Study }) {
   const ext = study.fileName
     ?.trim()
@@ -3176,6 +3082,7 @@ function MaterialLink({ study }: { study: Study }) {
     </a>
   );
 }
+
 function StudyTable({ studies }: { studies: Study[] }) {
   const compact = useCompactLayout();
   if (compact)
@@ -3285,9 +3192,11 @@ function StudyTable({ studies }: { studies: Study[] }) {
     </div>
   );
 }
+
 function LibraryPage() {
   return <ResearchList />;
 }
+
 function ResearchList({ embedded = false }: { embedded?: boolean }) {
   const { state, projectName, reader } = useApp();
   const [filter, setFilter] = useState('Все');
@@ -3351,8 +3260,6 @@ function ResearchList({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-const backdropRoute = { current: 'library' };
-const settingsBackdrop = { current: 'research' };
 function SettingsModal({
   tab,
   tabs,
@@ -3483,6 +3390,7 @@ function SettingsModal({
     </Modal>
   );
 }
+
 function StudyModal({ back, animateEntry }: { back: string; animateEntry: boolean }) {
   const { route, state } = useApp();
   const study = state.studies.find((s) => route === 'study/' + s.id);
@@ -3628,13 +3536,14 @@ function StudyModal({ back, animateEntry }: { back: string; animateEntry: boolea
           </div>
         </header>
         <div className="study-sheet-scroll">
-          <Study key={route} headerActions={headerActions} />
+          <StudyScreen key={route} headerActions={headerActions} />
         </div>
       </div>
     </div>
   );
 }
-function Study({ headerActions }: { headerActions?: HTMLDivElement | null }) {
+
+function StudyScreen({ headerActions }: { headerActions?: HTMLDivElement | null }) {
   const ctx = useApp();
   const study = ctx.state.studies.find((s) => ctx.route === 'study/' + s.id);
   if (!study)
@@ -3659,6 +3568,7 @@ function Study({ headerActions }: { headerActions?: HTMLDivElement | null }) {
     />
   );
 }
+
 function FindingMeta({
   f,
   showStatus,
@@ -3695,6 +3605,7 @@ function FindingMeta({
     </div>
   );
 }
+
 function History({ f }: { f: Finding }) {
   return f.history?.length ? (
     <ol className="history" aria-label="История проверки">
@@ -3706,6 +3617,7 @@ function History({ f }: { f: Finding }) {
     </ol>
   ) : null;
 }
+
 export function FindingCard({ f: raw, compact = false }: { f: Finding; compact?: boolean }) {
   const { state, openPanel, reader } = useApp();
   const f = normalize(raw);
@@ -3729,6 +3641,7 @@ export function FindingCard({ f: raw, compact = false }: { f: Finding; compact?:
     </Card>
   );
 }
+
 export function Findings({ embedded = false }: { embedded?: boolean }) {
   const compact = useCompactLayout();
   useLayoutEffect(() => restoreRouteScroll(), []);
@@ -4218,20 +4131,22 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
     </>
   );
 }
+
 // Repeats are counted inside the current project among findings the viewer may see.
 const repeatPlace = (n: number) => 'в ' + n + ' материалах';
+
 function useRepeats() {
   const { state } = useApp();
   return useMemo(() => findingRepeats(state.findings.map(normalize)), [state.findings]);
 }
-const segmentsOf = (s?: Study | null): Segment[] =>
-  s?.segments?.length ? s.segments : DEMO && s ? transcript : [];
+
 const KIND_TABS: [string, string][] = [
   ['Проблема', 'Проблемы'],
   ['Инсайт', 'Инсайты'],
   ['Рекомендация', 'Рекомендации'],
   ['Цифра', 'Цифры'],
 ];
+
 /** Five segments: the share of ready materials where the finding repeats, coloured by importance. */
 function Strength({
   value,
@@ -4251,6 +4166,7 @@ function Strength({
     </span>
   );
 }
+
 function FindingsDigest() {
   const { state, reader } = useApp();
   const repeats = useRepeats();
@@ -4374,6 +4290,7 @@ function FindingsDigest() {
     </section>
   );
 }
+
 function FindingPage() {
   const { state, route, openPanel, update, open, notify, projectName, reader } = useApp();
   const repeats = useRepeats();
@@ -4625,6 +4542,7 @@ function FindingPage() {
     </article>
   );
 }
+
 /** Longer answers are uncovered for longer, like a streamed reply; capped so nobody waits. */
 const revealMessage = (el: HTMLElement | null) => {
   if (el && !el.style.getPropertyValue('--reveal-ms'))
@@ -4633,6 +4551,7 @@ const revealMessage = (el: HTMLElement | null) => {
       Math.round(Math.min(3200, Math.max(900, el.scrollHeight * 3.5))) + 'ms',
     );
 };
+
 function Models() {
   const { state, update, open, notify, user, real } = useApp();
   const [checks, setChecks] = useState<Record<string, string>>({});
@@ -4808,6 +4727,7 @@ function Models() {
     </>
   );
 }
+
 function Processors() {
   const { state } = useApp();
   return (
@@ -4878,7 +4798,9 @@ function UserStatus({ user }: { user: WorkspaceUser }) {
     </div>
   );
 }
+
 type UserAction = 'grant-admin' | 'remove-admin' | 'revoke' | 'restore' | 'delete';
+
 function UsersPage() {
   const { state, update, removeUser, open, notify, user, projectName } = useApp();
   const compact = useCompactLayout('(max-width: 850px)');
@@ -5185,6 +5107,7 @@ function UsersPage() {
     </>
   );
 }
+
 function SourcePanel() {
   const { panel, panelClosing, setPanel, state, go, openGlobalSource, reader } = useApp();
   const list = useRef(null),
@@ -5435,12 +5358,15 @@ function SourcePanel() {
     </aside>
   );
 }
+
 // Material titles read as "who said it"; «Тест чата · Респондент 1» keeps its last part.
 const materialCount = (list: ChatSource[]) => new Set(list.map((x) => x.studyId)).size;
+
 const sourcesHeading = (list: ChatSource[]) =>
   materialCount(list) === 1
     ? list[0].title
     : 'Цитаты из ' + plural(materialCount(list), 'материала', 'материалов', 'материалов');
+
 function AnswerText({
   id,
   text,
@@ -5657,6 +5583,7 @@ function FormField({
     </div>
   );
 }
+
 function AppDialog() {
   const ctx = useApp();
   const { dialog: d, open, state, update, receive, real, notify, go, files, reader } = ctx;
