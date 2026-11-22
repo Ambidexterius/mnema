@@ -1,3 +1,4 @@
+import { backendBuildId } from './build-id.ts';
 import { handleAuth, handleProfile, isAuthPath } from './auth/routes.ts';
 import { handleMcpManagement, handlePublicMcp, matchPublicMcpRoute } from './mcp/routes.ts';
 import { handleModeration, isModerationPath } from './admin/moderation-route.ts';
@@ -65,7 +66,7 @@ import {
   truncate,
   rm,
 } from 'node:fs/promises';
-import { createReadStream, createWriteStream, readFileSync, readdirSync } from 'node:fs';
+import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Transform, Readable } from 'node:stream';
 import {
@@ -166,31 +167,13 @@ process.umask(0o077);
 const packageInfo = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const VERSION: string = packageInfo.version;
 // Identify the loaded backend even when several fixes share one product version.
-const sourceBuild = createHash('sha256').update(
-  JSON.stringify({
-    version: VERSION,
-    dependencies: Object.fromEntries(
-      Object.entries(packageInfo.dependencies).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-    ),
-  }),
-);
-for (const name of readdirSync(new URL('.', import.meta.url))
-  .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-  .sort())
-  sourceBuild
-    .update(name)
-    .update('\0')
-    .update(readFileSync(new URL(name, import.meta.url)));
 const bundledExtension = await loadExtension(process.env.MNEMA_APP_EXTENSION === '1');
-if (bundledExtension)
-  for (const name of readdirSync(new URL('./private/', import.meta.url))
-    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-    .sort())
-    sourceBuild
-      .update('private/' + name)
-      .update('\0')
-      .update(readFileSync(new URL('./private/' + name, import.meta.url)));
-export const BUILD_ID = sourceBuild.digest('hex').slice(0, 16);
+export const BUILD_ID = backendBuildId(
+  new URL('.', import.meta.url),
+  VERSION,
+  packageInfo.dependencies,
+  Boolean(bundledExtension),
+);
 const hash = (v) => createHash('sha256').update(v).digest('hex');
 const safeEqual = (a, b) =>
   typeof a === 'string' &&
