@@ -1,3 +1,4 @@
+import { handleNews } from './admin/news-route.ts';
 import { fail, json, readJsonBody } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration, corporateEmail } from './registration.ts';
@@ -2373,21 +2374,11 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
             fail(403, 'Оценки ответов доступны администратору.');
           return json(res, 200, { feedback: feedback.list(person) });
         }
-        if (path === '/api/news' && req.method === 'GET')
-          return json(res, 200, { posts: news.list() });
-        const changeNews =
-          (req.method === 'PATCH' || req.method === 'DELETE') &&
-          path.match(/^\/api\/news\/([a-zA-Z0-9.-]+)$/);
-        if ((path === '/api/news' && req.method === 'POST') || changeNews) {
-          if (!person.owner) fail(403, 'Только администратор аккаунта может менять новости.');
-          const changes = await body(req);
-          if (!(await session(req))?.owner)
-            fail(403, 'Только администратор аккаунта может менять новости.');
-          if (!changeNews) news.create(changes);
-          else if (req.method === 'DELETE') news.remove(changeNews[1], changes);
-          else news.edit(changeNews[1], changes);
-          return json(res, changeNews ? 200 : 201, { posts: news.list() });
-        }
+        if (
+          (path === '/api/news' || path.startsWith('/api/news/')) &&
+          (await handleNews(req, res, path, person.owner, { news, body, session }))
+        )
+          return;
         if (path === '/api/ideas' && req.method === 'GET')
           return json(res, 200, {
             ideas: ideas.list(person, ideaLocationAccess(person)),
