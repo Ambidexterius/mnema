@@ -18,6 +18,7 @@ interface UploadServices extends Pick<RequestServices, 'body' | 'limit'> {
   q: ReturnType<typeof openDatabase>['q'];
   db: Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
   dir: string;
+  fromTables: boolean;
   quota: number;
   currentWs: () => string;
   recordingProcessor?: (...args: any[]) => unknown;
@@ -32,6 +33,7 @@ export function createUploads({
   q,
   db,
   dir,
+  fromTables,
   quota,
   currentWs,
   getState,
@@ -78,7 +80,9 @@ export function createUploads({
   function hasUploadStudy(id: string, workspaceId: string) {
     return Boolean(
       q(
-        "SELECT 1 FROM mnema_workspaces w, json_each(w.data,'$.studies') s WHERE w.id=? AND json_extract(s.value,'$.fileId')=?",
+        fromTables
+          ? "SELECT 1 FROM mnema_studies WHERE workspace_id=? AND json_extract(meta, '$.fileId')=?"
+          : "SELECT 1 FROM mnema_workspaces w, json_each(w.data,'$.studies') s WHERE w.id=? AND json_extract(s.value,'$.fileId')=?",
       ).get(workspaceId, id),
     );
   }

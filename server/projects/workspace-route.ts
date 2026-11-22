@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { openDatabase } from '../db.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import type { createAnswerFeedback } from '../answer-feedback.ts';
+import type { WorkspaceReader } from './store.ts';
 import type { ServerExtension } from '../extension.ts';
 
 interface WorkspaceServices extends RequestServices {
@@ -17,6 +18,7 @@ interface WorkspaceServices extends RequestServices {
   q: ReturnType<typeof openDatabase>['q'];
   db: Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
   dir: string;
+  readWorkspace: WorkspaceReader;
   uploadBusy: ReadonlySet<string>;
   feedback: Pick<ReturnType<typeof createAnswerFeedback>, 'forgetStudy'>;
   extension?: Pick<ServerExtension, 'removeFiles'>;
@@ -40,6 +42,7 @@ export async function handleWorkspace(
     q,
     db,
     dir,
+    readWorkspace,
     uploadBusy,
     feedback,
     extension,
@@ -143,8 +146,9 @@ export async function handleWorkspace(
         return handledJson(res, 200, { ok: true });
       }
       if (req.method !== 'DELETE') fail(405, 'Метод недоступен.');
-      const project = q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(id),
-        state = JSON.parse(project.data);
+      const project = readWorkspace(id);
+      if (!project) fail(404, 'Проект не найден.');
+      const { state } = project;
       if (b.name !== project.name)
         fail(409, 'Название проекта изменилось. Обновите страницу и повторите удаление.');
       if (

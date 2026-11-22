@@ -7,11 +7,44 @@ import { legacyFinding } from '../analysis/review.ts';
 import type { modelKeyStore } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import { resumePendingSummaries } from '../summaries.ts';
-import type { initializeWorkspaceProjection } from './projection.ts';
+import {
+  createWorkspaceProjectionReader,
+  type initializeWorkspaceProjection,
+} from './projection.ts';
 
 type Database = Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
 type Prepare = ReturnType<typeof openDatabase>['q'];
 type WriteProjection = ReturnType<typeof initializeWorkspaceProjection>['write'];
+
+export type WorkspaceReader = (
+  id: string,
+) => { version: number; name: string; state: any } | undefined;
+
+export function createWorkspaceReader(
+  db: ReturnType<typeof openDatabase>['db'],
+  q: Prepare,
+  fromTables: boolean,
+): WorkspaceReader {
+  if (!fromTables) {
+    const original = q('SELECT version,name,data FROM mnema_workspaces WHERE id=?');
+    return (id) => {
+      const row = original.get(id);
+      return row && { version: row.version, name: row.name, state: JSON.parse(row.data) };
+    };
+  }
+  const metadata = q('SELECT version,name FROM mnema_workspaces WHERE id=?');
+  const readState = createWorkspaceProjectionReader(db);
+  return (id) => {
+    const isolated = !db.isTransaction;
+    if (isolated) db.exec('BEGIN');
+    try {
+      const row = metadata.get(id);
+      return row && { version: row.version, name: row.name, state: readState(id) };
+    } finally {
+      if (isolated) db.exec('ROLLBACK');
+    }
+  };
+}
 
 const emptyState = () => ({
   studies: [],
@@ -125,12 +158,13 @@ export function createWorkspaceFactory({
 }
 
 interface ProjectStoreServices {
-  db: Database;
+  db: ReturnType<typeof openDatabase>['db'];
   q: Prepare;
   currentWs: () => string;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
   modelKeys: ReturnType<typeof modelKeyStore>;
   writeProjection: WriteProjection;
+  readWorkspace?: WorkspaceReader;
 }
 
 export function createProjectStore({
@@ -140,11 +174,12 @@ export function createProjectStore({
   wsStore,
   modelKeys,
   writeProjection,
+  readWorkspace = createWorkspaceReader(db, q, false),
 }: ProjectStoreServices) {
   const getState = () => {
-    const row = q('SELECT * FROM mnema_workspaces WHERE id=?').get(currentWs());
+    const row = readWorkspace(currentWs());
     if (!row) fail(404, 'Пространство не найдено.');
-    return { version: row.version, state: JSON.parse(row.data) };
+    return { version: row.version, state: row.state };
   };
   const mutate = (fn: (state: any) => void) => {
     db.exec('BEGIN IMMEDIATE');

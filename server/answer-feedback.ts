@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import type { WorkspaceReader } from './projects/store.ts';
 
 type Member = { id: string; role: string };
 type Person = { id: string; workspaces: Member[] };
@@ -31,6 +32,7 @@ export function createAnswerFeedback(
   secret: string,
   build: string,
   readProject?: (person: Person, workspaceId: string) => any[],
+  readWorkspace?: WorkspaceReader,
 ) {
   db.exec(`CREATE TABLE IF NOT EXISTS mnema_answer_feedback(
     answer_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rating TEXT NOT NULL CHECK(rating IN ('up','down')),
@@ -135,7 +137,12 @@ export function createAnswerFeedback(
   }
   // Admin review: newest ratings with author name, project names and source titles; tokens and signatures stay out.
   function list(person: Person) {
-    const workspace = db.prepare('SELECT name,data FROM mnema_workspaces WHERE id=?');
+    const lookup =
+      readWorkspace ??
+      ((id: string) => {
+        const row = db.prepare('SELECT name,data FROM mnema_workspaces WHERE id=?').get(id);
+        return row && { name: String(row.name), state: JSON.parse(String(row.data)) };
+      });
     const cache = new Map<
         string,
         { name: string; studies: { id: string; title?: string }[] } | null
@@ -143,12 +150,10 @@ export function createAnswerFeedback(
       visible = new Map<string, any[]>();
     const ws = (id: string) => {
       if (!cache.has(id)) {
-        const row = workspace.get(id) as any;
+        const row = lookup(id);
         cache.set(
           id,
-          row
-            ? { name: String(row.name || ''), studies: JSON.parse(String(row.data)).studies || [] }
-            : null,
+          row ? { name: String(row.name || ''), studies: row.state.studies || [] } : null,
         );
       }
       return cache.get(id);

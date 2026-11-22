@@ -1,4 +1,10 @@
 import {createMnemaServer} from '../server/server.ts';
+import {initializeWorkspaceProjection} from '../server/projects/projection.ts';
+
+export function seedWorkspaceFixture(db, sql, ...params) {
+ db.prepare(sql).run(...params);
+ if(process.env.MNEMA_READ_WORKSPACE_TABLES==='1') initializeWorkspaceProjection(db);
+}
 import {randomBytes} from 'node:crypto';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -28,7 +34,7 @@ export async function createUIFixture(port=4461,answer='Синтетически
  state.studies.push({...state.studies[0],id:'report',fileId:'ui-report',fileName:'Отчёт.txt',title:'Отчёт по тестированию бронирования',type:'Отчёт',report:'ready',segments:[{id:'report-segment',speaker:'Документ',time:0,text:reportText}]});
  state.findings=[{id:'finding',studyId:'sample',segmentId:'segment',title:'Нет ответа до оплаты',description:'Синтетический пример для проверки интерфейса.',kind:'Проблема',importance:'Критично',status:'verified',origin:'human',significant:false,history:[]}];
  state.projectProfile={category:'Продукт',report:'none',conducted:'',method:'Тест',audience:'Синтетические данные',contact:'',revision:1};
- app.db.prepare("UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'").run('Тест интерфейса',JSON.stringify(state),user.id);
+ seedWorkspaceFixture(app.db,"UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'",'Тест интерфейса',JSON.stringify(state),user.id);
  for(const name of ['Другой раздел','Длинное название для проверки переноса текста на телефоне']){const r=await fetch(base+'/api/workspaces',{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','X-Mnema-Request':'1'},body:JSON.stringify({name})});if(r.status!==201)throw Error('Cannot create project fixture')}
  return {base,cookies,credentials,app,async close(){app.notifications.close();app.server.closeAllConnections();await new Promise(r=>app.server.close(r));app.storage.close();app.db.close();await rm(dir,{recursive:true,force:true});delete process.env.LLM_KEY_CUSTOM2}};
 }

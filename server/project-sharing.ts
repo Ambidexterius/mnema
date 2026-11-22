@@ -4,7 +4,7 @@ import { routeHref } from '../app/routes.ts';
 const fail = (status: number, message: string): never => {
   throw Object.assign(new Error(message), { status });
 };
-export function createProjectSharing(db: any, baseURL: string, secret: string) {
+export function createProjectSharing(db: any, baseURL: string, secret: string, fromTables = false) {
   const q = (sql: string) => db.prepare(sql);
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -59,8 +59,11 @@ export function createProjectSharing(db: any, baseURL: string, secret: string) {
       b = Buffer.from(token(id, r));
     return a.length === b.length && timingSafeEqual(a, b);
   };
+  const revision = fromTables
+    ? '(SELECT data_hash FROM mnema_projection_source WHERE workspace_id=w.id)'
+    : 'length(w.data)';
   const projects = (userId: string) =>
-    q(`SELECT w.id,w.name,w.version,length(w.data) AS data_length,s.mode,s.owner_id,m.role AS member_role,m.admin AS member_admin,m.grant_source,
+    q(`SELECT w.id,w.name,w.version,${revision} AS data_length,s.mode,s.owner_id,m.role AS member_role,m.admin AS member_admin,m.grant_source,
  CASE WHEN s.owner_id=? THEN 'full' WHEN m.revoked=0 AND (m.grant_source='explicit' OR s.mode='legacy') THEN m.role ELSE 'view' END AS role,
  CASE WHEN s.owner_id=? THEN 1 ELSE 0 END AS admin,
  (SELECT count(*) FROM mnema_members members WHERE members.workspace_id=w.id AND members.revoked=0) AS member_count
@@ -74,7 +77,7 @@ export function createProjectSharing(db: any, baseURL: string, secret: string) {
     );
   const linkProject = (id: string) => {
     const r = q(
-      "SELECT w.id,w.name,w.version,length(w.data) AS data_length,s.mode,s.owner_id,s.nonce,'view' AS role,0 AS admin,0 AS member_count FROM mnema_workspaces w JOIN mnema_project_sharing s ON s.workspace_id=w.id WHERE w.id=?",
+      `SELECT w.id,w.name,w.version,${revision} AS data_length,s.mode,s.owner_id,s.nonce,'view' AS role,0 AS admin,0 AS member_count FROM mnema_workspaces w JOIN mnema_project_sharing s ON s.workspace_id=w.id WHERE w.id=?`,
     ).get(id);
     return r;
   };

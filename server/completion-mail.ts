@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
+import type { WorkspaceReader } from './projects/store.ts';
 export interface CompletionMail {
   to: string;
   subject: string;
@@ -150,15 +151,23 @@ export function createCompletionMailer({
   baseURL,
   send,
   getAccess,
+  readWorkspace,
 }: {
   db: DatabaseSync;
   baseURL: string;
   send?: (message: CompletionMail) => Promise<void>;
   getAccess?: (userId: string, workspaceId: string) => { role: string } | undefined;
+  readWorkspace?: WorkspaceReader;
 }) {
   const enabled = Boolean(send) || smtpConfigured();
   const deliver = send || sendSmtp;
   const q = (sql: string) => db.prepare(sql) as any;
+  const lookup =
+    readWorkspace ??
+    ((id: string) => {
+      const row = q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(id);
+      return row && { name: row.name, state: JSON.parse(row.data) };
+    });
   db.exec(
     "CREATE TABLE IF NOT EXISTS mnema_completion_mail(job_id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,study_id TEXT NOT NULL,user_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0)",
   );
@@ -178,8 +187,8 @@ export function createCompletionMailer({
       for (const job of q(
         "SELECT * FROM mnema_completion_mail WHERE status='pending' AND next_at<=? LIMIT 20",
       ).all(Date.now())) {
-        const ws = q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(job.workspace_id);
-        const study = ws && JSON.parse(ws.data).studies.find((s) => s.id === job.study_id);
+        const ws = lookup(job.workspace_id);
+        const study = ws?.state.studies.find((s) => s.id === job.study_id);
         const person = getAccess
           ? q(
               'SELECT u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0',

@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { WorkspaceState } from '../../app/types.ts';
+import {
+  decodeWorkspaceProjection,
+  encodeWorkspaceReadMeta,
+  workspaceReadMetaTable,
+} from './projection-read.ts';
 
 const tables = [
   {
@@ -97,7 +102,8 @@ const tables = [
 
 type ProjectionTable = (typeof tables)[number]['name'];
 type Row = SQLInputValue[];
-type Rows = Record<ProjectionTable, Row[]>;
+export type ProjectionRows = Record<ProjectionTable, Row[]>;
+type Rows = ProjectionRows;
 type StoredState = Pick<WorkspaceState, 'studies' | 'findings' | 'highlights'> & {
   projectSummary?: { at?: number; model?: string };
 };
@@ -262,7 +268,12 @@ function createProjectionTables(db: DatabaseSync) {
       'CREATE INDEX IF NOT EXISTS mnema_analysis_jobs_by_status ON mnema_analysis_jobs(status,next_at);' +
       'CREATE TABLE IF NOT EXISTS mnema_projection_source (' +
       'workspace_id TEXT PRIMARY KEY REFERENCES mnema_workspaces(id) ON DELETE CASCADE,' +
-      'data_hash TEXT NOT NULL) WITHOUT ROWID',
+      'data_hash TEXT NOT NULL) WITHOUT ROWID;' +
+      'CREATE TABLE IF NOT EXISTS ' +
+      workspaceReadMetaTable +
+      ' (' +
+      'workspace_id TEXT PRIMARY KEY REFERENCES mnema_workspaces(id) ON DELETE CASCADE,' +
+      'data_hash TEXT NOT NULL, meta TEXT NOT NULL) WITHOUT ROWID',
   );
 }
 
@@ -292,29 +303,45 @@ function rowsMatch(left: ReadonlyMap<string, Row>, right: ReadonlyMap<string, Ro
 /** A read-only check of all populated columns and ordered child rows. It emits counts and IDs only. */
 export function compareWorkspaceProjection(db: DatabaseSync) {
   const reads = readTables(db);
+  const readMeta = db.prepare(
+    'SELECT meta FROM ' + workspaceReadMetaTable + ' WHERE workspace_id=?',
+  );
   const sources = db
     .prepare('SELECT id,data FROM mnema_workspaces ORDER BY id')
     .iterate() as Iterable<Source>;
-  const projects: { id: string; counts: Record<string, number>; differences: ProjectionTable[] }[] =
-    [];
+  const projects: {
+    id: string;
+    counts: Record<string, number>;
+    differences: (ProjectionTable | typeof workspaceReadMetaTable)[];
+  }[] = [];
   for (const source of sources) {
     const expected = projectRows(source.data);
-    const differences: ProjectionTable[] = [];
+    const differences: (ProjectionTable | typeof workspaceReadMetaTable)[] = [];
+    const actual = {} as Rows;
     const counts: Record<string, number> = {};
     for (const table of reads) {
       const stored = table.read(source.id);
       const rows = expected[table.name];
       counts[table.name] = stored.size;
+      actual[table.name] = [...stored.values()];
       if (
         !rowsMatch(new Map(rows.map((row) => [table.rowKey(row), row])), stored) ||
         rows.length !== stored.size
       )
         differences.push(table.name);
     }
+    const supplemental = readMeta.get(source.id);
+    if (
+      !supplemental ||
+      (!differences.length &&
+        canonical(decodeWorkspaceProjection(String(supplemental.meta), actual)) !==
+          canonical(JSON.parse(source.data)))
+    )
+      differences.push(workspaceReadMetaTable);
     projects.push({ id: source.id, counts, differences });
   }
   // A write from an older connection with foreign keys off must also be detectable.
-  const orphans = tables.flatMap(({ name }) =>
+  const orphans = [...tables.map(({ name }) => name), workspaceReadMetaTable].flatMap((name) =>
     db
       .prepare(
         'SELECT 1 FROM ' +
@@ -372,6 +399,15 @@ export function initializeWorkspaceProjection(db: DatabaseSync) {
       'INSERT INTO mnema_projection_source(workspace_id,data_hash) VALUES(?,?) ' +
         'ON CONFLICT(workspace_id) DO UPDATE SET data_hash=excluded.data_hash',
     );
+    const readShapeHash = db.prepare(
+      'SELECT data_hash FROM ' + workspaceReadMetaTable + ' WHERE workspace_id=?',
+    );
+    const saveReadMeta = db.prepare(
+      'INSERT INTO ' +
+        workspaceReadMetaTable +
+        '(workspace_id,data_hash,meta) VALUES(?,?,?) ' +
+        'ON CONFLICT(workspace_id) DO UPDATE SET data_hash=excluded.data_hash,meta=excluded.meta',
+    );
     // The caller's SQLite transaction commits the original JSON, all changed rows and this marker together.
     function write(workspace: string, data: string, checksum = hash(data)) {
       if (!db.isTransaction) throw new Error('Workspace projection requires a transaction');
@@ -388,6 +424,7 @@ export function initializeWorkspaceProjection(db: DatabaseSync) {
           table.remove.run(workspace, ...row.slice(0, table.key));
       }
       recordHash.run(workspace, checksum);
+      saveReadMeta.run(workspace, checksum, encodeWorkspaceReadMeta(JSON.parse(data), expected));
     }
 
     let rebuilt = 0;
@@ -396,7 +433,10 @@ export function initializeWorkspaceProjection(db: DatabaseSync) {
       .iterate() as Iterable<Source>;
     for (const source of sources) {
       const checksum = hash(source.data);
-      if (sourceHash.get(source.id)?.data_hash !== checksum) {
+      if (
+        sourceHash.get(source.id)?.data_hash !== checksum ||
+        readShapeHash.get(source.id)?.data_hash !== checksum
+      ) {
         write(source.id, source.data, checksum);
         rebuilt++;
       }
@@ -420,4 +460,17 @@ export function projectionTotals(report: ReturnType<typeof compareWorkspaceProje
   for (const project of report.projects)
     for (const [table, count] of Object.entries(project.counts)) counts[table] += count;
   return { projects: report.projects.length, counts };
+}
+
+export function createWorkspaceProjectionReader(db: DatabaseSync) {
+  const tables = readTables(db);
+  const meta = db.prepare('SELECT meta FROM ' + workspaceReadMetaTable + ' WHERE workspace_id=?');
+  return (id: string) => {
+    const row = meta.get(id);
+    if (!row) throw new Error('Missing workspace table read metadata');
+    const data = Object.fromEntries(
+      tables.map((table) => [table.name, [...table.read(id).values()]]),
+    ) as Rows;
+    return decodeWorkspaceProjection(String(row.meta), data);
+  };
 }

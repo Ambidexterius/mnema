@@ -3,7 +3,7 @@ import {existsSync} from 'node:fs';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {createUIFixture} from './ui-fixture.mjs';
+import {createUIFixture,seedWorkspaceFixture} from './ui-fixture.mjs';
 
 const chrome=process.env.CHROME_PATH||['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/usr/bin/google-chrome','/usr/bin/chromium'].find(existsSync);
 if(!chrome)throw Error('Set CHROME_PATH to the installed Chrome/Chromium binary');
@@ -259,7 +259,7 @@ try{
   await run(theme+': overview materials column stays short in a large project',async()=>{
    const row=fixture.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get(),state=JSON.parse(row.data),base=state.studies.find(s=>s.id==='sample');
    const extra=Array.from({length:40},(_,i)=>({...base,id:'bulk'+i,title:'Интервью № '+i,date:'2026-11-0'+(1+i%9),...(i===39?{status:'error'}:{})}));
-   fixture.app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(JSON.stringify({...state,studies:[...state.studies,...extra]}));
+   seedWorkspaceFixture(fixture.app.db,"UPDATE mnema_workspaces SET data=? WHERE id='main'",JSON.stringify({...state,studies:[...state.studies,...extra]}));
    try{
     for(const width of [320,390,768,1024,1440]){await page.setViewportSize({width,height:844});await goto('/projects/main');const rows=page.locator('.material-groups>li');await rows.first().waitFor();
      // Up to eight files, report first, then work in progress; no «Ещё N файлов» row: the footer links to all materials.
@@ -281,7 +281,7 @@ try{
      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await screenshot('overview-many-materials-'+width);
     }
     await page.getByRole('link',{name:'Все материалы',exact:true}).click();await page.locator('.study-table').waitFor();
-   }finally{fixture.app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(row.data)}
+   }finally{seedWorkspaceFixture(fixture.app.db,"UPDATE mnema_workspaces SET data=? WHERE id='main'",row.data)}
   });
   await run(theme+': single-key creation always enabled, visible hints and no settings switch',async()=>{
    await page.evaluate(()=>{const key='ai-hyposut.demo.v1',saved=JSON.parse(localStorage.getItem(key)||'{}');localStorage.setItem(key,JSON.stringify({...saved,version:1,data:{...saved.data,shortcutsEnabled:false}}))});await page.reload();await page.locator('.app-shell').waitFor();
@@ -673,7 +673,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
  }
  const db=fixture.app.db;
  const readProject=()=>JSON.parse(db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);
- const saveProject=state=>db.prepare("UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'").run(JSON.stringify(state));
+ const saveProject=state=>seedWorkspaceFixture(db,"UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'",JSON.stringify(state));
  await run('recording tab status is personal, survives switching projects and follows transcription and speaker detection',async()=>{
   const context=await browser.newContext();await context.addCookies(fixture.cookies);
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));

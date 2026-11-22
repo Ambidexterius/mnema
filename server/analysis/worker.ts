@@ -7,6 +7,7 @@ import { extractFindings, dedupeWithModel } from '../finding-extraction.ts';
 
 interface AnalysisWorkerServices {
   q: ReturnType<typeof openDatabase>['q'];
+  fromTables: boolean;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'projects'>;
   currentWs: () => string;
@@ -19,6 +20,7 @@ interface AnalysisWorkerServices {
 }
 export function createAnalysisWorker({
   q,
+  fromTables,
   wsStore,
   getState,
   mutate,
@@ -245,6 +247,17 @@ export function createAnalysisWorker({
     });
   };
   const nextSummary = () => {
+    if (fromTables) {
+      const queued = q(
+        'SELECT j.workspace_id AS workspaceId,j.study_id AS studyId,j.kind FROM mnema_analysis_jobs j ' +
+          'JOIN mnema_workspaces w ON w.id=j.workspace_id ' +
+          'JOIN mnema_studies s ON s.workspace_id=j.workspace_id AND s.id=j.study_id ' +
+          "WHERE j.status='queued' ORDER BY w.rowid,j.kind DESC,s.seq",
+      ).all();
+      return (
+        queued.find((task) => !deletingStudies.has(jobKey(task.workspaceId, task.studyId))) ?? null
+      );
+    }
     for (const ws of q('SELECT id,data FROM mnema_workspaces').all()) {
       const studies = JSON.parse(ws.data).studies.filter(
         (s) => !deletingStudies.has(jobKey(ws.id, s.id)),

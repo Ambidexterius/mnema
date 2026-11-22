@@ -1,3 +1,4 @@
+import {seedWorkspaceFixture} from './ui-fixture.mjs';
 import {createMnemaServer} from '../server/server.ts';
 import {registrationEmail} from '../server/registration.ts';
 import {randomBytes} from 'node:crypto';
@@ -39,7 +40,7 @@ export async function startRegistrationFixture({port,dataDir}){
  if(!app.db.prepare("SELECT 1 FROM mnema_migrations WHERE name='registration-local-projects-v1'").get()){
   const owner=app.db.prepare('SELECT user_id FROM mnema_access WHERE admin=1').get().user_id;
   const empty=JSON.parse(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data);empty.models=[];empty.modelId='';
-  app.db.prepare("UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'").run('UX-тест чатов · локальный пример',JSON.stringify(empty),owner);
+  seedWorkspaceFixture(app.db,"UPDATE mnema_workspaces SET name=?,data=?,created_by=? WHERE id='main'",'UX-тест чатов · локальный пример',JSON.stringify(empty),owner);
   for(const [id,name] of [['booking','Бронирование · локальный пример'],['gallery','Галерея · локальный пример']]){
    app.db.prepare('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,?)').run(id,name,0,JSON.stringify(empty),Date.now(),owner);
    app.db.prepare("INSERT INTO mnema_project_sharing VALUES(?,'all',?,lower(hex(randomblob(32))))").run(id,owner);

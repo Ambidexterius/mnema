@@ -1,7 +1,7 @@
 import { studiesForReader } from '../analysis/evidence.ts';
-import type { openDatabase } from '../db.ts';
+import type { WorkspaceReader } from './store.ts';
 
-export function createProjectCards(q: ReturnType<typeof openDatabase>['q']) {
+export function createProjectCards(readWorkspace: WorkspaceReader) {
   // Every request lists the user's projects. Parsing each project's full transcripts here made
   // project switching and polling slow, so folder cards are cached per stored revision and role.
   const projectCards = new Map<
@@ -20,7 +20,7 @@ export function createProjectCards(q: ReturnType<typeof openDatabase>['q']) {
     const key = m.version + ':' + m.data_length + ':' + m.role;
     const cached = projectCards.get(m.id);
     if (cached?.key === key) return cached.card;
-    const state = JSON.parse(q('SELECT data FROM mnema_workspaces WHERE id=?').get(m.id).data);
+    const state = readWorkspace(m.id)?.state;
     const files = (
       m.role === 'full' ? state.studies : studiesForReader(state.studies, state.findings)
     ).filter((study) => study.fileId);

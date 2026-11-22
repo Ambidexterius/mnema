@@ -3,6 +3,7 @@ import { initializeWorkspaceProjection, projectionTotals } from './projects/proj
 import { createStaticHandler } from './static.ts';
 import {
   createProjectStore,
+  createWorkspaceReader,
   createWorkspaceFactory,
   migrateLegacyWorkspace,
 } from './projects/store.ts';
@@ -154,7 +155,9 @@ export async function createRuntime(
       : [];
   };
   const chats = createChatHistory(db, readableStudies);
-  const feedback = createAnswerFeedback(db, authSecret, BUILD_ID, readableStudies);
+  const feedback = createAnswerFeedback(db, authSecret, BUILD_ID, readableStudies, (id) =>
+    readWorkspace(id),
+  );
   const news = createProductNews(db, factory?.news);
   const ideas = createIdeas(db, {
     baseURL,
@@ -224,11 +227,15 @@ export async function createRuntime(
       ...projectionTotals(projection.report),
     }),
   );
-  const sharing = createProjectSharing(db, baseURL, authSecret);
+  const fromTables = process.env.MNEMA_READ_WORKSPACE_TABLES === '1';
+  const readWorkspace = createWorkspaceReader(db, q, fromTables);
+  console.info('Workspace state read source:', fromTables ? 'tables' : 'json');
+  const sharing = createProjectSharing(db, baseURL, authSecret, fromTables);
   const completionMail = createCompletionMailer({
     db,
     baseURL,
     send: options.sendCompletionMail,
+    readWorkspace,
     getAccess: (userId, workspaceId) => sharing.projects(userId).find((p) => p.id === workspaceId),
   });
   const wsStore = new AsyncLocalStorage<string>();
@@ -245,6 +252,7 @@ export async function createRuntime(
     wsStore,
     modelKeys,
     writeProjection: projection.write,
+    readWorkspace,
   });
   const createProject = createWorkspaceFactory({
     db,
@@ -290,7 +298,7 @@ export async function createRuntime(
     q,
     currentWs,
   });
-  const projectCard = createProjectCards(q);
+  const projectCard = createProjectCards(readWorkspace);
   const session = createSession({ auth, q, sharing, projectCard, news });
   const view = createProjectView({
     q,
@@ -417,6 +425,7 @@ export async function createRuntime(
   const deletingStudies = new Set<string>();
   const runAnalysis = createAnalysisWorker({
     q,
+    fromTables,
     wsStore,
     getState,
     mutate,
@@ -441,6 +450,7 @@ export async function createRuntime(
   });
   const { uploadBusy, handleUpload } = createUploads({
     q,
+    fromTables,
     db,
     dir,
     quota,
@@ -528,6 +538,7 @@ export async function createRuntime(
     quota,
     currentWs,
     getState,
+    readWorkspace,
     mutate,
     modelKey,
     deletingStudies,

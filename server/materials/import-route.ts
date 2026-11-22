@@ -3,6 +3,7 @@ import type { Person, RequestServices } from '../request-context.ts';
 import { fail, handledJson, text } from '../http.ts';
 import type { openDatabase } from '../db.ts';
 import { sourceURL, importedSegments, importFindings } from '../imports.ts';
+import type { WorkspaceReader } from '../projects/store.ts';
 import { transcriptRevision } from '../summaries.ts';
 
 interface ImportServices extends Pick<RequestServices, 'body' | 'limit'> {
@@ -10,6 +11,7 @@ interface ImportServices extends Pick<RequestServices, 'body' | 'limit'> {
   quota: number;
   currentWs: () => string;
   getState: () => { state: any };
+  readWorkspace: WorkspaceReader;
   initialState: () => { importSource: unknown };
   createProject: (name: string, person: Person, mode: string, state: any) => string;
   mutate: (change: (state: any) => void) => unknown;
@@ -28,6 +30,7 @@ export async function handleImports(
     quota,
     currentWs,
     getState,
+    readWorkspace,
     body,
     initialState,
     createProject,
@@ -67,8 +70,7 @@ export async function handleImports(
       fail(400, 'Выберите способ доступа к проекту.');
     if (!name) fail(400, 'Назовите проект.');
     for (const w of person.workspaces.filter((w) => w.admin)) {
-      const raw = q('SELECT data FROM mnema_workspaces WHERE id=?').get(w.id);
-      if (JSON.parse(raw.data).importSource?.url === url)
+      if (readWorkspace(w.id)?.state.importSource?.url === url)
         return handledJson(res, 200, { id: w.id, name: w.name });
     }
     if (person.workspaces.filter((w) => w.admin).length >= 20)
