@@ -1,3 +1,7 @@
+import { handleImports } from './materials/import-route.ts';
+import { handleFiles, handleStorage } from './materials/file-route.ts';
+import { handleStudy, handleHighlights } from './materials/study-route.ts';
+import { createUploads } from './materials/uploads.ts';
 import { handleMaterialSummary, handleFindings, handleProjectSummary } from './analysis/routes.ts';
 import {
   studiesForReader,
@@ -19,7 +23,6 @@ import { createProductNews } from './product-news.ts';
 import { createRegistration, corporateEmail } from './registration.ts';
 import { createProjectSharing } from './project-sharing.ts';
 import { createChatHistory } from './chat-history.ts';
-import { fileNameKey, existingFileMessage, uploadingFileMessage } from '../app/file-name.ts';
 import { createAnswerFeedback } from './answer-feedback.ts';
 import { requestSummary } from './summary-request.ts';
 import { loadExtension, type ServerExtension } from './extension.ts';
@@ -34,8 +37,6 @@ import {
   providerResult,
 } from './model-connections.ts';
 import { createS3Mirror, s3Config } from './s3-storage.ts';
-import { uniqueNames, writeZip } from './zip.ts';
-import { documentPreview } from './document-preview.ts';
 import { materialActivity } from '../app/material-activity.ts';
 import { collectGlobalResearch } from './global-research.ts';
 import {
@@ -47,7 +48,6 @@ import {
 import { createIdeas } from './ideas.ts';
 import type { FeedbackLocation } from '../app/feedback-context.ts';
 import { sendInvitationEmail } from './invitation-mail.ts';
-import { sourceURL, importedSegments, importFindings } from './imports.ts';
 import { sendBody, encode, pickEncoding, compressible, MIN_COMPRESS_BYTES } from './compression.ts';
 import {
   summarizeMaterial,
@@ -56,26 +56,12 @@ import {
   resumePendingSummaries,
 } from './summaries.ts';
 import { extractFindings, dedupeWithModel } from './finding-extraction.ts';
-import { quoteSegment } from '../app/highlight-text.ts';
 import http from 'node:http';
 import { configureDatabase, createCoreTables, openDatabase } from './db.ts';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {
-  mkdir,
-  readFile,
-  writeFile,
-  rename,
-  unlink,
-  stat,
-  lstat,
-  appendFile,
-  truncate,
-  rm,
-} from 'node:fs/promises';
-import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Transform, Readable } from 'node:stream';
+import { mkdir, readFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import {
   extractDocument,
   transcribeRecording,
@@ -1860,179 +1846,24 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
         kind,
       ),
     );
-  const uploadBusy = new Set<string>();
-  // Both upload routes claim a name before accepting bytes. The SQLite writer lock
-  // covers the check and reservation, including requests from different users.
-  function checkUploadName(name: string, ownReservation?: string) {
-    const key = fileNameKey(name);
-    const existing = getState().state.studies.some((study) => {
-      const originalName =
-        study.fileName ||
-        (study.fileId && q('SELECT name FROM mnema_uploads WHERE id=?').get(study.fileId)?.name);
-      return originalName && fileNameKey(originalName) === key;
-    });
-    if (existing) fail(409, existingFileMessage, { uploadCode: 'duplicate_file_name' });
-    // Sessions created before name reservations may already share a name.
-    // In that case only the earliest open session can finish first.
-    const pending = q(`SELECT u.name FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id
-   WHERE u.status='uploading' AND coalesce(json_extract(s.metadata,'$.workspaceId'),'main')=?
-   AND (? IS NULL OR s.rowid < (SELECT rowid FROM mnema_upload_sessions WHERE id=?))`).all(
-      currentWs(),
-      ownReservation ?? null,
-      ownReservation ?? null,
-    );
-    if (pending.some((row) => fileNameKey(row.name) === key)) {
-      fail(409, uploadingFileMessage, { uploadCode: 'file_name_uploading' });
-    }
-  }
-  function releasePendingUpload(id: string) {
-    q('DELETE FROM mnema_upload_sessions WHERE id=?').run(id);
-    q("DELETE FROM mnema_uploads WHERE id=? AND status='uploading'").run(id);
-  }
-  function hasUploadStudy(id: string, workspaceId: string) {
-    return Boolean(
-      q(
-        "SELECT 1 FROM mnema_workspaces w, json_each(w.data,'$.studies') s WHERE w.id=? AND json_extract(s.value,'$.fileId')=?",
-      ).get(workspaceId, id),
-    );
-  }
-  function discardUpload(id: string, status?: string) {
-    releasePendingUpload(id);
-    const paths = [id + '.part', ...(status === 'uploading' ? [id] : [])];
-    return Promise.all(paths.map((path) => unlink(join(dir, 'uploads', path)).catch(() => {})));
-  }
-  async function expireUploads() {
-    const expired =
-      q(`SELECT s.id,u.status,coalesce(json_extract(s.metadata,'$.workspaceId'),'main') AS workspaceId,
-   json_extract(s.metadata,'$.completedStudyId') AS completedStudyId
-   FROM mnema_upload_sessions s LEFT JOIN mnema_uploads u ON u.id=s.id WHERE s.created<?`).all(
-        Date.now() - 86400000,
-      );
-    const cleanup: ReturnType<typeof discardUpload>[] = [];
-    for (const { id, status, workspaceId, completedStudyId } of expired) {
-      if (uploadBusy.has(id)) continue;
-      if (!completedStudyId && hasUploadStudy(id, workspaceId)) continue;
-      cleanup.push(discardUpload(id, status));
-    }
-    await Promise.all(cleanup);
-  }
-  function reserveUpload(
-    name: string,
-    mime: string,
-    size: number,
-    userId: string,
-    metadata: object,
-  ) {
-    const id = randomUUID();
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      checkUploadName(name);
-      const used = q(
-        "SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')",
-      ).get().n;
-      if (used + size > quota) fail(413, 'Недостаточно места в хранилище.');
-      q('INSERT INTO mnema_uploads VALUES(?,?,?,?,?)').run(id, name, mime, size, 'uploading');
-      q('INSERT INTO mnema_upload_sessions VALUES(?,?,?,0,?)').run(
-        id,
-        userId,
-        JSON.stringify({ ...metadata, workspaceId: currentWs() }),
-        Date.now(),
-      );
-      db.exec('COMMIT');
-      return id;
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-  function finalizeUpload(
-    id: string,
-    name: string,
-    mime: string,
-    meta,
-    person: Person,
-    linkedStudyId?: string,
-  ) {
-    const isDoc = /\.(txt|pdf|docx|doc|xlsx|xls)$/i.test(name);
-    const autoProcess =
-      !meta.deferProcessing &&
-      (isDoc ||
-        (meta.autoProcess !== false && (options.recordingProcessor || processingReadiness().asr)));
-    let createdStudyId: string;
-    mutate((state) => {
-      let study = state.studies.find((item) => item.fileId === id);
-      if (
-        (linkedStudyId && study?.id !== linkedStudyId) ||
-        (study && deletingStudies.has(jobKey(currentWs(), study.id))) ||
-        !q(
-          'SELECT 1 FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=?',
-        ).get(id)
-      )
-        fail(409, 'Загрузка изменилась. Обновите страницу.');
-      if (!study) {
-        study = {
-          id: randomUUID(),
-          fileId: id,
-          title: text(meta.title, 140) || name,
-          description: '',
-          project: text(meta.project, 80),
-          type: ['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'].includes(meta.type)
-            ? meta.type
-            : 'Интервью',
-          format: isDoc
-            ? /\.pdf$/i.test(name)
-              ? 'PDF'
-              : /\.docx?$/i.test(name)
-                ? 'Word'
-                : /\.xlsx?$/i.test(name)
-                  ? /\.xls$/i.test(name)
-                    ? 'XLS'
-                    : 'XLSX'
-                  : 'TXT'
-            : 'Видео',
-          date: new Date().toISOString().slice(0, 10),
-          duration: 0,
-          participants: isDoc ? 0 : meta.participants || 0,
-          status: 'uploaded',
-          tags: [],
-          color: 'sage',
-          findings: 0,
-          summary: [],
-          segments: [],
-          fileName: name,
-          mime,
-          addedBy: person.name,
-          uploadedById: person.id,
-          importSource: meta.importId
-            ? { provider: 'external', fileId: meta.importId, sha256: meta.sha256 }
-            : undefined,
-          autoSummary:
-            meta.autoSummary === true
-              ? { requestedBy: person.id, modelId: state.modelId }
-              : undefined,
-        };
-        state.studies.unshift(study);
-      }
-      // Old releases could commit the material before inserting its job.
-      if (
-        autoProcess &&
-        ['uploaded', 'processing'].includes(study.status) &&
-        !activeStudyJob(study.id)
-      )
-        queueStudy(study, isDoc ? 'document' : 'asr');
-      createdStudyId = study.id;
-      q("UPDATE mnema_uploads SET status='ready' WHERE id=?").run(id);
-      q(
-        'UPDATE mnema_upload_sessions SET received=(SELECT size FROM mnema_uploads WHERE id=?),metadata=?,created=? WHERE id=?',
-      ).run(
-        id,
-        JSON.stringify({ ...meta, workspaceId: currentWs(), completedStudyId: createdStudyId }),
-        Date.now(),
-        id,
-      );
-    });
-    return createdStudyId!;
-  }
+  const { uploadBusy, handleUpload } = createUploads({
+    q,
+    db,
+    dir,
+    quota,
+    currentWs,
+    getState,
+    mutate,
+    recordingProcessor: options.recordingProcessor,
+    deletingStudies,
+    jobKey,
+    activeStudyJob,
+    queueStudy,
+    body,
+    limit,
+    view,
+    recheckWrite,
+  });
   const inviteToProject = async (person: Person, b: any) => {
     const all = b.scope === 'all' || (b.scope === undefined && person.manageUsers),
       workspace = all ? '*' : currentWs();
@@ -2258,149 +2089,29 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
         // Everything below reads and writes the workspace chosen by the mnema_ws cookie.
         wsStore.enterWith(person.workspaceId);
         if (extension && (await extension.handle(req, res, person, path))) return;
-        if (path === '/api/imports/source/status' && req.method === 'GET') {
-          if (!person.admin) fail(403, 'Перенос доступен владельцу проекта.');
-          const used = q(
-            "SELECT coalesce(sum(size),0) AS n FROM mnema_uploads WHERE status IN ('ready','uploading')",
-          ).get().n;
-          return json(res, 200, {
-            workspaceId: currentWs(),
+        if (
+          path.startsWith('/api/imports/source/') &&
+          (await handleImports(req, res, path, person, {
+            q,
             quota,
-            used,
-            files: getState()
-              .state.studies.filter(
-                (s) => s.importSource?.provider === 'external' && s.importSource.fileId,
-              )
-              .map((s) => ({
-                sourceId: s.importSource.fileId,
-                studyId: s.id,
-                ready: s.status === 'ready',
-              })),
-          });
-        }
-        if (path === '/api/imports/source/project' && req.method === 'POST') {
-          if (!person.admin) fail(403, 'Перенос доступен владельцу проекта.');
-          const b = await body(req),
-            url = sourceURL(b.url),
-            name = text(b.name, 60);
-          if (b.mode !== undefined && !['private', 'all', 'link'].includes(b.mode))
-            fail(400, 'Выберите способ доступа к проекту.');
-          if (!name) fail(400, 'Назовите проект.');
-          for (const w of person.workspaces.filter((w) => w.admin)) {
-            const raw = q('SELECT data FROM mnema_workspaces WHERE id=?').get(w.id);
-            if (JSON.parse(raw.data).importSource?.url === url)
-              return json(res, 200, { id: w.id, name: w.name });
-          }
-          if (person.workspaces.filter((w) => w.admin).length >= 20)
-            fail(409, 'Можно создать не больше 20 проектов.');
-          const st = initialState();
-          st.importSource = {
-            provider: 'external',
-            url,
-            text: String(b.text || '').slice(0, 50000),
-            importedBy: person.id,
-            importedAt: Date.now(),
-          } as any;
-          const id = createProject(name, person, b.mode || 'all', st);
-          return json(res, 201, { id, name });
-        }
-        if (path === '/api/imports/source/material' && req.method === 'POST') {
-          if (!person.admin) fail(403, 'Перенос доступен владельцу проекта.');
-          const b = await body(req),
-            segments = importedSegments(b.segments),
-            url = sourceURL(b.url);
-          const found = getState().state.studies.find(
-            (s) => s.id === b.studyId && s.importSource?.provider === 'external',
-          );
-          if (!found) fail(404, 'Сначала загрузите исходный файл в этот проект.');
-          if (q("SELECT 1 FROM mnema_jobs WHERE study_id=? AND status='running'").get(found.id))
-            fail(409, 'Дождитесь завершения обработки файла.');
-          const passport = b.passport || {};
-          mutate((st) => {
-            const item = st.studies.find((s) => s.id === found.id);
-            item.segments = segments;
-            item.status = 'ready';
-            item.progress = null;
-            item.error = null;
-            item.duration = Number.isFinite(b.duration) ? Math.max(0, b.duration) : 0;
-            item.summary = [];
-            item.summaryInfo = undefined;
-            item.importSource = { ...item.importSource, url, transcriptImported: true };
-            for (const k of ['conducted', 'method', 'audience', 'author', 'description'])
-              if (typeof passport[k] === 'string') item[k] = passport[k].slice(0, 10000);
-            item.report = passport.report === 'ready' ? 'ready' : 'none';
-            if (
-              typeof passport.reportExpected === 'string' &&
-              /^\d{4}-\d{2}-\d{2}$/.test(passport.reportExpected)
-            )
-              item.reportExpected = passport.reportExpected;
-            item.tags = ['Импорт'];
-          });
-          return json(res, 200, { ok: true, studyId: found.id });
-        }
-        if (path === '/api/imports/source/analyze' && req.method === 'POST') {
-          if (!person.admin) fail(403, 'Обработка доступна владельцу проекта.');
-          await body(req);
-          const st = getState().state;
-          if (st.importSource?.provider !== 'external') fail(409, 'Выберите перенесённый проект.');
-          const model = st.models.find((m) => m.id === st.modelId && m.enabled);
-          if (!model || !modelKey(model)) fail(503, 'Подключите модель для анализа исходников.');
-          limit('import-analysis:' + person.id, 60);
-          let queued = 0;
-          mutate((s) => {
-            for (const item of s.studies)
-              if (
-                !deletingStudies.has(jobKey(currentWs(), item.id)) &&
-                item.importSource?.fileId &&
-                item.status === 'ready' &&
-                item.segments?.length &&
-                !item.summaryInfo
-              ) {
-                item.summaryInfo = {
-                  state: 'queued',
-                  review: 'draft',
-                  revision: transcriptRevision(item.segments),
-                  modelId: model.id,
-                  requestedBy: person.id,
-                  startedAt: Date.now(),
-                  autoFindings: true,
-                };
-                queued++;
-              }
-          });
-          return json(res, 202, { queued });
-        }
-        if (path === '/api/imports/source/findings' && req.method === 'POST') {
-          if (!person.admin) fail(403, 'Перенос доступен владельцу проекта.');
-          const b = await body(req);
-          let result;
-          mutate((st) => {
-            result = importFindings(st, b.items, person);
-          });
-          return json(res, 200, result);
-        }
-        if (path === '/api/storage' && req.method === 'GET') {
-          if (!person.admin) fail(403, 'Доступно участникам с полным доступом.');
-          return json(res, 200, storageMirror.status());
-        }
-        if (path === '/api/storage/verify-backup' && req.method === 'POST') {
-          if (!person.owner) fail(403, 'Доступно владельцу сервиса.');
-          await body(req);
-          try {
-            return json(res, 200, await storageMirror.verifyBackup());
-          } catch {
-            fail(
-              503,
-              'Не удалось проверить резервную копию. Дождитесь завершения копирования и повторите.',
-            );
-          }
-        }
-        if (path === '/api/storage/sync' && req.method === 'POST') {
-          if (!person.owner) fail(403, 'Доступно владельцу сервиса.');
-          await body(req);
-          void storageMirror.tick();
-          return json(res, 202, storageMirror.status());
-        }
+            currentWs,
+            getState,
+            body,
+            initialState,
+            createProject,
+            mutate,
+            modelKey,
+            limit,
+            deletingStudies,
+            jobKey,
+          }))
+        )
+          return;
+        if (
+          (path === '/api/storage' || path.startsWith('/api/storage/')) &&
+          (await handleStorage(req, res, path, person, { storageMirror, body }))
+        )
+          return;
         if (
           (path === '/api/state' || path === '/api/workspaces/' + currentWs() + '/profile') &&
           (await handleProjectState(req, res, path, person, {
@@ -2437,495 +2148,44 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        if (path === '/api/upload-sessions' && req.method === 'POST') {
-          if (person.role !== 'full') fail(403, 'Добавление материалов недоступно.');
-          limit('upload-init:' + person.id, 60);
-          const b = await body(req),
-            name = text(b.name, 200),
-            size = b.size;
-          if (!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))
-            fail(400, 'Этот формат файла не поддерживается.');
-          if (!Number.isSafeInteger(size) || size < 1 || size > 2 * 1024 ** 3)
-            fail(413, 'Файл должен быть непустым и не больше 2 ГБ.');
-          if (
-            b.participants !== undefined &&
-            (!Number.isSafeInteger(b.participants) || b.participants < 1)
-          )
-            fail(400, 'Введите целое число участников больше нуля.');
-          await expireUploads();
-          const id = reserveUpload(
-            name,
-            text(b.mime, 100) || 'application/octet-stream',
-            size,
-            person.id,
-            {
-              title: b.title,
-              type: b.type,
-              project: b.project,
-              participants: b.participants,
-              autoSummary: b.autoSummary === true,
-              autoProcess: b.autoProcess !== false,
-              deferProcessing: person.admin && b.deferProcessing === true,
-              importId:
-                person.admin && /^[a-f0-9-]{36}$/.test(b.importId || '') ? b.importId : undefined,
-              sha256: person.admin && /^[a-f0-9]{64}$/.test(b.sha256 || '') ? b.sha256 : undefined,
-            },
-          );
-          try {
-            await writeFile(join(dir, 'uploads', id + '.part'), '', { flag: 'wx', mode: 0o600 });
-          } catch (error) {
-            releasePendingUpload(id);
-            throw error;
-          }
-          return json(res, 201, { id, offset: 0, chunkSize: 512 * 1024 });
-        }
-        if (/^\/api\/upload-sessions\/[^/]+(?:\/complete)?$/.test(path)) {
-          if (person.role !== 'full') fail(403, 'Загрузка недоступна.');
-          const id = path.split('/')[3],
-            upload = q(
-              'SELECT s.*,u.name,u.mime,u.size,u.status FROM mnema_upload_sessions s JOIN mnema_uploads u ON u.id=s.id WHERE s.id=? AND s.user_id=?',
-            ).get(id, person.id);
-          const metadata = upload && JSON.parse(upload.metadata);
-          if (!upload || (metadata.workspaceId || 'main') !== currentWs())
-            fail(404, 'Загрузка не найдена.');
-          const { completedStudyId } = metadata,
-            temporary = join(dir, 'uploads', id + '.part'),
-            destination = join(dir, 'uploads', id);
-          if (req.method === 'GET')
-            return json(res, 200, {
-              id,
-              offset: upload.received,
-              chunkSize: 512 * 1024,
-              completedStudyId,
-            });
-          if (completedStudyId) {
-            if (req.method === 'POST' && path.endsWith('/complete'))
-              return json(res, 201, { ...view(person), createdStudyId: completedStudyId });
-            fail(409, 'Файл уже сохранён. Откройте материал.');
-          }
-          if (uploadBusy.has(id)) fail(409, 'Часть файла ещё загружается.');
-          uploadBusy.add(id);
-          try {
-            if (req.method === 'DELETE') {
-              if (hasUploadStudy(id, currentWs()))
-                fail(409, 'Файл уже связан с материалом. Завершите загрузку.');
-              await discardUpload(id, upload.status);
-              return json(res, 200, { ok: true });
-            }
-            if (req.method === 'PUT' && !path.endsWith('/complete')) {
-              const offset = Number(req.headers['x-upload-offset']),
-                size = Number(req.headers['content-length']);
-              if (
-                !Number.isSafeInteger(offset) ||
-                !Number.isSafeInteger(size) ||
-                size < 1 ||
-                size > 512 * 1024 ||
-                offset + size > upload.size
-              )
-                fail(400, 'Некорректная часть файла.');
-              let length = 0;
-              const pieces = [];
-              for await (const chunk of req) {
-                length += chunk.length;
-                if (length > size) fail(413, 'Слишком большая часть файла.');
-                pieces.push(chunk);
-              }
-              if (length !== size) fail(400, 'Загрузка части прервана.');
-              await recheckWrite(req);
-              if (offset < upload.received && offset + size <= upload.received)
-                return json(res, 200, { offset: upload.received });
-              if (offset !== upload.received) fail(409, 'Позиция загрузки изменилась.');
-              await truncate(temporary, offset);
-              await appendFile(temporary, Buffer.concat(pieces));
-              q('UPDATE mnema_upload_sessions SET received=?,created=? WHERE id=?').run(
-                offset + size,
-                Date.now(),
-                id,
-              );
-              return json(res, 200, { offset: offset + size });
-            }
-            if (req.method === 'POST' && path.endsWith('/complete')) {
-              await body(req);
-              if (upload.received !== upload.size)
-                fail(409, 'Дождитесь загрузки всех частей файла.');
-              const linkedStudyId = getState().state.studies.find(
-                (study) => study.fileId === id,
-              )?.id;
-              // A previous /complete can have renamed the file before SQLite committed.
-              const fileInfo = async (path: string) =>
-                lstat(path).catch((error) => {
-                  if (error.code === 'ENOENT') return null;
-                  throw error;
-                });
-              const moved = await fileInfo(destination);
-              const file = moved ?? (await fileInfo(temporary));
-              if (!file?.isFile() || file.size !== upload.size)
-                fail(409, 'Дождитесь загрузки всех частей файла.');
-              if (metadata.sha256) {
-                const digest = createHash('sha256');
-                for await (const bytes of createReadStream(moved ? destination : temporary))
-                  digest.update(bytes);
-                if (digest.digest('hex') !== metadata.sha256)
-                  fail(409, 'Контрольная сумма не совпала. Загрузите исходник ещё раз.');
-              }
-              if (!linkedStudyId) checkUploadName(upload.name, id);
-              await recheckWrite(req);
-              if (!moved) {
-                await rename(temporary, destination);
-                await recheckWrite(req);
-              }
-              const createdStudyId = finalizeUpload(
-                id,
-                upload.name,
-                upload.mime,
-                metadata,
-                person,
-                linkedStudyId,
-              );
-              return json(res, 201, { ...view(person), createdStudyId });
-            }
-            fail(405, 'Метод недоступен.');
-          } finally {
-            uploadBusy.delete(id);
-          }
-        }
-        if (path === '/api/uploads' && req.method === 'POST') {
-          if (person.role !== 'full') fail(403, 'Добавление материалов недоступно.');
-          const name = text(decodeURIComponent(req.headers['x-file-name'] || ''), 200),
-            size = Number(req.headers['content-length']);
-          if (!Number.isSafeInteger(size) || size < 1 || size > 2 * 1024 ** 3)
-            fail(413, 'Файл должен быть непустым и не больше 2 ГБ.');
-          if (!/\.(txt|pdf|doc|docx|xlsx|xls|mp4|webm|mp3|wav|m4a|mov)$/i.test(name))
-            fail(
-              400,
-              'Поддерживаются TXT, PDF, DOC, DOCX, XLS, XLSX, MP4, WEBM, MP3, WAV, M4A и MOV.',
-            );
-          await expireUploads();
-          const mime = String(req.headers['content-type'] || 'application/octet-stream');
-          const metadata = {
-            title: url.searchParams.get('title'),
-            type: url.searchParams.get('type'),
-            project: url.searchParams.get('project'),
-          };
-          const id = reserveUpload(name, mime, size, person.id, metadata);
-          const tmp = join(dir, 'uploads', id + '.part'),
-            dest = join(dir, 'uploads', id);
-          let received = 0;
-          uploadBusy.add(id);
-          try {
-            await pipeline(
-              req,
-              new Transform({
-                transform(chunk, enc, cb) {
-                  received += chunk.length;
-                  if (received > size) cb(new Error('Превышен размер файла.'));
-                  else cb(null, chunk);
-                },
-              }),
-              createWriteStream(tmp, { flags: 'wx', mode: 0o600 }),
-            );
-            if (received !== size) throw new Error('Загрузка прервана. Повторите её.');
-            await recheckWrite(req);
-            q('UPDATE mnema_upload_sessions SET received=? WHERE id=?').run(received, id);
-            await rename(tmp, dest);
-            await recheckWrite(req);
-            const createdStudyId = finalizeUpload(id, name, mime, metadata, person);
-            return json(res, 201, { ...view(person), createdStudyId });
-          } finally {
-            uploadBusy.delete(id);
-            await discardUpload(
-              id,
-              q('SELECT status FROM mnema_uploads WHERE id=?').get(id)?.status,
-            );
-          }
-        }
-        if (/^\/api\/files\/[^/]+\/preview$/.test(path) && req.method === 'GET') {
-          const id = path.split('/')[3];
-          const study = view(person).state.studies.find((s) => s.fileId === id);
-          const file =
-            study && q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
-          if (!file) fail(404, 'Файл не найден.');
-          let html;
-          try {
-            html = /\.pdf$/i.test(file.name)
-              ? null
-              : await documentPreview(join(dir, 'uploads', id), file.name);
-          } catch {
-            fail(422, 'Не удалось открыть предпросмотр. Исходный файл сохранён.');
-          }
-          const current = await session(req);
-          if (
-            !current ||
-            current.workspaceId !== person.workspaceId ||
-            !view(current).state.studies.some((s) => s.fileId === id)
-          )
-            fail(403, 'Доступ к файлу закрыт.');
-          return json(res, 200, { html });
-        }
-        if (path === '/api/files/archive' && req.method === 'GET') {
-          // Every ready file the person can open in this project, as one ZIP read from the retained local copies.
-          const files = view(person)
-            .state.studies.filter((s) => s.fileId)
-            .map((s) =>
-              q("SELECT id,name FROM mnema_uploads WHERE id=? AND status='ready'").get(s.fileId),
-            )
-            .filter(Boolean);
-          if (!files.length) fail(404, 'В проекте нет файлов для скачивания.');
-          for (const f of files) {
-            try {
-              if (!(await stat(join(dir, 'uploads', f.id))).isFile()) throw 0;
-            } catch {
-              fail(404, 'Исходный файл недоступен. Обратитесь к администратору.');
-            }
-          }
-          const current = await session(req);
-          if (
-            !current ||
-            current.workspaceId !== person.workspaceId ||
-            files.some((f) => !view(current).state.studies.some((s) => s.fileId === f.id))
-          )
-            fail(403, 'Доступ к файлам закрыт.');
-          const project =
-            q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name || 'Материалы';
-          res.writeHead(200, {
-            'Content-Type': 'application/zip',
-            'Cache-Control': 'private, no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(project + '.zip')}`,
-          });
-          const names = uniqueNames(files.map((f) => f.name));
-          await writeZip(
-            res,
-            files.map((f, i) => ({ name: names[i], path: join(dir, 'uploads', f.id) })),
-          );
+        if (
+          (path === '/api/uploads' ||
+            path === '/api/upload-sessions' ||
+            path.startsWith('/api/upload-sessions/')) &&
+          (await handleUpload(req, res, url, person))
+        )
           return;
-        }
-        if (/^\/api\/files\/[^/]+$/.test(path) && ['GET', 'HEAD'].includes(req.method)) {
-          const id = path.split('/').at(-1);
-          const study = view(person).state.studies.find((s) => s.fileId === id);
-          const file =
-            study && q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
-          if (!file) fail(404, 'Файл не найден.');
-          const isPDF = /\.pdf$/i.test(file.name),
-            isText = /\.txt$/i.test(file.name);
-          const mime = isPDF
-            ? 'application/pdf'
-            : isText
-              ? 'text/plain; charset=utf-8'
-              : /^video\//.test(file.mime) || /^audio\//.test(file.mime)
-                ? file.mime
-                : 'application/octet-stream';
-          let start = 0,
-            end = file.size - 1,
-            status = 200;
-          const r = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
-          if (req.headers.range && !r) fail(416, 'Некорректный диапазон.');
-          if (r) {
-            start = Number(r[1]);
-            end = r[2] ? Math.min(Number(r[2]), end) : end;
-            if (start > end || start >= file.size) fail(416, 'Некорректный диапазон.');
-            status = 206;
-          }
-          const headers = {
-            'Content-Type': mime,
-            'Content-Length': end - start + 1,
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'private, no-store',
-            'Content-Disposition': `${url.searchParams.get('download') === '1' ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-          };
-          if (status === 206) headers['Content-Range'] = `bytes ${start}-${end}/${file.size}`;
-          if (storageMirror.has(id)) {
-            try {
-              const remote = await storageMirror.objects.request(
-                req.method,
-                storageMirror.objectKey(id),
-                undefined,
-                req.headers.range ? { range: req.headers.range } : {},
-              );
-              const remoteHeaders = {
-                ...headers,
-                'X-Mnema-Storage': 's3',
-                'Content-Length': remote.headers.get('content-length') || String(end - start + 1),
-                ...(remote.headers.get('content-range')
-                  ? { 'Content-Range': remote.headers.get('content-range') }
-                  : {}),
-              };
-              const latest = await session(req);
-              if (
-                !latest ||
-                latest.workspaceId !== person.workspaceId ||
-                !view(latest).state.studies.some((s) => s.fileId === id)
-              ) {
-                await remote.body?.cancel();
-                fail(403, 'Доступ к файлу закрыт.');
-              }
-              res.writeHead(remote.status, remoteHeaders);
-              if (req.method === 'HEAD') return res.end();
-              await pipeline(Readable.fromWeb(remote.body as any), res);
-              return;
-            } catch (e) {
-              if (res.headersSent) throw e;
-              console.error('S3 read unavailable; using retained local copy');
-            }
-          }
-          const local = join(dir, 'uploads', id);
-          let info;
-          try {
-            info = await stat(local);
-          } catch {
-            fail(404, 'Исходный файл недоступен. Обратитесь к администратору.');
-          }
-          if (!info.isFile()) fail(404, 'Исходный файл недоступен.');
-          if (info.size !== file.size)
-            fail(409, 'Размер исходного файла изменился. Обратитесь к администратору.');
-          const latest = await session(req);
-          if (
-            !latest ||
-            latest.workspaceId !== person.workspaceId ||
-            !view(latest).state.studies.some((s) => s.fileId === id)
-          )
-            fail(403, 'Доступ к файлу закрыт.');
-          res.writeHead(status, { ...headers, 'X-Mnema-Storage': 'local' });
-          if (req.method === 'HEAD') return res.end();
-          await pipeline(createReadStream(local, { start, end }), res);
+        if (
+          path.startsWith('/api/files/') &&
+          (await handleFiles(req, res, url, person, {
+            view,
+            session,
+            q,
+            dir,
+            currentWs,
+            storageMirror,
+          }))
+        )
           return;
-        }
-        if (/^\/api\/studies\/[^/]+$/.test(path) && req.method === 'DELETE') {
-          if (person.role !== 'full')
-            fail(403, 'Удалять исследования может участник с полным доступом.');
-          const id = path.split('/')[3];
-          const study = getState().state.studies.find((s) => s.id === id);
-          if (!study) fail(404, 'Материал не найден.');
-          if (['queued', 'running'].includes(study.summaryInfo?.state))
-            fail(409, 'Дождитесь завершения сводки перед удалением.');
-          if (['queued', 'running'].includes(study.findingsInfo?.state))
-            fail(409, 'Дождитесь завершения поиска находок перед удалением.');
-          const workspaceId = currentWs(),
-            key = jobKey(workspaceId, id);
-          if (deletingStudies.has(key)) fail(409, 'Материал уже удаляется. Дождитесь завершения.');
-          deletingStudies.add(key);
-          try {
-            const active = activeCPU.get(key);
-            if (active) {
-              active.controller.abort();
-              await active.done;
-            }
-            // Access can change while the subprocess is shutting down. Recheck before deletion.
-            const latest = await session(req);
-            if (!latest || latest.workspaceId !== workspaceId || latest.role !== 'full')
-              fail(403, 'Доступ изменился. Удаление недоступно.');
-            if (
-              q(
-                "SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status='running'",
-              ).get(id, workspaceId)
-            )
-              fail(409, 'Не удалось остановить обработку. Повторите удаление позже.');
-            const discardedJobs = q(
-              'SELECT id FROM mnema_jobs WHERE study_id=? AND workspace_id=?',
-            ).all(id, workspaceId);
-            extension?.forget(workspaceId, id);
-            feedback.forgetStudy(workspaceId, id);
-            q('DELETE FROM mnema_jobs WHERE study_id=? AND workspace_id=?').run(id, workspaceId);
-            mutate((s) => {
-              s.studies = s.studies.filter((x) => x.id !== id);
-              s.findings = s.findings.filter((f) => f.studyId !== id);
-              s.highlights = (s.highlights || []).filter((h) => h.studyId !== id);
-            });
-            for (const job of discardedJobs)
-              await rm(join(dir, 'processing', job.id), { recursive: true, force: true });
-            await extension?.removeFiles(study);
-            if (study.fileId) {
-              await unlink(join(dir, 'uploads', study.fileId)).catch(() => {});
-              q('DELETE FROM mnema_uploads WHERE id=?').run(study.fileId);
-            }
-            return json(res, 200, view(latest));
-          } finally {
-            deletingStudies.delete(key);
-          }
-        }
-        if (/^\/api\/studies\/[^/]+$/.test(path) && req.method === 'PATCH') {
-          if (person.role !== 'full')
-            fail(403, 'Паспорт исследования может менять участник с полным доступом.');
-          const b = await body(req),
-            id = path.split('/')[3],
-            p: Record<string, any> = b.passport || {};
-          const current = getState();
-          if (b.version !== undefined && b.version !== current.version)
-            fail(
-              409,
-              'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.',
-            );
-          if (!current.state.studies.some((s) => s.id === id)) fail(404, 'Материал не найден.');
-          const fields: Record<string, string> = {};
-          for (const [k, max] of [
-            ['title', 140],
-            ['description', 1000],
-            ['method', 120],
-            ['audience', 1000],
-            ['author', 120],
-            ['conducted', 40],
-          ] as [string, number][])
-            if (p[k] !== undefined) {
-              if (typeof p[k] !== 'string' || p[k].trim().length > max)
-                fail(400, 'Слишком длинное поле паспорта.');
-              fields[k] = p[k].trim();
-            }
-          if (fields.title === '') fail(400, 'Укажите название исследования.');
-          if (p.type !== undefined) {
-            if (!['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'].includes(p.type))
-              fail(400, 'Неизвестный тип источника.');
-            fields.type = p.type;
-          }
-          if (p.report !== undefined) {
-            if (!['ready', 'none'].includes(p.report)) fail(400, 'Статус отчёта: есть или нет.');
-            fields.report = p.report;
-          }
-          if (p.reportExpected !== undefined) {
-            if (p.reportExpected !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(p.reportExpected))
-              fail(400, 'Дата отчёта — в формате ГГГГ-ММ-ДД.');
-            fields.reportExpected = p.reportExpected;
-          }
-          mutate((s) => {
-            const item = s.studies.find((x) => x.id === id);
-            if (item)
-              Object.assign(item, fields, { updatedBy: person.name, updatedAt: Date.now() });
-          });
-          return json(res, 200, view(person));
-        }
-        if (/^\/api\/studies\/[^/]+\/transcript\/[^/]+$/.test(path) && req.method === 'PATCH') {
-          if (person.role !== 'full')
-            fail(403, 'Исправлять текст может участник с полным доступом.');
-          const b = await body(req),
-            study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          if (['queued', 'running'].includes(study.summaryInfo?.state))
-            fail(409, 'Дождитесь сводки перед исправлением текста.');
-          const seg = study.segments?.find((s) => s.id === path.split('/')[5]);
-          if (!seg) fail(404, 'Фрагмент не найден.');
-          if (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 4000)
-            fail(400, 'Введите исправленный текст до 4000 символов.');
-          if (b.before !== undefined && b.before !== (seg.correctedText ?? seg.text))
-            fail(409, 'Фрагмент изменился. Откройте его заново и повторите правку.');
-          extension?.beforeEditTranscript(seg);
-          mutate((s) => {
-            const target = s.studies.find((x) => x.id === study.id),
-              part = target.segments.find((x) => x.id === seg.id);
-            target.transcriptEdits = [
-              ...(target.transcriptEdits || []),
-              {
-                segmentId: part.id,
-                before: part.correctedText ?? part.text,
-                after: b.text.trim(),
-                by: person.name,
-                at: Date.now(),
-              },
-            ].slice(-1000);
-            part.correctedText = b.text.trim();
-            extension?.afterEditTranscript(part);
-            target.summary = [];
-            target.summaryInfo = undefined;
-          });
-          return json(res, 200, view(person));
-        }
+        if (
+          path.startsWith('/api/studies/') &&
+          (await handleStudy(req, res, path, person, {
+            body,
+            session,
+            getState,
+            mutate,
+            view,
+            q,
+            currentWs,
+            jobKey,
+            deletingStudies,
+            activeCPU,
+            dir,
+            extension,
+            feedback,
+          }))
+        )
+          return;
         if (/^\/api\/studies\/[^/]+\/speaker-count$/.test(path) && req.method === 'PATCH') {
           if (person.role !== 'full')
             fail(403, 'Изменять число участников можно с полным доступом.');
@@ -3012,57 +2272,11 @@ export async function createMnemaServer(options: MnemaServerOptions = {}) {
           }))
         )
           return;
-        // Highlights: a quote a person marked in the material. The text must be in the transcript; readers see them, cannot change them.
-        if (/^\/api\/studies\/[^/]+\/highlights$/.test(path) && req.method === 'POST') {
-          if (person.role !== 'full')
-            fail(403, 'Отмечать фрагменты может участник с полным доступом.');
-          const b = await body(req);
-          const { state } = getState();
-          const study = state.studies.find((s) => s.id === path.split('/')[3]);
-          if (!study) fail(404, 'Материал не найден.');
-          const quote = String(b.text || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (quote.length < 3) fail(400, 'Выделите хотя бы несколько слов.');
-          if (quote.length > 2000) fail(400, 'Выделите фрагмент короче 2 000 символов.');
-          const segmentId = quoteSegment(study.segments || [], quote, {
-            segmentId: typeof b.segmentId === 'string' ? b.segmentId : undefined,
-            page: Number.isInteger(b.page) ? b.page : undefined,
-          });
-          if (!segmentId)
-            fail(400, 'Не нашли этот текст в расшифровке материала. Выделите фрагмент заново.');
-          if ((state.highlights || []).filter((h) => h.studyId === study.id).length >= 500)
-            fail(400, 'В материале уже 500 отметок. Удалите лишние.');
-          limit('highlight:' + person.id, 120);
-          const page = study.segments.find((s) => s.id === segmentId)?.page;
-          const item = {
-            id: randomUUID(),
-            studyId: study.id,
-            segmentId,
-            text: quote,
-            ...(Number.isInteger(page) ? { page } : {}),
-            by: person.name,
-            byId: person.id,
-            at: Date.now(),
-          };
-          mutate((s) => {
-            s.highlights = [...(s.highlights || []), item];
-          });
-          return json(res, 201, { ...view(person), createdHighlightId: item.id });
-        }
-        if (/^\/api\/studies\/[^/]+\/highlights\/[^/]+$/.test(path) && req.method === 'DELETE') {
-          if (person.role !== 'full')
-            fail(403, 'Удалять отметки может участник с полным доступом.');
-          const [, , , studyId, , id] = path.split('/');
-          if (
-            !(getState().state.highlights || []).some((h) => h.id === id && h.studyId === studyId)
-          )
-            fail(404, 'Отметка уже удалена.');
-          mutate((s) => {
-            s.highlights = (s.highlights || []).filter((h) => h.id !== id);
-          });
-          return json(res, 200, view(person));
-        }
+        if (
+          path.startsWith('/api/studies/') &&
+          (await handleHighlights(req, res, path, person, { body, limit, getState, mutate, view }))
+        )
+          return;
         if (
           path.startsWith('/api/studies/') &&
           path.includes('/suggest-findings') &&
