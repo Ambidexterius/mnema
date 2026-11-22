@@ -499,9 +499,17 @@ export function initializeWorkspaceProjection(db: DatabaseSync, target?: 'dual' 
           ? 'Workspace table integrity check failed'
           : 'Workspace projection differs from JSON',
       );
-    db.prepare('INSERT OR IGNORE INTO mnema_migrations(name) VALUES(?)').run(
-      'workspace-projection-v1',
-    );
+    if (tablesOnly) {
+      // The old initializer also writes this marker when there are no projects to read.
+      db.exec(`CREATE TRIGGER IF NOT EXISTS mnema_projection_requires_json
+        BEFORE INSERT ON mnema_migrations WHEN NEW.name='workspace-projection-v1'
+        BEGIN SELECT RAISE(ABORT, 'Restore workspace JSON before starting the older version'); END`);
+    } else {
+      db.exec('DROP TRIGGER IF EXISTS mnema_projection_requires_json');
+      db.prepare('INSERT OR IGNORE INTO mnema_migrations(name) VALUES(?)').run(
+        'workspace-projection-v1',
+      );
+    }
     db.exec('COMMIT');
     return {
       write,

@@ -60,14 +60,17 @@ function recordAudit(
     );
     const previous = journal
       .prepare(
-        'SELECT checked_at,build,healthy_since,clean_checks FROM runs ORDER BY id DESC LIMIT 1',
+        "SELECT checked_at,build,healthy_since,clean_checks,json_extract(result,'$.source') AS source " +
+          'FROM runs ORDER BY id DESC LIMIT 1',
       )
       .get();
     const gapMs = typeof previous?.checked_at === 'number' ? checkedAt - previous.checked_at : null;
     const previousHealthy =
       typeof previous?.healthy_since === 'number' ? previous.healthy_since : null;
     const continues =
+      check.status === 'ok' &&
       previous?.build === build &&
+      previous.source === check.source &&
       previousHealthy !== null &&
       gapMs != null &&
       gapMs >= 0 &&

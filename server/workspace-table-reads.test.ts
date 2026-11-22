@@ -189,3 +189,23 @@ test('table-only writes survive restarts and can be restored for an older image'
     db.close();
   }
 });
+
+test('older initializers require restored JSON even with no workspaces', () => {
+  const { db, q } = openDatabase(':memory:');
+  try {
+    configureDatabase(db);
+    createCoreTables(db);
+    db.exec('CREATE TABLE mnema_migrations(name TEXT PRIMARY KEY)');
+    initializeWorkspaceProjection(db);
+    const oldInitialize = () =>
+      q("INSERT OR IGNORE INTO mnema_migrations(name) VALUES('workspace-projection-v1')").run();
+    assert.equal(initializeWorkspaceProjection(db, 'tables').report.projects.length, 0);
+    assert.throws(oldInitialize, /Restore workspace JSON/);
+    assert.equal(initializeWorkspaceProjection(db).tablesOnly, true);
+    assert.throws(oldInitialize, /Restore workspace JSON/);
+    assert.equal(initializeWorkspaceProjection(db, 'dual').report.projects.length, 0);
+    assert.doesNotThrow(oldInitialize);
+  } finally {
+    db.close();
+  }
+});

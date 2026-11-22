@@ -32,7 +32,7 @@ function fixture() {
 }
 
 test('regular checks preserve 72 hours of clean observations before closing the window', () => {
-  const { dir, close } = fixture();
+  const { dir, db, close } = fixture();
   const start = Date.UTC(2026, 10, 22);
   const steps = (72 * 60 * 60_000) / projectionAuditIntervalMs;
   try {
@@ -47,6 +47,15 @@ test('regular checks preserve 72 hours of clean observations before closing the 
       assert.equal(event.cleanChecks, i + 1);
       assert.equal(event.windowComplete, i === steps);
     }
+    initializeWorkspaceProjection(db, 'tables');
+    const switched = auditWorkspaceProjection(
+      dir,
+      'test-build',
+      start + (steps + 1) * projectionAuditIntervalMs,
+    );
+    assert.equal('source' in switched && switched.source, 'tables');
+    assert.equal(switched.cleanChecks, 1);
+    assert.equal(switched.windowComplete, false);
   } finally {
     close();
   }
