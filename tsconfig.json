@@ -24,10 +24,9 @@
     "resolveJsonModule": true
   },
   "include": [
-    "app/*.ts",
-    "app/*.tsx",
+    "app/**/*.ts",
+    "app/**/*.tsx",
     "server/*.ts",
-    "app/private/**/*",
     "server/private/**/*"
   ]
 }

@@ -78,15 +78,9 @@ import {
   projectFileDownload,
   projectArchive,
 } from './api.ts';
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Context, useApp, type AppContext } from './app-context.ts';
+import { NavigationHint } from './shared/NavigationHint.tsx';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   configure,
@@ -189,13 +183,10 @@ import {
 } from './data.ts';
 
 configure({ lang: 'ru' });
-export const Context = createContext<any>(null);
-// The app context is wide and evolves quickly; components read it untyped until it is split into smaller stores.
-const useApp = (): any => useContext(Context);
+
 const NewsDialog = React.lazy(() => import('./NewsDialog.tsx'));
 const DEMO = import.meta.env.VITE_DEMO === 'true';
 const qa = DEMO && new URLSearchParams(location.search).get('qa') === '1';
-let reader = qa && new URLSearchParams(location.search).get('role') === 'view';
 const storage = qa ? 'ai-hyposut.qa.v1' : 'ai-hyposut.demo.v1';
 const defaults = {
   studies: initialStudies,
@@ -341,39 +332,6 @@ function IconButton({
       <Button view="flat" size={size} aria-label={label} {...props}>
         <Icon size={size === 's' ? 14 : 18} aria-hidden="true" />
       </Button>
-    </Tooltip>
-  );
-}
-export function NavigationHint({
-  label,
-  enabled,
-  shortcut,
-  children,
-}: {
-  label: string;
-  enabled: boolean;
-  shortcut?: string;
-  children: React.ReactElement;
-}) {
-  const mobileWeb = useCompactLayout(MOBILE_WEB_QUERY);
-  return (
-    <Tooltip
-      content={
-        shortcut ? (
-          <span className="creation-shortcut-tooltip">
-            <span>{label}</span>
-            <Hotkey value={shortcut} />
-          </span>
-        ) : (
-          label
-        )
-      }
-      disabled={!enabled || mobileWeb}
-      placement="right"
-      openDelay={200}
-      closeDelay={80}
-    >
-      {children}
     </Tooltip>
   );
 }
@@ -669,7 +627,7 @@ function FindingsBreadcrumbs({
 }
 function AddMaterial() {
   const compact = useCompactLayout();
-  const { open } = useApp();
+  const { open, reader } = useApp();
   return reader ? null : (
     <Button view="action" size="l" onClick={() => open({ type: 'upload' })}>
       <Plus size={16} />
@@ -801,7 +759,7 @@ export function App() {
     timer = useRef(null),
     files = useRef(new Map());
   stateRef.current = state;
-  reader = DEMO
+  const reader = DEMO
     ? qa && new URLSearchParams(location.search).get('role') === 'view'
     : authInfo.user?.role !== 'full';
 
@@ -1348,7 +1306,7 @@ export function App() {
   useEffect(() => {
     if (!settingsTab) settingsOrigin.current = null;
   }, [settingsTab]);
-  const context = {
+  const context: AppContext = {
     chatHistory,
     removeUser,
     projectAction: (action, project) => {
@@ -3331,7 +3289,7 @@ function LibraryPage() {
   return <ResearchList />;
 }
 function ResearchList({ embedded = false }: { embedded?: boolean }) {
-  const { state, projectName } = useApp();
+  const { state, projectName, reader } = useApp();
   const [filter, setFilter] = useState('Все');
   const list = state.studies.filter(
     (s) =>
@@ -3694,7 +3652,7 @@ function Study({ headerActions }: { headerActions?: HTMLDivElement | null }) {
       key={study.id}
       ctx={ctx}
       study={study}
-      reader={reader}
+      reader={ctx.reader}
       demo={DEMO}
       findings={points.map(normalize)}
       headerActions={headerActions}
@@ -3703,17 +3661,18 @@ function Study({ headerActions }: { headerActions?: HTMLDivElement | null }) {
 }
 function FindingMeta({
   f,
-  showStatus = !reader,
+  showStatus,
   children,
 }: {
   f: Finding;
   showStatus?: boolean;
   children?: React.ReactNode;
 }) {
+  const { reader } = useApp();
   return (
     <div className="finding-meta">
       {f.importSource ? <Label size="s">Из Гипотениума</Label> : null}
-      {showStatus ? (
+      {(showStatus === undefined ? !reader : showStatus) ? (
         <Label size="s" theme={statusTheme(f)}>
           {statusLabel(f)}
         </Label>
@@ -4416,7 +4375,7 @@ function FindingsDigest() {
   );
 }
 function FindingPage() {
-  const { state, route, openPanel, update, open, notify, projectName } = useApp();
+  const { state, route, openPanel, update, open, notify, projectName, reader } = useApp();
   const repeats = useRepeats();
   const all = state.findings.map(normalize);
   const f = all.find((x) => 'finding/' + x.id === route.split('?')[0]);
@@ -5227,13 +5186,13 @@ function UsersPage() {
   );
 }
 function SourcePanel() {
-  const { panel, panelClosing, setPanel, state, go, openGlobalSource } = useApp();
+  const { panel, panelClosing, setPanel, state, go, openGlobalSource, reader } = useApp();
   const list = useRef(null),
     media = useRef(null),
     closeButton = useRef(null);
   const [mediaError, setMediaError] = useState('');
   const study = panel && state.studies.find((s) => s.id === panel.studyId);
-  const segments = study?.segments?.length
+  const segments: Segment[] = study?.segments?.length
     ? study.segments
     : DEMO && study?.id === 'calendar'
       ? transcript
@@ -5700,7 +5659,7 @@ function FormField({
 }
 function AppDialog() {
   const ctx = useApp();
-  const { dialog: d, open, state, update, receive, real, notify, go, files } = ctx;
+  const { dialog: d, open, state, update, receive, real, notify, go, files, reader } = ctx;
   const [form, setForm] = useState<Record<string, any>>({}),
     [uploading, setUploading] = useState(false),
     [error, setError] = useState(''),
