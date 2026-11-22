@@ -19,6 +19,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "strict": false,
+    "alwaysStrict": true,
     "noImplicitAny": false,
     "isolatedModules": true,
     "resolveJsonModule": true
