@@ -62,3 +62,19 @@ Frontend находится в `app`, API и тесты — в `server`. Лок�
 Удаление проверяет текущее название и роль повторно после чтения запроса. Активные обработка, анализ и загрузка блокируют удаление. Проектные записи, приглашения, ключи моделей, задания и связанные оценки удаляются транзакционно, затем очищаются локальные исходники и временные каталоги. При выключенном S3 старые удалённые копии автоматически не очищаются. Маркер workspaces-v1 в таблице mnema_migrations делает перенос старого пространства однократным: удалённые проекты и членства не восстанавливаются при перезапуске.
 
 Токен --mn-home-radius: 12px ограничен общим чатом и папками на главной. Папки пересчитывают дуги SVG с учётом масштаба. Глобальные токены скруглений Gravity UI не переопределяются: кнопки, поля, вкладки, меню, диалоги и остальные элементы используют значения библиотеки. Собственные оболочки используют её шкалу --g-border-radius-*. Круглые индикаторы и нативные элементы выбора сохраняют семантическую форму.
+## Карта маршрутов перед разделением сервера
+
+Точка входа — `createMnemaServer` и его обработчик в `server/server.ts`. Порядок текущих проверок нужно сохранить. Сначала обрабатываются health и OAuth/MCP, до операций записи проверяются origin и заголовок приложения. После входа проверяются права аккаунта, а для проектных маршрутов устанавливается контекст проекта. После чтения тела доступ повторно сверяется через `recheckWrite`.
+
+| Область | Действующие маршруты | Локальные зависимости и общее состояние |
+|---|---|---|
+| Администрирование | `/api/news`, `/api/ideas` и их действия, `/api/interface-rating`, `/api/chat/feedback`, `/api/models` и каталог | `createProductNews`, `createIdeas`, `createAnswerFeedback`, `modelKeyStore`, SQLite, проверка владельца аккаунта, видимость проектов |
+| MCP | `/mcp`, OAuth discovery и маршруты Better Auth, `/api/mcp/*` | `createMcpService`, Better Auth, гранты и сессии в SQLite, `view` для допустимой проекции проекта |
+| Авторизация | `/api/auth/*`, `/api/session`, `/api/register`, `/api/registration/*`, `/api/password-reset/*`, аватар и приветствие | Better Auth, `createRegistration`, `session`, таблицы доступа, сессий, приглашений и профилей, лимиты запросов |
+| Проекты | `/api/workspaces*`, `/api/invitations`, `/api/users*`, `/api/state` | `createProjectSharing`, `currentWs`, `wsStore`, `getState`, `mutate`, `view`, кэш карточек по версии, права и проекция API |
+| Чат и поиск | `/api/chats*`, `/api/chat`, `/api/chat/global`, `/api/research-library`, `/api/research-context` | `createChatHistory`, `globalResearch`, `selectEvidence`, настройки и квоты модели, повторная проверка источников, SQLite |
+| Анализ | `/api/project-summary`, сводки и поиск находок по материалу | `nextSummary`, `processSummary`, `processFindings`, `callModel`, снимок проекта, отдельная очередь анализа |
+| Материалы и импорт | `/api/upload-sessions*`, `/api/uploads`, `/api/files*`, `/api/studies*`, `/api/imports/source/*`, `/api/storage*` | `reserveUpload`, `expireUploads`, `finalizeUpload`, `uploadBusy`, `deletingStudies`, локальные файлы, SQLite, S3, сохранение заголовков и Range |
+| Локальная обработка | Действия обработки записи и определения спикеров в `/api/studies/*` | `queueStudy`, `work`, `processStudy`, `processSpeakers`, `activeCPU`, `transcriptPreviews`, checkpoints на диске |
+
+Расширение получает запрос после авторизации и установки проектного контекста. Разделение маршрутов должно сохранить эту точку вызова и общий способ проверки прав. Статические файлы и SPA обслуживаются после API через `staticCache` и общий механизм ответа.
