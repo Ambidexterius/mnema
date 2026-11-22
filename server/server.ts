@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { backendBuildId } from './build-id.ts';
 import { loadExtension } from './extension.ts';
 import { json } from './http.ts';
+import { startWorkspaceProjectionAudit } from './projects/projection-audit.ts';
 import { createRequestHandler } from './routes.ts';
 import { createRuntime, type MnemaServerOptions } from './runtime.ts';
 
@@ -63,11 +64,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     corporateRegistration: process.env.MNEMA_CORPORATE_REGISTRATION === '1',
   });
   const port = Number(process.env.PORT || 4180);
-  app.server.listen(port, '0.0.0.0', () =>
-    console.log('Mnema ' + VERSION + ' listening on ' + port),
-  );
+  let stopAudit: (() => void) | undefined;
+  app.server.listen(port, '0.0.0.0', () => {
+    console.log('Mnema ' + VERSION + ' listening on ' + port);
+    if (process.env.MNEMA_PROJECTION_AUDIT === '1')
+      stopAudit = startWorkspaceProjectionAudit(
+        resolve(process.env.MNEMA_DATA_DIR || '/data'),
+        BUILD_ID,
+      );
+  });
+  app.server.once('close', () => stopAudit?.());
   for (const signal of ['SIGTERM', 'SIGINT'])
     process.on(signal, () => {
+      stopAudit?.();
       app.server.close(() => {
         app.db.close();
         process.exit(0);
