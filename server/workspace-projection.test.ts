@@ -9,12 +9,21 @@ import {
 import { createProjectStore, createWorkspaceFactory } from './projects/store.ts';
 import { modelKeyStore } from './model-connections.ts';
 import type { Person } from './request-context.ts';
+import type { StoredWorkspace } from './projects/types.ts';
 
-const fixture = () => ({
+const fixture = (): StoredWorkspace => ({
   studies: [
     {
       id: 'sample',
       title: 'Synthetic sample',
+      description: '',
+      project: 'Synthetic',
+      format: 'Видео',
+      date: '',
+      duration: 2,
+      participants: 1,
+      color: '',
+      findings: 1,
       type: 'Интервью',
       status: 'ready',
       tags: ['fixture'],
@@ -26,6 +35,7 @@ const fixture = () => ({
         state: 'ready',
         revision: 'r1',
         modelId: 'fixture',
+        requestedBy: 'owner',
         startedAt: 1,
         review: 'verified',
       },
@@ -40,11 +50,17 @@ const fixture = () => ({
       evidence: ['stale-reference'],
       title: 'Finding',
       kind: 'Инсайт',
+      importance: 'Средняя',
+      origin: 'human',
+      significant: false,
+      history: [],
       description: 'Finding text',
       status: 'verified',
     },
   ],
-  highlights: [{ id: 'h1', studyId: 'sample', segmentId: 'part', text: 'Synthetic' }],
+  highlights: [
+    { id: 'h1', studyId: 'sample', segmentId: 'part', text: 'Synthetic', by: 'Owner', at: 1 },
+  ],
   projectSummary: { answer: 'Project overview', at: 1, model: 'fixture' },
   models: [],
   processors: [],

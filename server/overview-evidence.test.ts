@@ -75,7 +75,10 @@ test('a broad product question includes report evidence and every available proj
       const material = research.studies.find(
         (s) => s.actualStudyId === source.studyId && s.workspaceId === source.workspaceId,
       );
-      assert.equal(source.text, material.segments.find((s) => s.id === source.segmentId).text);
+      assert.ok(material);
+      const original = material.segments.find((s) => s.id === source.segmentId);
+      assert.ok(original);
+      assert.equal(source.text, original.text);
     }
   }
   const specific = globalEvidence(research, 'Когда оплачивать бронь?');

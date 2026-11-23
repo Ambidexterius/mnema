@@ -5,11 +5,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 const execute = promisify(execFile);
+const htmlCharacters = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escape = (v: string) =>
-  v.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+  v.replace(/[&<>"']/g, (c) => htmlCharacters[c as keyof typeof htmlCharacters]);
 export async function documentPreview(filePath: string, name: string) {
   if ((await stat(filePath)).size > 20 * 1024 ** 2) throw new Error('Preview too large');
   const options = { timeout: 30000, maxBuffer: 10 * 1024 ** 2 };

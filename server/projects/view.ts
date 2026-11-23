@@ -10,6 +10,10 @@ import type { ExtensionContext, ServerExtension } from '../extension.ts';
 import { keySlot as slotPattern, type modelKeyStore } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import type { Person } from '../request-context.ts';
+import type { Processor } from '../../app/types.ts';
+import type { legacyFinding, reportOf } from '../analysis/review.ts';
+import type { ProjectSnapshot } from './store.ts';
+import type { StoredFinding, StoredModel } from './types.ts';
 
 type ProjectViewer = Person | Parameters<ExtensionContext['view']>[0];
 
@@ -18,15 +22,15 @@ interface ProjectViewServices extends Pick<
   'users' | 'userDirectory'
 > {
   q: ReturnType<typeof openDatabase>['q'];
-  getState: () => { state: any; version: number };
+  getState: () => ProjectSnapshot;
   currentWs: () => string;
   getExtension: () => Pick<ServerExtension, 'stateFields' | 'studyFields'> | undefined;
-  isBuiltin: (model: any) => boolean;
+  isBuiltin: (model: Pick<StoredModel, 'id' | 'builtin'>) => boolean;
   modelKeys: ReturnType<typeof modelKeyStore>;
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'canManage'>;
-  processors: () => object[];
-  legacyFinding: (finding: any) => any;
-  reportOf: (study: any) => 'ready' | 'none';
+  processors: () => Processor[];
+  legacyFinding: typeof legacyFinding;
+  reportOf: typeof reportOf;
 }
 
 export function createProjectView({
@@ -52,26 +56,26 @@ export function createProjectView({
     const findings = raw.findings
       .map(legacyFinding)
       .filter((f) => full || f.status === 'verified')
-      .map((f) => ({
+      .map<StoredFinding>((f) => ({
         ...f,
         basis: reportOf(raw.studies.find((s) => s.id === f.studyId)) === 'ready' ? 'report' : 'raw',
       }));
     const pendingJobs = new Map(
-      q(
+      q<{ study_id: string; status: 'queued' | 'running' }>(
         "SELECT study_id,status FROM mnema_jobs WHERE workspace_id=? AND status IN ('queued','running') AND kind!='speakers'",
       )
         .all(currentWs())
         .map((job) => [job.study_id, job.status]),
     );
     const uploadSizes = new Map(
-      q("SELECT id,size FROM mnema_uploads WHERE status='ready'")
+      q<{ id: string; size: number }>("SELECT id,size FROM mnema_uploads WHERE status='ready'")
         .all()
         .map((file) => [file.id, file.size]),
     );
     const studies = (full ? raw.studies : studiesForReader(raw.studies, findings)).map((s) => ({
       ...s,
       ...extension?.studyFields(s, raw, person, version),
-      fileSize: uploadSizes.get(s.fileId),
+      fileSize: s.fileId === undefined ? undefined : uploadSizes.get(s.fileId),
       processingState: pendingJobs.get(s.id),
       activity: materialActivity({ ...s, processingState: pendingJobs.get(s.id) }),
       ...(!full && s.summaryInfo?.review !== 'verified'
@@ -99,8 +103,9 @@ export function createProjectView({
       (Object.hasOwn(summary, 'reviewedRevision')
         ? summary.reviewedRevision === null ||
           summary.reviewedRevision === summaryFindingsRevision(findings)
-        : !raw.studies.some((study) => study.redactionCount));
+        : !raw.studies.some((study) => 'redactionCount' in study && study.redactionCount));
     const canReadSummary =
+      summary &&
       currentFindings &&
       summarySourcesMatch(
         full ? studiesForReader(raw.studies, findings) : studies,
@@ -129,14 +134,14 @@ export function createProjectView({
         ...state,
         workspace: {
           id: currentWs(),
-          ...q(
+          ...q<{ name: string; created: number; creatorName: string | null }>(
             'SELECT w.name,w.created,u.name AS creatorName FROM mnema_workspaces w LEFT JOIN user u ON u.id=w.created_by WHERE w.id=?',
           ).get(currentWs()),
           profile: raw.projectProfile || {},
           canManageSharing: sharing.canManage(currentWs(), person.id),
-          sharingMode: q('SELECT mode FROM mnema_project_sharing WHERE workspace_id=?').get(
-            currentWs(),
-          )?.mode,
+          sharingMode: q<{ mode: string }>(
+            'SELECT mode FROM mnema_project_sharing WHERE workspace_id=?',
+          ).get(currentWs())?.mode,
         },
         models: state.models.map((m) => ({
           ...m,

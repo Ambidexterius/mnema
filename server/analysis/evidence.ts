@@ -22,7 +22,7 @@ export function studiesForReader(
 
 export function summarySourcesMatch(
   studies: Study[],
-  sources: { studyId: string; segmentId: string; text: string }[],
+  sources: { studyId: string; segmentId: string; text: string }[] | undefined,
 ) {
   return Boolean(
     Array.isArray(sources) &&

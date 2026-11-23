@@ -1,11 +1,27 @@
 import { SummaryFailure } from './summaries.ts';
+
+export interface AnalysisRequest {
+  model: string;
+  temperature: number;
+  max_tokens?: number;
+  thinking?: { type: 'disabled' };
+  reasoning_effort?: 'none';
+  messages: { role: string; content: string }[];
+}
+
+export interface AnalysisResponse {
+  choices?: { message?: { content?: unknown }; finish_reason?: string }[];
+  mnemaModel?: { name: string };
+}
+
 /** Some compatible gateways mix reasoning and final output under one token cap. */
 export async function requestSummary(
   model: string,
-  payload: any,
-  call: (request: any) => Promise<any>,
+  payload: unknown,
+  call: (request: AnalysisRequest & { max_tokens: number }) => Promise<AnalysisResponse>,
   onRetry: () => void = () => {},
 ) {
+  const { system, ...input } = payload as Record<string, unknown> & { system: string };
   const deepseek = /deepseek/i.test(model);
   let maxTokens = 8192;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -17,12 +33,10 @@ export async function requestSummary(
         max_tokens: maxTokens,
         ...(deepseek ? { thinking: { type: 'disabled' }, reasoning_effort: 'none' } : {}),
         messages: [
-          { role: 'system', content: payload.system },
+          { role: 'system', content: system },
           {
             role: 'user',
-            content: JSON.stringify(
-              Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'system')),
-            ),
+            content: JSON.stringify(input),
           },
         ],
       });

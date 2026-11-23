@@ -14,7 +14,7 @@ export function createProjectSharing(db: any, baseURL: string, secret: string, f
     if (
       !q('PRAGMA table_info(mnema_members)')
         .all()
-        .some((c) => c.name === 'grant_source')
+        .some((c: { name: string }) => c.name === 'grant_source')
     )
       db.exec("ALTER TABLE mnema_members ADD COLUMN grant_source TEXT NOT NULL DEFAULT 'explicit'");
     // Existing grants keep their reach; their origin matters only after the owner changes sharing.
@@ -98,7 +98,10 @@ export function createProjectSharing(db: any, baseURL: string, secret: string, f
       `SELECT id,name,email,role,CASE WHEN expires>? THEN 'invited' ELSE 'expired' END AS status FROM mnema_invites i WHERE workspace_id=? AND used=0 AND revoked=0 AND NOT EXISTS(SELECT 1 FROM mnema_invites n WHERE n.workspace_id=i.workspace_id AND n.email=i.email AND n.used=0 AND n.rowid>i.rowid)`,
     )
       .all(Date.now(), id)
-      .filter((i) => !members.some((m) => m.email.toLowerCase() === i.email.toLowerCase()));
+      .filter(
+        (i: { email: string }) =>
+          !members.some((m: { email: string }) => m.email.toLowerCase() === i.email.toLowerCase()),
+      );
     const url = new URL(routeHref('home', id), baseURL);
     if (r.mode === 'link') url.searchParams.set('share', token(id, r));
     return {

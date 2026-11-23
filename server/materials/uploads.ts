@@ -9,24 +9,42 @@ import { join } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileNameKey, existingFileMessage, uploadingFileMessage } from '../../app/file-name.ts';
-import { processingReadiness } from '../processing.ts';
+import { processingReadiness, type transcribeRecording } from '../processing.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type { createProjectView } from '../projects/view.ts';
+import type { StoredStudy } from '../projects/types.ts';
 
-interface UploadServices extends Pick<RequestServices, 'body' | 'limit'> {
-  getState: () => { state: any; version: number };
-  mutate: (change: (state: any) => void) => unknown;
-  view: (person: Person) => { state: any };
+interface UploadServices
+  extends
+    Pick<RequestServices, 'body' | 'limit'>,
+    Pick<ReturnType<typeof createProjectStore>, 'getState' | 'mutate'> {
+  view: ReturnType<typeof createProjectView>;
   q: ReturnType<typeof openDatabase>['q'];
   db: Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
   dir: string;
   fromTables: boolean;
   quota: number;
   currentWs: () => string;
-  recordingProcessor?: (...args: any[]) => unknown;
+  recordingProcessor?: typeof transcribeRecording;
   deletingStudies: ReadonlySet<string>;
   jobKey: (workspace: string, study: string) => string;
   activeStudyJob: (id: string) => unknown;
-  queueStudy: (study: any, kind: string) => void;
+  queueStudy: (study: StoredStudy, kind: 'asr' | 'document') => void;
   recheckWrite: (req: IncomingMessage) => Promise<unknown>;
+}
+
+interface UploadMetadata {
+  title?: unknown;
+  type?: unknown;
+  project?: unknown;
+  participants?: number;
+  autoSummary?: boolean;
+  autoProcess?: boolean;
+  deferProcessing?: boolean;
+  importId?: string;
+  sha256?: string;
+  workspaceId?: string;
+  completedStudyId?: string;
 }
 
 export function createUploads({
@@ -111,7 +129,7 @@ export function createUploads({
     mime: string,
     size: number,
     userId: string,
-    metadata: object,
+    metadata: UploadMetadata,
   ) {
     const id = randomUUID();
     db.exec('BEGIN IMMEDIATE');
@@ -139,7 +157,7 @@ export function createUploads({
     id: string,
     name: string,
     mime: string,
-    meta,
+    meta: UploadMetadata,
     person: Person,
     linkedStudyId?: string,
   ) {
@@ -165,9 +183,10 @@ export function createUploads({
           title: text(meta.title, 140) || name,
           description: '',
           project: text(meta.project, 80),
-          type: ['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'].includes(meta.type)
-            ? meta.type
-            : 'Интервью',
+          type:
+            (['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'] as const).find(
+              (kind) => kind === meta.type,
+            ) ?? 'Интервью',
           format: isDoc
             ? /\.pdf$/i.test(name)
               ? 'PDF'
@@ -311,7 +330,7 @@ export function createUploads({
           )
             fail(400, 'Некорректная часть файла.');
           let length = 0;
-          const pieces = [];
+          const pieces: Buffer[] = [];
           for await (const chunk of req) {
             length += chunk.length;
             if (length > size) fail(413, 'Слишком большая часть файла.');

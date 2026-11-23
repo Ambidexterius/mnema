@@ -55,7 +55,7 @@ export function createRequestContext(session: RequestServices['session']) {
     return value;
   };
   const limits = new Map<string, { time: number; n: number }>();
-  const limit = (key, max = 30) => {
+  const limit = (key: string, max = 30) => {
     const now = Date.now();
     const l = limits.get(key);
     if (!l || now - l.time > 60000) {

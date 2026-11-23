@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Finding, Segment } from '../app/types.ts';
+import type { StoredWorkspace } from './projects/types.ts';
+import { isRecord } from './http.ts';
+import { FINDING_KINDS, IMPORTANCE_LEVELS } from './finding-extraction.ts';
 /** Origin of the external research system allowed as import provenance, e.g. https://research.example.com. Import is disabled when unset. */
 const sourceOrigin = () => String(process.env.MNEMA_IMPORT_SOURCE_ORIGIN || '').replace(/\/+$/, '');
 export function sourceURL(value: unknown) {
@@ -25,18 +28,19 @@ export function importedSegments(value: unknown): Segment[] {
       status: 400,
     });
   const ids = new Set();
-  return value.map((s) => {
+  return value.map((s: unknown) => {
     if (
-      !s ||
+      !isRecord(s) ||
       typeof s.id !== 'string' ||
       s.id.length > 160 ||
       ids.has(s.id) ||
       typeof s.text !== 'string' ||
       !s.text.trim() ||
       s.text.length > 12000 ||
+      typeof s.time !== 'number' ||
       !Number.isFinite(s.time) ||
       s.time < 0 ||
-      (s.page != null && (!Number.isInteger(s.page) || s.page < 1))
+      (s.page != null && (typeof s.page !== 'number' || !Number.isInteger(s.page) || s.page < 1))
     )
       throw Object.assign(new Error('Проверьте текст, ID и координаты фрагментов.'), {
         status: 400,
@@ -47,8 +51,10 @@ export function importedSegments(value: unknown): Segment[] {
       time: s.time,
       text: s.text,
       speaker: typeof s.speaker === 'string' ? s.speaker.slice(0, 100) : 'Документ',
-      ...(s.page ? { page: s.page } : {}),
-      ...(Number.isFinite(s.end) && s.end > s.time ? { end: s.end } : {}),
+      ...(typeof s.page === 'number' && s.page ? { page: s.page } : {}),
+      ...(typeof s.end === 'number' && Number.isFinite(s.end) && s.end > s.time
+        ? { end: s.end }
+        : {}),
     };
   });
 }
@@ -59,7 +65,11 @@ const clean = (s: unknown) =>
     .replace(/[\p{P}\p{S}\s]+/gu, ' ')
     .trim();
 /** Imported acknowledgement is not equivalent to research verification. */
-export function importFindings(state: any, items: any[], person: { id: string; name: string }) {
+export function importFindings(
+  state: Pick<StoredWorkspace, 'studies' | 'findings'>,
+  items: unknown,
+  person: { id: string; name: string },
+) {
   if (!Array.isArray(items) || items.length > 2000)
     throw Object.assign(new Error('Слишком много находок в одном проекте.'), { status: 400 });
   const now = Date.now();
@@ -90,7 +100,10 @@ export function importFindings(state: any, items: any[], person: { id: string; n
   }
   let added = 0,
     direct = 0;
-  for (const item of items) {
+  for (const candidate of items) {
+    const item: unknown = candidate;
+    if (!isRecord(item))
+      throw Object.assign(new Error('Проверьте карточку находки.'), { status: 400 });
     const url = sourceURL(item.url);
     if (state.findings.some((f) => f.importSource?.url === url)) continue;
     if (
@@ -109,7 +122,10 @@ export function importFindings(state: any, items: any[], person: { id: string; n
     });
     let target = { studyId: catalog.id, segmentId },
       matched = false;
-    for (const evidence of item.evidence || []) {
+    const evidenceList = Array.isArray(item.evidence)
+      ? item.evidence.filter((value: unknown): value is string => typeof value === 'string')
+      : [];
+    for (const evidence of evidenceList) {
       const quote = clean(
         String(evidence)
           .replace(/^«/, '')
@@ -137,12 +153,8 @@ export function importFindings(state: any, items: any[], person: { id: string; n
         break;
       }
     }
-    const importance = ['Критично', 'Высокая', 'Средняя', 'Низкая'].includes(item.importance)
-      ? item.importance
-      : 'Средняя';
-    const kind = ['Проблема', 'Инсайт', 'Рекомендация', 'Цифра'].includes(item.kind)
-      ? item.kind
-      : 'Инсайт';
+    const importance = IMPORTANCE_LEVELS.find((level) => level === item.importance) ?? 'Средняя';
+    const kind = FINDING_KINDS.find((value) => value === item.kind) ?? 'Инсайт';
     const finding: Finding = {
       id: randomUUID(),
       ...target,
@@ -162,7 +174,7 @@ export function importFindings(state: any, items: any[], person: { id: string; n
         originalStatus: String(item.originalStatus || ''),
         confidence: String(item.confidence || ''),
         originalImportance: String(item.importance || ''),
-        evidence: item.evidence || [],
+        evidence: evidenceList,
         exactQuoteMatched: matched,
       },
     };

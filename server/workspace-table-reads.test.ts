@@ -209,3 +209,63 @@ test('older initializers require restored JSON even with no workspaces', () => {
     db.close();
   }
 });
+
+test('restoring after a physical drop is atomic and preserves the old column and row order', () => {
+  const { db, q } = openDatabase(':memory:');
+  try {
+    configureDatabase(db);
+    createCoreTables(db);
+    db.exec('CREATE TABLE mnema_migrations(name TEXT PRIMARY KEY)');
+    const insert = q(
+      'INSERT INTO mnema_workspaces(rowid,id,name,version,data,created) VALUES(?,?,?,?,?,?)',
+    );
+    const empty = JSON.stringify({ studies: [], findings: [], models: [] });
+    insert.run(13, 'first', 'First', 7, empty, 1);
+    insert.run(26, 'second', 'Second', 9, empty, 2);
+    initializeWorkspaceProjection(db);
+    initializeWorkspaceProjection(db, 'tables');
+    db.exec('ALTER TABLE mnema_workspaces DROP COLUMN data');
+    const tables = initializeWorkspaceProjection(db);
+    const newer = JSON.stringify({
+      studies: [{ id: 'new', title: 'New after drop' }],
+      findings: [],
+    });
+    db.exec('BEGIN IMMEDIATE');
+    tables.write('second', newer);
+    db.exec('COMMIT');
+
+    db.exec(`CREATE TRIGGER reject_restore BEFORE UPDATE ON mnema_projection_source
+      BEGIN SELECT RAISE(ABORT, 'test restore failure'); END`);
+    assert.throws(() => initializeWorkspaceProjection(db, 'dual'), /test restore failure/);
+    assert.equal(
+      q("SELECT name FROM pragma_table_info('mnema_workspaces') WHERE name='data'").get(),
+      undefined,
+    );
+    assert.equal(q('PRAGMA foreign_keys').get().foreign_keys, 1);
+    assert.equal(compareWorkspaceProjection(db).ok, true);
+    db.exec('DROP TRIGGER reject_restore');
+
+    const restored = initializeWorkspaceProjection(db, 'dual');
+    assert.equal(restored.report.ok, true);
+    assert.deepEqual(
+      q("PRAGMA table_info('mnema_workspaces')")
+        .all()
+        .map((row) => row.name),
+      ['id', 'name', 'version', 'data', 'created', 'created_by'],
+    );
+    assert.deepEqual(
+      q('SELECT rowid FROM mnema_workspaces ORDER BY rowid')
+        .all()
+        .map((row) => row.rowid),
+      [13, 26],
+    );
+    assert.equal(
+      JSON.parse(q("SELECT data FROM mnema_workspaces WHERE id='second'").get().data).studies[0]
+        .title,
+      'New after drop',
+    );
+    assert.equal(q('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally {
+    db.close();
+  }
+});

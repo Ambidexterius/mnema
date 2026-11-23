@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
 import type { WorkspaceReader } from './projects/store.ts';
+import type { Segment, Study } from '../app/types.ts';
 export interface CompletionMail {
   to: string;
   subject: string;
@@ -11,11 +12,9 @@ export interface CompletionMail {
   html: string;
   messageId: string;
 }
+const htmlCharacters = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escape = (v: unknown) =>
-  String(v ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+  String(v ?? '').replace(/[&<>"']/g, (c) => htmlCharacters[c as keyof typeof htmlCharacters]);
 export const smtpConfigured = () =>
   ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM'].every((k) => Boolean(process.env[k]));
 export function completionEmail({
@@ -27,7 +26,10 @@ export function completionEmail({
   jobId,
   canReadDraft,
 }: {
-  study: any;
+  study: Pick<Study, 'id' | 'title' | 'date' | 'addedBy' | 'summary'> & {
+    segments: Pick<Segment, 'id' | 'page' | 'time'>[];
+    summaryInfo?: Pick<NonNullable<Study['summaryInfo']>, 'state' | 'review'>;
+  };
   workspaceId: string;
   workspaceName: string;
   baseURL: string;
@@ -46,7 +48,7 @@ export function completionEmail({
       ? study.summary || []
       : [];
   const title = summary.length ? 'Расшифровка и сводка готовы' : 'Расшифровка готова';
-  const draft = summary.length && study.summaryInfo.review !== 'verified';
+  const draft = summary.length && study.summaryInfo?.review !== 'verified';
   const note = draft
     ? 'Сводка — черновик ИИ. Проверьте выводы по исходной записи.'
     : study.summaryInfo?.state === 'error'
@@ -55,10 +57,10 @@ export function completionEmail({
   const blocks = summary.map((block) => {
     const sources = (block.segments || [])
       .map((id: string) => study.segments?.find((s) => s.id === id))
-      .filter(Boolean);
+      .filter((source) => source !== undefined);
     return { ...block, sources };
   });
-  const where = (s: any) =>
+  const where = (s: Pick<Segment, 'page' | 'time'>) =>
     s.page
       ? 'стр. ' + s.page
       : Math.floor((s.time || 0) / 60) +
@@ -166,7 +168,9 @@ export function createCompletionMailer({
     readWorkspace ??
     ((id: string) => {
       const row = q('SELECT name,data FROM mnema_workspaces WHERE id=?').get(id);
-      return row && { name: row.name, state: JSON.parse(row.data) };
+      return row
+        ? { name: String(row.name), state: JSON.parse(row.data) as { studies: Study[] } }
+        : undefined;
     });
   db.exec(
     "CREATE TABLE IF NOT EXISTS mnema_completion_mail(job_id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,study_id TEXT NOT NULL,user_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0)",
@@ -197,11 +201,15 @@ export function createCompletionMailer({
               'SELECT u.email,m.role FROM user u JOIN mnema_access a ON a.user_id=u.id JOIN mnema_members m ON m.user_id=u.id WHERE u.id=? AND m.workspace_id=? AND a.revoked=0 AND m.revoked=0',
             ).get(job.user_id, job.workspace_id);
         const access = person && (getAccess ? getAccess(job.user_id, job.workspace_id) : person);
-        if (!study || !person || !access || ['error', 'cancelled'].includes(study.status)) {
+        if (!ws || !study || !person || !access || ['error', 'cancelled'].includes(study.status)) {
           q("UPDATE mnema_completion_mail SET status='skipped' WHERE job_id=?").run(job.job_id);
           continue;
         }
-        if (study.status !== 'ready' || ['queued', 'running'].includes(study.summaryInfo?.state)) {
+        if (
+          study.status !== 'ready' ||
+          study.summaryInfo?.state === 'queued' ||
+          study.summaryInfo?.state === 'running'
+        ) {
           q('UPDATE mnema_completion_mail SET next_at=? WHERE job_id=?').run(
             Date.now() + 5000,
             job.job_id,

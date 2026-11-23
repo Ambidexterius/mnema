@@ -89,11 +89,12 @@ export interface Study {
     modelId: string;
     model?: string;
     requestedBy: string;
+    autoFindings?: boolean;
     startedAt: number;
     finishedAt?: number;
-    progress?: string;
-    errorCode?: string;
-    error?: string;
+    progress?: string | null;
+    errorCode?: string | null;
+    error?: string | null;
   };
   summary: { title: string; text: string; segments: string[] }[];
   segments: Segment[];
@@ -118,13 +119,16 @@ export interface Study {
   transcriptEdits?: { segmentId: string; before: string; after: string; by: string; at: number }[];
   findingsInfo?: {
     state: 'queued' | 'running' | 'ready' | 'error';
+    modelId?: string;
+    requestedBy?: string;
+    revision?: string;
     progress?: string | null;
     found?: number;
     added?: number;
     merged?: number;
     dedupe?: 'model' | 'words';
     model?: string;
-    error?: string;
+    error?: string | null;
     errorCode?: string;
     startedAt?: number;
     finishedAt?: number;

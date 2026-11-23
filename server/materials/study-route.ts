@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Person, RequestServices } from '../request-context.ts';
-import { fail, handledJson } from '../http.ts';
+import { fail, handledJson, isRecord } from '../http.ts';
 import type { openDatabase } from '../db.ts';
 import { randomUUID } from 'node:crypto';
 import { rm, unlink } from 'node:fs/promises';
@@ -8,11 +8,14 @@ import { join } from 'node:path';
 import type { createAnswerFeedback } from '../answer-feedback.ts';
 import type { ServerExtension } from '../extension.ts';
 import { quoteSegment } from '../../app/highlight-text.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type { createProjectView } from '../projects/view.ts';
 
-interface StudyServices extends Pick<RequestServices, 'body' | 'session'> {
-  getState: () => { state: any; version: number };
-  mutate: (change: (state: any) => void) => unknown;
-  view: (person: Person) => { state: any };
+type StudyState = Pick<ReturnType<typeof createProjectStore>, 'getState' | 'mutate'> & {
+  view: ReturnType<typeof createProjectView>;
+};
+
+interface StudyServices extends Pick<RequestServices, 'body' | 'session'>, StudyState {
   q: ReturnType<typeof openDatabase>['q'];
   dir: string;
   currentWs: () => string;
@@ -26,11 +29,7 @@ interface StudyServices extends Pick<RequestServices, 'body' | 'session'> {
   feedback: Pick<ReturnType<typeof createAnswerFeedback>, 'forgetStudy'>;
 }
 
-interface HighlightServices extends Pick<RequestServices, 'body' | 'limit'> {
-  getState: () => { state: any; version: number };
-  mutate: (change: (state: any) => void) => unknown;
-  view: (person: Person) => { state: any };
-}
+type HighlightServices = Pick<RequestServices, 'body' | 'limit'> & StudyState;
 
 export async function handleStudy(
   req: IncomingMessage,
@@ -58,9 +57,9 @@ export async function handleStudy(
     const id = path.split('/')[3];
     const study = getState().state.studies.find((s) => s.id === id);
     if (!study) fail(404, 'Материал не найден.');
-    if (['queued', 'running'].includes(study.summaryInfo?.state))
+    if (study.summaryInfo?.state === 'queued' || study.summaryInfo?.state === 'running')
       fail(409, 'Дождитесь завершения сводки перед удалением.');
-    if (['queued', 'running'].includes(study.findingsInfo?.state))
+    if (study.findingsInfo?.state === 'queued' || study.findingsInfo?.state === 'running')
       fail(409, 'Дождитесь завершения поиска находок перед удалением.');
     const workspaceId = currentWs(),
       key = jobKey(workspaceId, id);
@@ -83,10 +82,9 @@ export async function handleStudy(
         )
       )
         fail(409, 'Не удалось остановить обработку. Повторите удаление позже.');
-      const discardedJobs = q('SELECT id FROM mnema_jobs WHERE study_id=? AND workspace_id=?').all(
-        id,
-        workspaceId,
-      );
+      const discardedJobs = q<{ id: string }>(
+        'SELECT id FROM mnema_jobs WHERE study_id=? AND workspace_id=?',
+      ).all(id, workspaceId);
       extension?.forget(workspaceId, id);
       feedback.forgetStudy(workspaceId, id);
       q('DELETE FROM mnema_jobs WHERE study_id=? AND workspace_id=?').run(id, workspaceId);
@@ -110,9 +108,11 @@ export async function handleStudy(
   if (/^\/api\/studies\/[^/]+$/.test(path) && req.method === 'PATCH') {
     if (person.role !== 'full')
       fail(403, 'Паспорт исследования может менять участник с полным доступом.');
-    const b = await body(req),
-      id = path.split('/')[3],
-      p: Record<string, any> = b.passport || {};
+    const b: unknown = await body(req);
+    if (!isRecord(b)) fail(400, 'Проверьте поля паспорта.');
+    const p = b.passport || {};
+    if (!isRecord(p)) fail(400, 'Проверьте поля паспорта.');
+    const id = path.split('/')[3];
     const current = getState();
     if (b.version !== undefined && b.version !== current.version)
       fail(409, 'Материалы изменились в другой вкладке. Обновите страницу и повторите действие.');
@@ -125,24 +125,32 @@ export async function handleStudy(
       ['audience', 1000],
       ['author', 120],
       ['conducted', 40],
-    ] as [string, number][])
-      if (p[k] !== undefined) {
-        if (typeof p[k] !== 'string' || p[k].trim().length > max)
+    ] as const) {
+      const value = p[k];
+      if (value !== undefined) {
+        if (typeof value !== 'string' || value.trim().length > max)
           fail(400, 'Слишком длинное поле паспорта.');
-        fields[k] = p[k].trim();
+        fields[k] = value.trim();
       }
+    }
     if (fields.title === '') fail(400, 'Укажите название исследования.');
     if (p.type !== undefined) {
-      if (!['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'].includes(p.type))
+      if (
+        typeof p.type !== 'string' ||
+        !['Интервью', 'Юзабилити-тест', 'Встреча', 'Отчёт'].includes(p.type)
+      )
         fail(400, 'Неизвестный тип источника.');
       fields.type = p.type;
     }
     if (p.report !== undefined) {
-      if (!['ready', 'none'].includes(p.report)) fail(400, 'Статус отчёта: есть или нет.');
+      if (p.report !== 'ready' && p.report !== 'none') fail(400, 'Статус отчёта: есть или нет.');
       fields.report = p.report;
     }
     if (p.reportExpected !== undefined) {
-      if (p.reportExpected !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(p.reportExpected))
+      if (
+        typeof p.reportExpected !== 'string' ||
+        (p.reportExpected !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(p.reportExpected))
+      )
         fail(400, 'Дата отчёта — в формате ГГГГ-ММ-ДД.');
       fields.reportExpected = p.reportExpected;
     }
@@ -154,32 +162,34 @@ export async function handleStudy(
   }
   if (/^\/api\/studies\/[^/]+\/transcript\/[^/]+$/.test(path) && req.method === 'PATCH') {
     if (person.role !== 'full') fail(403, 'Исправлять текст может участник с полным доступом.');
-    const b = await body(req),
+    const b: unknown = await body(req),
       study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
     if (!study) fail(404, 'Материал не найден.');
-    if (['queued', 'running'].includes(study.summaryInfo?.state))
+    if (study.summaryInfo?.state === 'queued' || study.summaryInfo?.state === 'running')
       fail(409, 'Дождитесь сводки перед исправлением текста.');
     const seg = study.segments?.find((s) => s.id === path.split('/')[5]);
     if (!seg) fail(404, 'Фрагмент не найден.');
-    if (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 4000)
+    if (!isRecord(b) || typeof b.text !== 'string' || !b.text.trim() || b.text.length > 4000)
       fail(400, 'Введите исправленный текст до 4000 символов.');
+    const correctedText = b.text.trim();
     if (b.before !== undefined && b.before !== (seg.correctedText ?? seg.text))
       fail(409, 'Фрагмент изменился. Откройте его заново и повторите правку.');
     extension?.beforeEditTranscript(seg);
     mutate((s) => {
-      const target = s.studies.find((x) => x.id === study.id),
-        part = target.segments.find((x) => x.id === seg.id);
+      const target = s.studies.find((x) => x.id === study.id);
+      const part = target?.segments.find((x) => x.id === seg.id);
+      if (!target || !part) fail(404, 'Фрагмент не найден.');
       target.transcriptEdits = [
         ...(target.transcriptEdits || []),
         {
           segmentId: part.id,
           before: part.correctedText ?? part.text,
-          after: b.text.trim(),
+          after: correctedText,
           by: person.name,
           at: Date.now(),
         },
       ].slice(-1000);
-      part.correctedText = b.text.trim();
+      part.correctedText = correctedText;
       extension?.afterEditTranscript(part);
       target.summary = [];
       target.summaryInfo = undefined;
@@ -199,7 +209,8 @@ export async function handleHighlights(
   // Highlights: a quote a person marked in the material. The text must be in the transcript; readers see them, cannot change them.
   if (/^\/api\/studies\/[^/]+\/highlights$/.test(path) && req.method === 'POST') {
     if (person.role !== 'full') fail(403, 'Отмечать фрагменты может участник с полным доступом.');
-    const b = await body(req);
+    const b: unknown = await body(req);
+    if (!isRecord(b)) fail(400, 'Выделите хотя бы несколько слов.');
     const { state } = getState();
     const study = state.studies.find((s) => s.id === path.split('/')[3]);
     if (!study) fail(404, 'Материал не найден.');
@@ -210,7 +221,7 @@ export async function handleHighlights(
     if (quote.length > 2000) fail(400, 'Выделите фрагмент короче 2 000 символов.');
     const segmentId = quoteSegment(study.segments || [], quote, {
       segmentId: typeof b.segmentId === 'string' ? b.segmentId : undefined,
-      page: Number.isInteger(b.page) ? b.page : undefined,
+      page: typeof b.page === 'number' && Number.isInteger(b.page) ? b.page : undefined,
     });
     if (!segmentId)
       fail(400, 'Не нашли этот текст в расшифровке материала. Выделите фрагмент заново.');
@@ -223,7 +234,7 @@ export async function handleHighlights(
       studyId: study.id,
       segmentId,
       text: quote,
-      ...(Number.isInteger(page) ? { page } : {}),
+      ...(typeof page === 'number' && Number.isInteger(page) ? { page } : {}),
       by: person.name,
       byId: person.id,
       at: Date.now(),

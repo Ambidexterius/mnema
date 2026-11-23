@@ -1,18 +1,24 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { isRecord } from './http.ts';
+import type { StoredModel } from './projects/types.ts';
 
 export type ModelAPI = 'compatible' | 'openai' | 'anthropic';
+type ProviderMessage = { role: string; content: string };
+type ProviderText = { type: string; text?: string };
+type ProviderOutput = { type: string; content?: ProviderText[] };
 export const keySlot = /^LLM_KEY_(DEEPSEEK|CUSTOM1|CUSTOM2)$/;
 const official = { openai: 'https://api.openai.com/v1', anthropic: 'https://api.anthropic.com/v1' };
 function invalid(message: string, status = 400): never {
   throw Object.assign(new Error(message), { status });
 }
-export function modelBase(model: any) {
-  const type: ModelAPI = model.apiType || 'compatible';
-  if (!['compatible', 'openai', 'anthropic'].includes(type)) invalid('Выберите поставщика модели.');
+export function modelBase(model: { apiType?: unknown; url?: unknown }) {
+  const type = model.apiType || 'compatible';
+  if (type !== 'compatible' && type !== 'openai' && type !== 'anthropic')
+    invalid('Выберите поставщика модели.');
   if (type !== 'compatible') return official[type];
   let url: URL;
   try {
-    url = new URL(model.url);
+    url = new URL(String(model.url));
   } catch {
     invalid('Укажите корректный адрес API.');
   }
@@ -31,8 +37,12 @@ export function modelBase(model: any) {
     invalid('Этот адрес API не разрешён на сервере. Добавьте домен в LLM_ALLOWED_HOSTS.');
   return url.href.replace(/\/$/, '');
 }
-export function cleanModel(value: any, previous?: any, allowEmpty = false) {
-  if (!value || typeof value !== 'object') invalid('Проверьте параметры подключения.');
+export function cleanModel(
+  value: unknown,
+  previous?: StoredModel,
+  allowEmpty = false,
+): StoredModel {
+  if (!isRecord(value)) invalid('Проверьте параметры подключения.');
   const name = String(value.name ?? previous?.name ?? '').trim(),
     model = String(value.model ?? previous?.model ?? '').trim();
   const instructions = String(value.instructions ?? previous?.instructions ?? '').trim();
@@ -45,9 +55,12 @@ export function cleanModel(value: any, previous?: any, allowEmpty = false) {
   )
     invalid('Укажите название до 60 символов, ID модели до 120 и правила до 4000 символов.');
   const apiType = value.apiType ?? previous?.apiType ?? 'compatible';
+  if (apiType !== 'compatible' && apiType !== 'openai' && apiType !== 'anthropic')
+    invalid('Выберите поставщика модели.');
   const keyRef = value.keyRef ?? previous?.keyRef ?? '';
-  if (keyRef && !keySlot.test(keyRef)) invalid('Выберите допустимый серверный ключ.');
-  const result = {
+  if (typeof keyRef !== 'string' || (keyRef && !keySlot.test(keyRef)))
+    invalid('Выберите допустимый серверный ключ.');
+  const result: StoredModel = {
     id: previous?.id || String(value.id || ''),
     name,
     model,
@@ -122,8 +135,8 @@ export function providerHeaders(model: any, key: string) {
   };
 }
 export function providerRequest(model: any, payload: any) {
-  const base = modelBase(model),
-    messages = payload.messages || [];
+  const base = modelBase(model);
+  const messages: ProviderMessage[] = payload.messages || [];
   if (model.apiType === 'anthropic')
     return {
       url: base + '/messages',
@@ -152,7 +165,8 @@ export function providerRequest(model: any, payload: any) {
 }
 export function providerResult(model: any, result: any) {
   if (model.apiType === 'anthropic') {
-    const content = (result.content || [])
+    const parts: ProviderText[] = result.content || [];
+    const content = parts
       .filter((p) => p.type === 'text' && typeof p.text === 'string')
       .map((p) => p.text)
       .join('\n');
@@ -170,7 +184,8 @@ export function providerResult(model: any, result: any) {
     };
   }
   if (model.apiType === 'openai') {
-    const content = (result.output || [])
+    const output: ProviderOutput[] = result.output || [];
+    const content = output
       .filter((p) => p.type === 'message')
       .flatMap((p) => p.content || [])
       .filter((p) => p.type === 'output_text' && typeof p.text === 'string')
@@ -330,8 +345,12 @@ export async function requestChatAnswer(
   let hasReviewedSources = false;
   let sourceNumbers: Set<number> | null = null;
   try {
-    const context = JSON.parse(
-      payload.messages?.filter((message) => message.role === 'user').at(-1)?.content || 'null',
+    const messages: ProviderMessage[] | undefined = payload.messages;
+    const context: {
+      sources?: { number: number }[];
+      reviewed_findings?: { title?: string; sourceNumbers?: number[] }[];
+    } | null = JSON.parse(
+      messages?.filter((message) => message.role === 'user').at(-1)?.content || 'null',
     );
     const numbers = new Set<number>(
       (context?.sources || [])

@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { WorkspaceReader } from './projects/store.ts';
+import type { Study } from '../app/types.ts';
 
 type Member = { id: string; role: string };
 type Person = { id: string; workspaces: Member[] };
@@ -73,7 +74,7 @@ export function createAnswerFeedback(
     const content = Buffer.from(JSON.stringify(receipt)).toString('base64url');
     return content + '.' + sign(content).toString('base64url');
   }
-  function readableSources(person: Person, example: Example, cache = new Map<string, any[]>()) {
+  function readableSources(person: Person, example: Example, cache = new Map<string, Study[]>()) {
     return example.references.every((ref) => {
       // Older receipts cannot establish which text the model received.
       if (!ref.revision) return false;

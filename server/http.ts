@@ -46,6 +46,9 @@ export async function readJsonBody(chunks: AsyncIterable<Buffer>, max = 2 * 1024
 export const text = (v: unknown, max = 200) =>
   typeof v === 'string' ? v.trim().slice(0, max) : '';
 
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
 export async function transferResponse(res: ServerResponse, response: Response) {
   const headers: OutgoingHttpHeaders = {};
   for (const [k, v] of response.headers) if (k !== 'set-cookie') headers[k] = v;

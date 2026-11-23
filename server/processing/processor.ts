@@ -4,13 +4,14 @@ import type { openDatabase } from '../db.ts';
 import type { ServerExtension } from '../extension.ts';
 import { extractDocument, transcribeRecording, detectSpeakers } from '../processing.ts';
 import { transcriptRevision } from '../summaries.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type { StoredStudy } from '../projects/types.ts';
 
-interface ProcessorServices {
+interface ProcessorServices extends Pick<ReturnType<typeof createProjectStore>, 'mutate'> {
   q: ReturnType<typeof openDatabase>['q'];
   dir: string;
   currentWs: () => string;
   jobKey: (workspace: string, study: string) => string;
-  mutate: (update: (state: any) => void) => unknown;
   recordingProcessor?: typeof transcribeRecording;
   speakerProcessor?: typeof detectSpeakers;
   extension: () => Pick<ServerExtension, 'wordTimes'> | undefined;
@@ -27,12 +28,17 @@ export function createFileProcessor({
   extension,
 }: ProcessorServices) {
   const transcriptPreviews = new Map<string, NonNullable<Study['transcriptPreview']>>();
-  const processSpeakers = async (study, fileId: string | undefined, signal: AbortSignal) => {
-    const setInfo = (info) => {
+  const processSpeakers = async (
+    study: StoredStudy,
+    fileId: string | undefined,
+    signal: AbortSignal,
+  ) => {
+    const setInfo = (info: Partial<NonNullable<Study['speakerInfo']>>) => {
       if (signal.aborted) return;
       mutate((s) => {
         const item = s.studies.find((x) => x.id === study.id);
-        if (item) item.speakerInfo = { ...item.speakerInfo, ...info };
+        const status = info.state ?? item?.speakerInfo?.state;
+        if (item && status) item.speakerInfo = { ...item.speakerInfo, ...info, state: status };
       });
     };
     setInfo({ state: 'running', progress: 'Подготовка аудио' });
@@ -60,7 +66,7 @@ export function createFileProcessor({
         item.speakerEdits = [
           ...(item.speakerEdits || []),
           {
-            action: 'detected',
+            action: 'detected' as const,
             count: result.count,
             changed: (item.segments || []).filter((x) => before.get(x.id) !== x.speaker).length,
             by: 'Мнемодак',
@@ -78,9 +84,18 @@ export function createFileProcessor({
       });
     }
   };
-  const processStudy = async (study, kind, checkpointDir, signal: AbortSignal) => {
+  const processStudy = async (
+    study: StoredStudy,
+    kind: 'asr' | 'document' | 'speakers',
+    checkpointDir: string,
+    signal: AbortSignal,
+  ) => {
     signal.throwIfAborted();
-    const record = q('SELECT * FROM mnema_uploads WHERE id=?').get(study.fileId);
+    const record = study.fileId
+      ? q<{ id: string; name: string }>('SELECT id,name FROM mnema_uploads WHERE id=?').get(
+          study.fileId,
+        )
+      : undefined;
     if (kind === 'speakers') return processSpeakers(study, record?.id, signal);
     if (!record) throw new Error('Исходник не найден. Добавьте файл заново.');
     const started = Date.now();
@@ -92,7 +107,7 @@ export function createFileProcessor({
       participants: study.participants,
       wordTimes: extension()?.wordTimes,
       signal,
-      onProgress: (progress) => {
+      onProgress: (progress: string) => {
         if (signal.aborted) return;
         mutate((s) => {
           const item = s.studies.find((x) => x.id === study.id);

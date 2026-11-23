@@ -1,4 +1,4 @@
-import type { Study } from '../app/types.ts';
+import type { Segment, Study } from '../app/types.ts';
 import { overviewSources } from './overview-evidence.ts';
 
 interface FindingHint {
@@ -26,6 +26,10 @@ interface EvidenceCoverage {
   repeatedMaterials?: number;
   scopeExcluded?: number;
 }
+type SearchStudy = Pick<Study, 'id' | 'title' | 'status' | 'report'> & {
+  type?: Study['type'];
+  segments: (Pick<Segment, 'id' | 'text' | 'time'> & Partial<Segment>)[];
+};
 const STOP = new Set([
   'каки',
   'како',
@@ -186,7 +190,7 @@ function recordingWindows<T extends { text: string; time: number; end?: number |
 
 /** Findings rank originals; only reviewed titles with selected original links become interpretation context. */
 export function selectEvidence(
-  studies: Study[],
+  studies: SearchStudy[],
   question: string,
   scope = 'all',
   hints: FindingHint[] = [],

@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Segment, Study, WorkspaceState } from '../app/types.ts';
 import type { NewsPost } from '../app/product-news.ts';
+import type { ProjectSnapshot } from './projects/store.ts';
+import type { StoredWorkspace } from './projects/types.ts';
 
 type ProjectViewer = {
   id: string;
@@ -9,7 +11,6 @@ type ProjectViewer = {
   role: 'view' | 'full';
   owner: boolean;
 };
-type StoredWorkspace = WorkspaceState & { projectSummary?: unknown };
 export interface ExtensionContext {
   db: DatabaseSync;
   q: (sql: string) => {
@@ -18,7 +19,7 @@ export interface ExtensionContext {
     run: (...values: unknown[]) => unknown;
   };
   dir: string;
-  getState: () => { version: number; state: StoredWorkspace };
+  getState: () => ProjectSnapshot;
   mutate: (change: (state: StoredWorkspace) => void) => unknown;
   currentWs: () => string;
   session: (request: IncomingMessage) => Promise<ProjectViewer | null>;
@@ -35,10 +36,10 @@ export interface ExtensionContext {
 
 export interface ServerExtension {
   wordTimes: boolean;
-  stateFields: (raw: WorkspaceState, person: ProjectViewer) => Partial<WorkspaceState>;
+  stateFields: (raw: StoredWorkspace, person: ProjectViewer) => Partial<WorkspaceState>;
   studyFields: (
     study: Study,
-    raw: WorkspaceState,
+    raw: StoredWorkspace,
     person: ProjectViewer,
     version: number,
   ) => Partial<Study>;

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { fail, handledJson, text } from '../http.ts';
+import { fail, handledJson, isRecord, text } from '../http.ts';
 import type { Person, RequestServices } from '../request-context.ts';
 import type { AsyncLocalStorage } from 'node:async_hooks';
 import { rm, unlink } from 'node:fs/promises';
@@ -7,14 +7,15 @@ import { join } from 'node:path';
 import type { openDatabase } from '../db.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import type { createAnswerFeedback } from '../answer-feedback.ts';
-import type { WorkspaceReader } from './store.ts';
+import type { WorkspaceReader, createWorkspaceFactory, initialState } from './store.ts';
+import type { InviteToProject } from './types.ts';
 import type { ServerExtension } from '../extension.ts';
 
 interface WorkspaceServices extends RequestServices {
   production: boolean;
   sharing: ReturnType<typeof createProjectSharing>;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
-  inviteToProject: (person: Person, input: any) => Promise<any>;
+  inviteToProject: InviteToProject;
   q: ReturnType<typeof openDatabase>['q'];
   db: Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
   dir: string;
@@ -22,8 +23,8 @@ interface WorkspaceServices extends RequestServices {
   uploadBusy: ReadonlySet<string>;
   feedback: Pick<ReturnType<typeof createAnswerFeedback>, 'forgetStudy'>;
   extension?: Pick<ServerExtension, 'removeFiles'>;
-  initialState: () => unknown;
-  createProject: (name: string, person: Person, mode: string) => string;
+  initialState: typeof initialState;
+  createProject: ReturnType<typeof createWorkspaceFactory>;
 }
 
 export async function handleWorkspace(
@@ -53,8 +54,8 @@ export async function handleWorkspace(
   if (/^\/api\/workspaces\/[^/]+\/share$/.test(path) && req.method === 'POST') {
     limit('project-share:' + person.id, 30);
     const id = path.split('/')[3],
-      input = await body(req);
-    if (!sharing.validLink(id, input.token))
+      input: unknown = await body(req);
+    if (!isRecord(input) || typeof input.token !== 'string' || !sharing.validLink(id, input.token))
       fail(
         403,
         'Ссылка недействительна или доступ закрыт. Попросите владельца прислать новую ссылку.',
@@ -82,14 +83,15 @@ export async function handleWorkspace(
       if (req.method === 'GET' && !members && !rotate)
         return handledJson(res, 200, sharing.info(id, person.id));
       limit('project-sharing:' + person.id, 60);
-      const input = await body(req),
+      const input: unknown = await body(req),
         latest = await session(req);
       if (!latest || !sharing.canManage(id, latest.id)) fail(403, 'Доступ к проекту изменился.');
+      if (!isRecord(input)) fail(400, 'Проверьте параметры доступа к проекту.');
       if (req.method === 'PATCH' && !members && !rotate)
         return handledJson(res, 200, sharing.setMode(id, latest.id, input.mode));
       if (req.method === 'POST' && rotate)
         return handledJson(res, 200, sharing.rotate(id, latest.id));
-      if (members && memberId && ['PATCH', 'DELETE'].includes(req.method))
+      if (members && memberId && (req.method === 'PATCH' || req.method === 'DELETE'))
         return handledJson(
           res,
           200,
@@ -118,16 +120,17 @@ export async function handleWorkspace(
 
   if (
     /^\/api\/workspaces\/[^/]+(?:\/invitations)?$/.test(path) &&
-    ['PATCH', 'DELETE', 'POST'].includes(req.method)
+    (req.method === 'PATCH' || req.method === 'DELETE' || req.method === 'POST')
   ) {
     const id = path.split('/')[3],
       target = person.workspaces.find((w) => w.id === id);
     if (!target?.admin) fail(403, 'Управление проектом доступно его владельцу.');
-    const b = await body(req);
+    const b: unknown = await body(req);
     // The request body is asynchronous: recheck membership before the mutation.
     const latest = await session(req);
-    if (!latest?.workspaces.some((w) => w.id === id && w.admin))
+    if (!latest || !latest.workspaces.some((w) => w.id === id && w.admin))
       fail(403, 'Доступ к проекту изменился.');
+    if (!isRecord(b)) fail(400, 'Проверьте поля проекта.');
     return await wsStore.run(id, async () => {
       if (path.endsWith('/invitations') && req.method === 'POST')
         return handledJson(
@@ -155,12 +158,16 @@ export async function handleWorkspace(
         q("SELECT 1 FROM mnema_jobs WHERE workspace_id=? AND status='running'").get(id) ||
         state.studies.some(
           (s) =>
-            ['queued', 'running'].includes(s.summaryInfo?.state) ||
-            ['queued', 'running'].includes(s.findingsInfo?.state),
+            s.summaryInfo?.state === 'queued' ||
+            s.summaryInfo?.state === 'running' ||
+            s.findingsInfo?.state === 'queued' ||
+            s.findingsInfo?.state === 'running',
         )
       )
         fail(409, 'Дождитесь завершения обработки в проекте и повторите удаление.');
-      const sessions = q('SELECT id,metadata FROM mnema_upload_sessions')
+      const sessions = q<{ id: string; metadata: string }>(
+        'SELECT id,metadata FROM mnema_upload_sessions',
+      )
         .all()
         .filter((s) => JSON.parse(s.metadata).workspaceId === id);
       if (
@@ -171,8 +178,8 @@ export async function handleWorkspace(
         )
       )
         fail(409, 'Завершите или отмените загрузку файлов в проект и повторите удаление.');
-      const jobs = q('SELECT id FROM mnema_jobs WHERE workspace_id=?').all(id);
-      const fileIds = [...new Set<string>(state.studies.map((s) => s.fileId).filter(Boolean))];
+      const jobs = q<{ id: string }>('SELECT id FROM mnema_jobs WHERE workspace_id=?').all(id);
+      const fileIds = [...new Set(state.studies.flatMap((s) => (s.fileId ? [s.fileId] : [])))];
       db.exec('BEGIN IMMEDIATE');
       try {
         for (const study of state.studies) feedback.forgetStudy(id, study.id);
@@ -209,14 +216,16 @@ export async function handleWorkspace(
   }
   if (path === '/api/workspaces' && req.method === 'POST') {
     limit('workspace:' + person.id, 5);
-    const b = await body(req);
+    const b: unknown = await body(req);
+    if (!isRecord(b)) fail(400, 'Проверьте поля проекта.');
     const name = text(b.name, 60);
-    if (b.mode !== undefined && !['private', 'all', 'link'].includes(b.mode))
+    const mode = b.mode === undefined ? 'all' : b.mode;
+    if (mode !== 'private' && mode !== 'all' && mode !== 'link')
       fail(400, 'Выберите способ доступа к проекту.');
     if (!name) fail(400, 'Назовите проект.');
     if (person.workspaces.filter((w) => w.admin).length >= 20)
       fail(409, 'Можно создать не больше 20 проектов.');
-    const id = createProject(name, person, b.mode || 'all');
+    const id = createProject(name, person, mode);
     return handledJson(res, 201, { id, name });
   }
   return false;

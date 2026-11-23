@@ -1,4 +1,5 @@
-import type { Study } from '../app/types.ts';
+import type { Basis } from '../app/types.ts';
+import type { StoredModel } from './projects/types.ts';
 import { selectEvidence } from './retrieval.ts';
 interface Project {
   id: string;
@@ -6,14 +7,27 @@ interface Project {
   role: 'view' | 'full';
   admin: boolean;
 }
+type SearchStudy = Parameters<typeof selectEvidence>[0][number];
+type SearchFinding = NonNullable<Parameters<typeof selectEvidence>[3]>[number];
+type GlobalStudy = SearchStudy & {
+  actualStudyId: string;
+  workspaceId: string;
+  workspaceName: string;
+};
+type ResearchState = {
+  studies: SearchStudy[];
+  findings?: SearchFinding[];
+  models: StoredModel[];
+  modelId?: string;
+};
 export function collectGlobalResearch(
   person: { workspaceId: string | null; workspaces: Project[] },
-  read: (project: Project) => any,
+  read: (project: Project) => ResearchState,
 ) {
-  const studies: any[] = [];
-  const groups: any[][] = [];
-  const sourceHints: any[] = [];
-  let model: any = null,
+  const studies: GlobalStudy[] = [];
+  const groups: GlobalStudy[][] = [];
+  const sourceHints: SearchFinding[] = [];
+  let model: StoredModel | null = null,
     modelWorkspaceId: string | null = null;
   const projects = [...person.workspaces].sort(
     (a, b) => Number(b.id === person.workspaceId) - Number(a.id === person.workspaceId),
@@ -56,12 +70,7 @@ export function globalEvidence(
   research: ReturnType<typeof collectGlobalResearch>,
   question: string,
 ) {
-  const selected = selectEvidence(
-    research.studies as Study[],
-    question,
-    'all',
-    research.sourceHints,
-  );
+  const selected = selectEvidence(research.studies, question, 'all', research.sourceHints);
   return {
     reviewedFindings: selected.reviewedFindings,
     coverage: {
@@ -77,6 +86,10 @@ export function globalEvidence(
     },
     sources: selected.sources.map(({ score, ...source }, i) => {
       const material = research.studies.find((s) => s.id === source.studyId)!;
+      const basis: Basis =
+        material.report === 'ready' || (material.report !== 'none' && material.type === 'Отчёт')
+          ? 'report'
+          : 'raw';
       return {
         ...source,
         number: i + 1,
@@ -85,10 +98,7 @@ export function globalEvidence(
         workspaceId: material.workspaceId,
         workspaceName: material.workspaceName,
         studyType: material.type,
-        basis:
-          material.report === 'ready' || (material.report !== 'none' && material.type === 'Отчёт')
-            ? 'report'
-            : 'raw',
+        basis,
       };
     }),
   };

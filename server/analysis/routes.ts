@@ -1,23 +1,32 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { fail, handledJson } from '../http.ts';
+import { fail, handledJson, isRecord } from '../http.ts';
 import type { Person, RequestServices } from '../request-context.ts';
 import { answerSystem, requestChatAnswer } from '../model-connections.ts';
 import { answerTemplate } from '../chat/prompt.ts';
 import { selectEvidence } from '../retrieval.ts';
 import { transcriptRevision } from '../summaries.ts';
 import { studiesForReader, summaryFindingsRevision, summarySourcesMatch } from './evidence.ts';
+import type { legacyFinding, reportOf } from './review.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type { createProjectView } from '../projects/view.ts';
+import type { StoredModel, StoredWorkspace } from '../projects/types.ts';
+import type { AnalysisRequest, AnalysisResponse } from '../summary-request.ts';
+import type { Basis } from '../../app/types.ts';
 
-interface AnalysisServices extends RequestServices {
-  getState: () => { state: any };
-  mutate: (change: (state: any) => void) => unknown;
-  view: (person: Person) => { state: any };
+interface AnalysisServices
+  extends RequestServices, Pick<ReturnType<typeof createProjectStore>, 'getState' | 'mutate'> {
+  view: ReturnType<typeof createProjectView>;
   currentWs: () => string;
   deletingStudies: ReadonlySet<string>;
   jobKey: (workspace: string, study: string) => string;
-  modelKey: (model: any) => string | undefined;
-  callModel: (person: Person, model: any, payload: any) => Promise<any>;
-  reportOf: (study: any) => 'ready' | 'none';
-  legacyFinding: (finding: any) => any;
+  modelKey: (model: StoredModel) => string | null | undefined;
+  callModel: (
+    person: Person,
+    model: StoredModel,
+    payload: AnalysisRequest,
+  ) => Promise<AnalysisResponse>;
+  reportOf: typeof reportOf;
+  legacyFinding: typeof legacyFinding;
 }
 
 export async function handleMaterialSummary(
@@ -51,8 +60,9 @@ export async function handleMaterialSummary(
   if (/^\/api\/studies\/[^/]+\/summary(?:\/verify)?$/.test(path) && req.method === 'POST') {
     if (person.role !== 'full')
       fail(403, 'Создавать и проверять сводки может участник с полным доступом.');
-    const b = await body(req),
-      study = getState().state.studies.find((s) => s.id === path.split('/')[3]);
+    const b: unknown = await body(req);
+    const { state } = getState();
+    const study = state.studies.find((s) => s.id === path.split('/')[3]);
     if (!study) fail(404, 'Материал не найден.');
     if (deletingStudies.has(jobKey(currentWs(), study.id)))
       fail(409, 'Материал удаляется. Дождитесь завершения.');
@@ -64,21 +74,23 @@ export async function handleMaterialSummary(
       )
         fail(409, 'Сводка устарела или ещё не готова. Дождитесь результата или обновите сводку.');
       mutate((s) => {
-        s.studies.find((x) => x.id === study.id).summaryInfo.review = 'verified';
+        const target = s.studies.find((x) => x.id === study.id);
+        if (target?.summaryInfo) target.summaryInfo.review = 'verified';
       });
       return handledJson(res, 200, view(person));
     }
-    if (['queued', 'running'].includes(study.summaryInfo?.state))
+    if (study.summaryInfo?.state === 'queued' || study.summaryInfo?.state === 'running')
       return handledJson(res, 202, view(person));
     if (study.status !== 'ready' || !study.segments?.length)
       fail(409, 'Сначала дождитесь расшифровки материала.');
-    const model = getState().state.models.find(
-      (m) => m.id === (b.modelId || getState().state.modelId) && m.enabled,
-    );
+    if (!isRecord(b)) fail(400, 'Проверьте параметры сводки.');
+    const model = state.models.find((m) => m.id === (b.modelId || state.modelId) && m.enabled);
     if (!model || !modelKey(model)) fail(503, 'Выберите подключённую модель в настройках.');
     limit('summary:' + person.id, 3);
     mutate((s) => {
-      s.studies.find((x) => x.id === study.id).summaryInfo = {
+      const target = s.studies.find((x) => x.id === study.id);
+      if (!target) fail(404, 'Материал не найден.');
+      target.summaryInfo = {
         state: 'queued',
         review: 'draft',
         revision: transcriptRevision(study.segments),
@@ -124,7 +136,7 @@ export async function handleFindings(
       state.models.find((m) => m.id === state.modelId && m.enabled) ||
       state.models.find((m) => m.enabled);
     if (!model) fail(400, 'Включите модель в разделе «Модели».');
-    if (['queued', 'running'].includes(study.findingsInfo?.state))
+    if (study.findingsInfo?.state === 'queued' || study.findingsInfo?.state === 'running')
       return handledJson(res, 202, view(person));
     limit('suggest:' + person.id, 6);
     mutate((s) => {
@@ -196,18 +208,19 @@ export async function handleProjectSummary(
     if (!sources.length) fail(409, 'В материалах пока нет текста для сводки.');
     const evidence = sources.map(({ score, ...s }, i) => {
       const st = state.studies.find((x) => x.id === s.studyId);
+      const basis: Basis = reportOf(st) === 'ready' ? 'report' : 'raw';
       return {
         ...s,
         number: i + 1,
         segmentId: s.id,
-        studyType: st.type,
-        basis: reportOf(st) === 'ready' ? 'report' : 'raw',
+        studyType: st?.type,
+        basis,
       };
     });
     const reviewedRevision = reviewedFindings.length
       ? summaryFindingsRevision(corpus.findings)
       : null;
-    const requireCurrentEvidence = (current: any) => {
+    const requireCurrentEvidence = (current: StoredWorkspace) => {
       const findings = current.findings.map(legacyFinding);
       const studies = studiesForReader(current.studies, findings);
       if (
@@ -216,7 +229,7 @@ export async function handleProjectSummary(
       )
         fail(409, 'Источники сводки изменились. Создайте сводку заново.');
     };
-    const result = await requestChatAnswer(
+    const result: AnalysisResponse = await requestChatAnswer(
       model,
       {
         model: model.model,

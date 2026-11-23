@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { existsSync } from 'node:fs';
 import {
   initializeWorkspaceProjection,
   projectionTotals,
@@ -6,7 +7,7 @@ import {
 } from '../server/projects/projection.ts';
 
 const [path, command] = process.argv.slice(2);
-if (!path || !['mode', 'dual', 'tables'].includes(command))
+if (!path || !existsSync(path) || !['mode', 'dual', 'tables'].includes(command))
   throw new Error(
     'Usage: node scripts/switch-workspace-storage.mjs PATH_TO_SQLITE mode|dual|tables',
   );

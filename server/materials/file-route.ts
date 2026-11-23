@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from 'node:http';
 import type { Person, RequestServices } from '../request-context.ts';
 import { fail, handledJson } from '../http.ts';
 import type { openDatabase } from '../db.ts';
@@ -10,12 +10,15 @@ import { pipeline } from 'node:stream/promises';
 import { uniqueNames, writeZip } from '../zip.ts';
 import { documentPreview } from '../document-preview.ts';
 import type { createS3Mirror } from '../s3-storage.ts';
+import type { createProjectView } from '../projects/view.ts';
+
+type ReadyFile = { id: string; name: string; mime: string; size: number };
 
 interface FileServices extends Pick<RequestServices, 'session'> {
   q: ReturnType<typeof openDatabase>['q'];
   dir: string;
   currentWs: () => string;
-  view: (person: Person) => { state: any };
+  view: ReturnType<typeof createProjectView>;
   storageMirror: ReturnType<typeof createS3Mirror>;
 }
 
@@ -66,7 +69,8 @@ export async function handleFiles(
   if (/^\/api\/files\/[^/]+\/preview$/.test(path) && req.method === 'GET') {
     const id = path.split('/')[3];
     const study = view(person).state.studies.find((s) => s.fileId === id);
-    const file = study && q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
+    const file =
+      study && q<ReadyFile>("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
     if (!file) fail(404, 'Файл не найден.');
     let html;
     try {
@@ -87,12 +91,13 @@ export async function handleFiles(
   }
   if (path === '/api/files/archive' && req.method === 'GET') {
     // Every ready file the person can open in this project, as one ZIP read from the retained local copies.
-    const files = view(person)
-      .state.studies.filter((s) => s.fileId)
-      .map((s) =>
-        q("SELECT id,name FROM mnema_uploads WHERE id=? AND status='ready'").get(s.fileId),
-      )
-      .filter(Boolean);
+    const readName = q<Pick<ReadyFile, 'id' | 'name'>>(
+      "SELECT id,name FROM mnema_uploads WHERE id=? AND status='ready'",
+    );
+    const files = view(person).state.studies.flatMap((s) => {
+      const file = s.fileId && readName.get(s.fileId);
+      return file ? [file] : [];
+    });
     if (!files.length) fail(404, 'В проекте нет файлов для скачивания.');
     for (const f of files) {
       try {
@@ -109,7 +114,8 @@ export async function handleFiles(
     )
       fail(403, 'Доступ к файлам закрыт.');
     const project =
-      q('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name || 'Материалы';
+      q<{ name: string }>('SELECT name FROM mnema_workspaces WHERE id=?').get(currentWs())?.name ||
+      'Материалы';
     res.writeHead(200, {
       'Content-Type': 'application/zip',
       'Cache-Control': 'private, no-store',
@@ -122,10 +128,12 @@ export async function handleFiles(
     );
     return true;
   }
-  if (/^\/api\/files\/[^/]+$/.test(path) && ['GET', 'HEAD'].includes(req.method)) {
-    const id = path.split('/').at(-1);
+  const fileMatch = path.match(/^\/api\/files\/([^/]+)$/);
+  if (fileMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    const [, id] = fileMatch;
     const study = view(person).state.studies.find((s) => s.fileId === id);
-    const file = study && q("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
+    const file =
+      study && q<ReadyFile>("SELECT * FROM mnema_uploads WHERE id=? AND status='ready'").get(id);
     if (!file) fail(404, 'Файл не найден.');
     const isPDF = /\.pdf$/i.test(file.name),
       isText = /\.txt$/i.test(file.name);
@@ -147,7 +155,7 @@ export async function handleFiles(
       if (start > end || start >= file.size) fail(416, 'Некорректный диапазон.');
       status = 206;
     }
-    const headers = {
+    const headers: OutgoingHttpHeaders = {
       'Content-Type': mime,
       'Content-Length': end - start + 1,
       'Accept-Ranges': 'bytes',
@@ -155,21 +163,21 @@ export async function handleFiles(
       'Content-Disposition': `${url.searchParams.get('download') === '1' ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
     };
     if (status === 206) headers['Content-Range'] = `bytes ${start}-${end}/${file.size}`;
-    if (storageMirror.has(id)) {
+    const { objects } = storageMirror;
+    if (objects && storageMirror.has(id)) {
       try {
-        const remote = await storageMirror.objects.request(
+        const remote = await objects.request(
           req.method,
           storageMirror.objectKey(id),
           undefined,
           req.headers.range ? { range: req.headers.range } : {},
         );
-        const remoteHeaders = {
+        const contentRange = remote.headers.get('content-range');
+        const remoteHeaders: OutgoingHttpHeaders = {
           ...headers,
           'X-Mnema-Storage': 's3',
           'Content-Length': remote.headers.get('content-length') || String(end - start + 1),
-          ...(remote.headers.get('content-range')
-            ? { 'Content-Range': remote.headers.get('content-range') }
-            : {}),
+          ...(contentRange ? { 'Content-Range': contentRange } : {}),
         };
         const latest = await session(req);
         if (
@@ -185,7 +193,10 @@ export async function handleFiles(
           res.end();
           return true;
         }
-        await pipeline(Readable.fromWeb(remote.body as any), res);
+        await pipeline(
+          Readable.fromWeb(remote.body as Parameters<typeof Readable.fromWeb>[0]),
+          res,
+        );
         return true;
       } catch (e) {
         if (res.headersSent) throw e;

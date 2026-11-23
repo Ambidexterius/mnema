@@ -64,7 +64,7 @@ export const runProcessingCommand: Run = (cmd, args, options = {}) =>
       closed = true;
       finish();
     });
-    if (typeof onStdoutLine === 'function')
+    if (typeof onStdoutLine === 'function' && child.stdout)
       createInterface({ input: child.stdout }).on('line', (line) => {
         if (signal?.aborted) return;
         try {
@@ -174,11 +174,11 @@ export async function extractDocument({
   signal?.throwIfAborted();
   run = interruptibleRun(run, signal);
   onProgress = interruptibleProgress(onProgress, signal);
-  const segments = [];
+  const segments: Segment[] = [];
   let pages = 0,
     ocrPages = 0,
     total = 0;
-  const add = (content, page) => {
+  const add = (content: string, page: number | null) => {
     const paras = content
       .split(/\n\s*\n/)
       .map((p) => p.trim())
@@ -358,7 +358,7 @@ export function suggestModerator<
   return segments.map((s) => (s.speaker === top.speaker ? { ...s, speaker: 'Модератор?' } : s));
 }
 const speakerCountArgs = (n?: number) =>
-  Number.isSafeInteger(n) && n > 0 ? ['--max-speakers', String(n)] : [];
+  n !== undefined && Number.isSafeInteger(n) && n > 0 ? ['--max-speakers', String(n)] : [];
 export async function transcribeRecording({
   filePath,
   fileId,

@@ -1,7 +1,7 @@
 import type { SQLInputValue } from 'node:sqlite';
 import type { ProjectionRows } from './projection.ts';
 
-type JsonObject = Record<string, any>;
+type JsonObject = Record<string, unknown>;
 type Change = [path: string[], value?: unknown];
 export const workspaceReadMetaTable = 'mnema_workspace_read_meta';
 
@@ -11,14 +11,16 @@ const order = (index: number) => (a: SQLInputValue[], b: SQLInputValue[]) =>
   Number(a[index]) - Number(b[index]);
 
 function collections(rows: ProjectionRows) {
-  const studies = rows.mnema_studies
-    .sort(order(1))
-    .map(([id, _seq, title, type, status, createdAt, updatedAt, meta]): JsonObject => ({
+  const studies = rows.mnema_studies.sort(order(1)).map(
+    ([id, _seq, title, type, status, createdAt, updatedAt, meta]): JsonObject & {
+      segments: JsonObject[];
+    } => ({
       ...JSON.parse(String(meta)),
       ...columns({ id, title, type, status, createdAt, updatedAt }),
       segments: [],
       summary: [],
-    }));
+    }),
+  );
   const studyById = new Map(studies.map((study) => [study.id, study]));
   for (const row of rows.mnema_segments.sort(order(1))) {
     const [studyId, _seq, id, speaker, time, end, text, uncertain, correctedText, meta] = row;
@@ -63,7 +65,7 @@ function collections(rows: ProjectionRows) {
         createdAt,
         updatedAt,
         meta,
-      ]): JsonObject => ({
+      ]): JsonObject & { evidence?: SQLInputValue[] } => ({
         ...JSON.parse(String(meta)),
         ...columns({ id, studyId, kind, status, title, description, createdAt, updatedAt }),
       }),
@@ -84,7 +86,7 @@ function collections(rows: ProjectionRows) {
   return { studies, findings, highlights, projectSummary };
 }
 
-function differences(actual: any, original: any, path: string[], result: Change[]) {
+function differences(actual: unknown, original: unknown, path: string[], result: Change[]) {
   if (actual === original) return;
   if (
     actual &&
@@ -92,12 +94,14 @@ function differences(actual: any, original: any, path: string[], result: Change[
     typeof actual === 'object' &&
     typeof original === 'object' &&
     Array.isArray(actual) === Array.isArray(original) &&
-    (!Array.isArray(actual) || actual.length === original.length)
+    (!Array.isArray(actual) || (Array.isArray(original) && actual.length === original.length))
   ) {
+    const projected = actual as JsonObject;
+    const source = original as JsonObject;
     for (const key of Object.keys(original))
       if (Object.hasOwn(actual, key))
-        differences(actual[key], original[key], [...path, key], result);
-      else result.push([[...path, key], original[key]]);
+        differences(projected[key], source[key], [...path, key], result);
+      else result.push([[...path, key], source[key]]);
     for (const key of Object.keys(actual))
       if (!Object.hasOwn(original, key)) result.push([[...path, key]]);
   } else result.push([path, original]);
@@ -129,8 +133,10 @@ export function decodeWorkspaceProjection(meta: string, rows: ProjectionRows): J
     const key = path.at(-1);
     let target: JsonObject = state;
     for (const parent of path.slice(0, -1)) {
-      if (!Object.hasOwn(target, parent)) throw new Error('Invalid workspace read metadata');
-      target = target[parent];
+      const child = target[parent];
+      if (!Object.hasOwn(target, parent) || child === null || typeof child !== 'object')
+        throw new Error('Invalid workspace read metadata');
+      target = child as JsonObject;
     }
     if (!key) throw new Error('Invalid workspace read metadata');
     if (change.length === 1) delete target[key];

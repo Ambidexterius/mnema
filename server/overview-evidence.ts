@@ -7,7 +7,7 @@ type Source = {
   text: string;
   score: number;
   speaker?: string;
-  page?: number;
+  page?: number | null;
   time?: number;
 };
 type Hint = { boost: number; keys: string[]; title: string; status?: string };
@@ -33,7 +33,7 @@ const problems =
  * before linked quotes can fill it. All returned text remains an unchanged original. */
 export function overviewSources<T extends Source>(
   groups: T[][],
-  studies: Study[],
+  studies: (Pick<Study, 'id' | 'title' | 'report'> & Partial<Pick<Study, 'type'>>)[],
   hints: Hint[],
   issueOnly: boolean,
   question = '',
@@ -178,7 +178,9 @@ export function overviewSources<T extends Source>(
       .map((k) => originals.get(k))
       .filter(
         (source): source is T =>
-          Boolean(source) && source.studyId === candidate.source.studyId && !seen.has(key(source)),
+          source !== undefined &&
+          source.studyId === candidate.source.studyId &&
+          !seen.has(key(source)),
       );
     if (
       needed.length + sources.length > limit ||

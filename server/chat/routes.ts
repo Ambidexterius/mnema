@@ -1,23 +1,34 @@
 import type { AsyncLocalStorage } from 'node:async_hooks';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { createChatHistory } from '../chat-history.ts';
+import type { ChatReply, createChatHistory } from '../chat-history.ts';
 import { chatEvidence, type collectGlobalResearch } from '../global-research.ts';
-import { fail, handledJson, text } from '../http.ts';
+import { fail, handledJson, isRecord, text } from '../http.ts';
 import { answerSystem, requestChatAnswer } from '../model-connections.ts';
 import type { Person, RequestServices } from '../request-context.ts';
 import { selectEvidence } from '../retrieval.ts';
 import { answerTemplate } from './prompt.ts';
+import type { reportOf } from '../analysis/review.ts';
+import type { ProjectSnapshot } from '../projects/store.ts';
+import type { createProjectView } from '../projects/view.ts';
+import type { StoredModel } from '../projects/types.ts';
+import type { AnalysisRequest, AnalysisResponse } from '../summary-request.ts';
 
+type ChatModelResponse = AnalysisResponse & { mnemaModel?: StoredModel; usage?: unknown };
 interface ChatServices extends RequestServices {
-  view: (person: Person) => { state: any };
+  view: ReturnType<typeof createProjectView>;
   ratedReply: (
     person: Person,
     question: string,
     scope: 'global' | 'project',
-    reply: any,
+    reply: ChatReply & { model: string },
     modelId?: string,
-  ) => any;
-  callModel: (person: Person, model: any, payload: any, workspace?: string) => Promise<any>;
+  ) => ChatReply & { feedbackToken?: string };
+  callModel: (
+    person: Person,
+    model: StoredModel,
+    payload: AnalysisRequest,
+    workspace?: string,
+  ) => Promise<ChatModelResponse>;
 }
 interface GlobalChatServices extends ChatServices {
   chats: ReturnType<typeof createChatHistory>;
@@ -132,7 +143,7 @@ export async function handleGlobalChat(
         retrievalQuestion,
         chat?.projectId,
       );
-      const finish = async (reply: any) => {
+      const finish = async (reply: ChatReply & { model: string }) => {
         const found = await session(req);
         if (!found) fail(401, 'Войдите в Мнемодак.');
         const latest = scopedPerson(found);
@@ -159,18 +170,19 @@ export async function handleGlobalChat(
           coverage,
           model: research.model?.name || 'Мнемодак',
         });
-      if (!research.model)
+      const { model, modelWorkspaceId } = research;
+      if (!model || !modelWorkspaceId)
         fail(503, 'Модель ещё не подключена. Попросите владельца проекта настроить подключение.');
-      const result = await requestChatAnswer(
-        research.model,
+      const result: ChatModelResponse = await requestChatAnswer(
+        model,
         {
-          model: research.model.model,
+          model: model.model,
           temperature: 0.2,
           messages: [
             {
               role: 'system',
               content:
-                answerSystem(answerTemplate, research.model.instructions) +
+                answerSystem(answerTemplate, model.instructions) +
                 ' Предыдущие сообщения нужны для понимания уточнений. Доказательства и номера сносок для нового ответа бери только из текущего набора sources; номера в прошлых ответах относятся к прошлым наборам. Материалы относятся к разным проектам. Учитывай названия проектов, аудиторию и тип источника; не переноси выводы между ними без оговорки. Не утверждай, что изучил все материалы целиком: предоставлены фрагменты.',
             },
             ...prior,
@@ -210,7 +222,7 @@ export async function handleGlobalChat(
             })
           )
             fail(409, 'Доступ к проектам изменился. Обновите страницу и повторите вопрос.');
-          return callModel(person, research.model, payload, research.modelWorkspaceId);
+          return callModel(person, model, payload, modelWorkspaceId);
         },
       );
       const answer = result.choices?.[0]?.message?.content;
@@ -231,7 +243,7 @@ export async function handleGlobalChat(
         answer,
         sources,
         coverage,
-        model: (result.mnemaModel || research.model).name,
+        model: (result.mnemaModel || model).name,
         usage: result.usage,
       });
     } finally {
@@ -241,9 +253,9 @@ export async function handleGlobalChat(
   return false;
 }
 interface ProjectChatServices extends ChatServices {
-  getState: () => { state: any };
-  reportOf: (study: any) => 'ready' | 'none';
-  modelKey: (model: any) => string | null;
+  getState: () => ProjectSnapshot;
+  reportOf: typeof reportOf;
+  modelKey: (model: StoredModel) => string | null | undefined;
 }
 export async function handleProjectChat(
   req: IncomingMessage,
@@ -264,8 +276,11 @@ export async function handleProjectChat(
 ) {
   if (path === '/api/chat' && req.method === 'POST') {
     limit('chat:' + person.id, 10);
-    const b = await body(req),
-      question = text(b.question, 2000);
+    const b: unknown = await body(req);
+    if (!isRecord(b)) fail(400, 'Напишите вопрос.');
+    if (b.scope !== undefined && typeof b.scope !== 'string')
+      fail(400, 'Проверьте область поиска.');
+    const question = text(b.question, 2000);
     if (!question) fail(400, 'Напишите вопрос.');
     const { state } = getState();
     const model = state.models.find((m) => m.id === (b.modelId || state.modelId) && m.enabled);
@@ -277,7 +292,7 @@ export async function handleProjectChat(
     const { sources, coverage, reviewedFindings } = selectEvidence(
       corpus.studies,
       question,
-      b.scope || 'all',
+      typeof b.scope === 'string' && b.scope ? b.scope : 'all',
       corpus.findings,
     );
     if (!sources.length)
@@ -297,7 +312,7 @@ export async function handleProjectChat(
           model.model,
         ),
       );
-    const result = await requestChatAnswer(
+    const result: ChatModelResponse = await requestChatAnswer(
       model,
       {
         model: model.model,
@@ -317,7 +332,7 @@ export async function handleProjectChat(
                 const st = state.studies.find((x) => x.id === s.studyId);
                 return {
                   number: i + 1,
-                  type: st.type,
+                  type: st?.type,
                   basis: reportOf(st) === 'ready' ? 'report' : 'raw',
                   title: s.title,
                   time: s.time,
@@ -367,7 +382,7 @@ export async function handleProjectChat(
               ...s,
               number: i + 1,
               segmentId: s.id,
-              studyType: st.type,
+              studyType: st?.type,
               basis: reportOf(st) === 'ready' ? 'report' : 'raw',
             };
           }),

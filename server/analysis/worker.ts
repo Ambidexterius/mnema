@@ -1,23 +1,42 @@
 import type { AsyncLocalStorage } from 'node:async_hooks';
 import type { openDatabase } from '../db.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
-import { requestSummary } from '../summary-request.ts';
+import { requestSummary, type AnalysisRequest, type AnalysisResponse } from '../summary-request.ts';
 import { summarizeMaterial, transcriptRevision } from '../summaries.ts';
-import { extractFindings, dedupeWithModel } from '../finding-extraction.ts';
+import {
+  extractFindings,
+  dedupeWithModel,
+  type ExtractedFinding,
+  type DedupePlan,
+} from '../finding-extraction.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type {
+  StoredFinding,
+  StoredModel,
+  StoredStudy,
+  StoredWorkspace,
+} from '../projects/types.ts';
 
-interface AnalysisWorkerServices {
+interface AnalysisWorkerServices extends Pick<
+  ReturnType<typeof createProjectStore>,
+  'getState' | 'mutate'
+> {
   q: ReturnType<typeof openDatabase>['q'];
   fromTables: boolean;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'projects'>;
   currentWs: () => string;
-  getState: () => { state: any };
-  mutate: (change: (state: any) => void) => unknown;
-  callModel: (person: { id: string }, model: any, payload: any) => Promise<any>;
+  callModel: (
+    person: { id: string },
+    model: StoredModel,
+    payload: AnalysisRequest,
+  ) => Promise<AnalysisResponse>;
   deletingStudies: ReadonlySet<string>;
   jobKey: (workspace: string, study: string) => string;
   hash: (value: string) => string;
 }
+
+type AnalysisTask = { workspaceId: string; studyId: string; kind: 'summary' | 'findings' };
 export function createAnalysisWorker({
   q,
   fromTables,
@@ -32,18 +51,24 @@ export function createAnalysisWorker({
   hash,
 }: AnalysisWorkerServices) {
   let analysisBusy = false;
-  const processSummary = async (study) => {
-    const info = { ...study.summaryInfo },
+  const processSummary = async (
+    study: StoredStudy,
+    job: NonNullable<StoredStudy['summaryInfo']>,
+  ) => {
+    const info = { ...job },
       revision = transcriptRevision(study.segments || []);
     if (revision !== info.revision)
       throw new Error('Расшифровка изменилась. Создайте сводку заново.');
-    const member = sharing.projects(info.requestedBy).find((w) => w.id === currentWs());
+    const member = sharing
+      .projects(info.requestedBy)
+      .find((w: { id: string }) => w.id === currentWs());
     if (member?.role !== 'full')
       throw new Error('Доступ изменился. Попросите участника с полным доступом создать сводку.');
     const model = getState().state.models.find((m) => m.id === info.modelId && m.enabled);
     if (!model) throw new Error('Модель выключена. Выберите подключённую модель и повторите.');
     mutate((s) => {
-      s.studies.find((x) => x.id === study.id).summaryInfo.state = 'running';
+      const target = s.studies.find((x) => x.id === study.id);
+      if (target?.summaryInfo) target.summaryInfo.state = 'running';
     });
     const summary = await summarizeMaterial(
       study.segments,
@@ -56,29 +81,30 @@ export function createAnalysisWorker({
           () =>
             mutate((s) => {
               const target = s.studies.find((x) => x.id === study.id);
-              if (target)
+              if (target?.summaryInfo)
                 target.summaryInfo.progress =
                   (target.summaryInfo.progress || 'Анализируем материал') + ' · Повтор ответа';
             }),
         ),
       (progress) =>
         mutate((s) => {
-          s.studies.find((x) => x.id === study.id).summaryInfo.progress = progress;
+          const target = s.studies.find((x) => x.id === study.id);
+          if (target?.summaryInfo) target.summaryInfo.progress = progress;
         }),
     );
     // Findings are a separate pass over the whole text; if it fails, the summary blocks become drafts as before.
-    let extracted = null;
+    let extracted: DedupePlan | null = null;
     if (info.autoFindings) {
       try {
         const items = await runExtraction(study, model, info.requestedBy, (progress) =>
           mutate((s) => {
             const t = s.studies.find((x) => x.id === study.id);
-            if (t) t.summaryInfo.progress = progress;
+            if (t?.summaryInfo) t.summaryInfo.progress = progress;
           }),
         );
         mutate((s) => {
           const t = s.studies.find((x) => x.id === study.id);
-          if (t) t.summaryInfo.progress = 'Ищем повторы';
+          if (t?.summaryInfo) t.summaryInfo.progress = 'Ищем повторы';
         });
         extracted = await planFindings(study, items, model, info.requestedBy);
       } catch (e) {
@@ -128,7 +154,12 @@ export function createAnalysisWorker({
       }
     });
   };
-  const runExtraction = (study, model, requestedBy, onProgress) =>
+  const runExtraction = (
+    study: StoredStudy,
+    model: StoredModel,
+    requestedBy: string,
+    onProgress: (progress: string) => void,
+  ) =>
     extractFindings(
       study.segments,
       { title: study.title, type: study.type },
@@ -139,7 +170,7 @@ export function createAnalysisWorker({
       onProgress,
     );
   // Semantic duplicates: the model groups new candidates with the material's findings; on failure — word matching.
-  const knownFindings = (state, studyId) =>
+  const knownFindings = (state: StoredWorkspace, studyId: string) =>
     state.findings
       .filter((f) => f.studyId === studyId)
       .map((f) => ({
@@ -153,7 +184,12 @@ export function createAnalysisWorker({
         segmentId: f.segmentId,
         evidence: f.evidence,
       }));
-  const planFindings = (study, items, model, requestedBy) =>
+  const planFindings = (
+    study: StoredStudy,
+    items: ExtractedFinding[],
+    model: StoredModel,
+    requestedBy: string,
+  ) =>
     dedupeWithModel(
       items,
       knownFindings(getState().state, study.id),
@@ -164,11 +200,18 @@ export function createAnalysisWorker({
       (reason) => console.error('Findings dedupe fallback', reason),
     );
   // Stable IDs per transcript revision: a repeated run does not duplicate drafts. Only AI drafts that are still drafts are merged or removed.
-  const applyFindingsPlan = (s, studyId, revision, plan, modelName) => {
+  const applyFindingsPlan = (
+    s: StoredWorkspace,
+    studyId: string,
+    revision: string,
+    plan: DedupePlan,
+    modelName: string,
+  ) => {
     const now = Date.now();
     let added = 0,
       merged = plan.merged;
-    const draft = (f) => f && f.studyId === studyId && f.status === 'draft' && f.origin === 'ai';
+    const draft = (f: StoredFinding | undefined): f is StoredFinding =>
+      Boolean(f && f.studyId === studyId && f.status === 'draft' && f.origin === 'ai');
     for (const u of plan.update) {
       const f = s.findings.find((x) => x.id === u.id);
       if (draft(f)) {
@@ -205,27 +248,33 @@ export function createAnalysisWorker({
     }
     return { added, merged };
   };
-  const processFindings = async (study) => {
-    const info = { ...study.findingsInfo },
+  const processFindings = async (
+    study: StoredStudy,
+    job: NonNullable<StoredStudy['findingsInfo']>,
+  ) => {
+    const info = { ...job },
       revision = transcriptRevision(study.segments || []);
     if (revision !== info.revision)
       throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');
-    const member = sharing.projects(info.requestedBy).find((w) => w.id === currentWs());
-    if (member?.role !== 'full')
+    const requestedBy = info.requestedBy;
+    const member =
+      requestedBy &&
+      sharing.projects(requestedBy).find((w: { id: string }) => w.id === currentWs());
+    if (!requestedBy || member?.role !== 'full')
       throw new Error('Доступ изменился. Попросите участника с полным доступом повторить поиск.');
     const model = getState().state.models.find((m) => m.id === info.modelId && m.enabled);
     if (!model) throw new Error('Модель выключена. Выберите подключённую модель и повторите.');
-    const setInfo = (patch) =>
+    const setInfo = (patch: Partial<NonNullable<StoredStudy['findingsInfo']>>) =>
       mutate((s) => {
         const t = s.studies.find((x) => x.id === study.id);
-        if (t) t.findingsInfo = { ...t.findingsInfo, ...patch };
+        if (t?.findingsInfo) t.findingsInfo = { ...t.findingsInfo, ...patch };
       });
     setInfo({ state: 'running', progress: 'Ищем находки' });
-    const items = await runExtraction(study, model, info.requestedBy, (progress) =>
+    const items = await runExtraction(study, model, requestedBy, (progress) =>
       setInfo({ progress }),
     );
     setInfo({ progress: 'Ищем повторы' });
-    const plan = await planFindings(study, items, model, info.requestedBy);
+    const plan = await planFindings(study, items, model, requestedBy);
     mutate((s) => {
       const t = s.studies.find((x) => x.id === study.id);
       if (!t) return;
@@ -246,9 +295,9 @@ export function createAnalysisWorker({
       };
     });
   };
-  const nextSummary = () => {
+  const nextSummary = (): AnalysisTask | null => {
     if (fromTables) {
-      const queued = q(
+      const queued = q<AnalysisTask>(
         'SELECT j.workspace_id AS workspaceId,j.study_id AS studyId,j.kind FROM mnema_analysis_jobs j ' +
           'JOIN mnema_workspaces w ON w.id=j.workspace_id ' +
           'JOIN mnema_studies s ON s.workspace_id=j.workspace_id AND s.id=j.study_id ' +
@@ -258,10 +307,11 @@ export function createAnalysisWorker({
         queued.find((task) => !deletingStudies.has(jobKey(task.workspaceId, task.studyId))) ?? null
       );
     }
-    for (const ws of q('SELECT id,data FROM mnema_workspaces').all()) {
-      const studies = JSON.parse(ws.data).studies.filter(
-        (s) => !deletingStudies.has(jobKey(ws.id, s.id)),
-      );
+    for (const ws of q<{ id: string; data: string }>(
+      'SELECT id,data FROM mnema_workspaces',
+    ).all()) {
+      const { studies: saved } = JSON.parse(ws.data) as Pick<StoredWorkspace, 'studies'>;
+      const studies = saved.filter((s) => !deletingStudies.has(jobKey(ws.id, s.id)));
       const study = studies.find((s) => s.summaryInfo?.state === 'queued');
       if (study) return { workspaceId: ws.id, studyId: study.id, kind: 'summary' };
       const search = studies.find((s) => s.findingsInfo?.state === 'queued');
@@ -277,9 +327,11 @@ export function createAnalysisWorker({
     try {
       await wsStore.run(task.workspaceId, async () => {
         const study = getState().state.studies.find((s) => s.id === task.studyId);
+        if (!study) return;
         if (task.kind === 'findings') {
+          if (!study.findingsInfo) return;
           try {
-            await processFindings(study);
+            await processFindings(study, study.findingsInfo);
           } catch (e) {
             const code =
               e.code || (e.status === 429 ? 'limit' : e.status >= 500 ? 'unavailable' : 'unknown');
@@ -312,8 +364,9 @@ export function createAnalysisWorker({
           }
           return;
         }
+        if (!study.summaryInfo) return;
         try {
-          await processSummary(study);
+          await processSummary(study, study.summaryInfo);
         } catch (e) {
           const code =
             e.code || (e.status === 429 ? 'limit' : e.status >= 500 ? 'unavailable' : 'unknown');
@@ -332,7 +385,7 @@ export function createAnalysisWorker({
                       : 'Материал и расшифровка сохранены. Попробуйте ещё раз.';
           mutate((s) => {
             const target = s.studies.find((x) => x.id === task.studyId);
-            if (target)
+            if (target?.summaryInfo)
               target.summaryInfo = {
                 ...target.summaryInfo,
                 state: 'error',

@@ -7,8 +7,10 @@ import { legacyFinding } from '../analysis/review.ts';
 import type { modelKeyStore } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
 import { resumePendingSummaries } from '../summaries.ts';
+import type { StoredModel, StoredWorkspace } from './types.ts';
 import {
   createWorkspaceProjectionReader,
+  hasWorkspaceJsonColumn,
   tableOnlyPlaceholder,
   type initializeWorkspaceProjection,
 } from './projection.ts';
@@ -17,9 +19,13 @@ type Database = Pick<ReturnType<typeof openDatabase>['db'], 'exec'>;
 type Prepare = ReturnType<typeof openDatabase>['q'];
 type WriteProjection = ReturnType<typeof initializeWorkspaceProjection>['write'];
 
-export type WorkspaceReader = (
-  id: string,
-) => { version: number; name: string; state: any } | undefined;
+export interface ProjectSnapshot {
+  version: number;
+  state: StoredWorkspace;
+}
+
+type WorkspaceMetadata = { version: number; name: string };
+export type WorkspaceReader = (id: string) => (ProjectSnapshot & { name: string }) | undefined;
 
 export function createWorkspaceReader(
   db: ReturnType<typeof openDatabase>['db'],
@@ -27,27 +33,37 @@ export function createWorkspaceReader(
   fromTables: boolean,
 ): WorkspaceReader {
   if (!fromTables) {
-    const original = q('SELECT version,name,data FROM mnema_workspaces WHERE id=?');
+    const original = q<WorkspaceMetadata & { data: string }>(
+      'SELECT version,name,data FROM mnema_workspaces WHERE id=?',
+    );
     return (id) => {
       const row = original.get(id);
-      return row && { version: row.version, name: row.name, state: JSON.parse(row.data) };
+      return (
+        row && {
+          version: row.version,
+          name: row.name,
+          state: JSON.parse(row.data) as StoredWorkspace,
+        }
+      );
     };
   }
-  const metadata = q('SELECT version,name FROM mnema_workspaces WHERE id=?');
+  const metadata = q<WorkspaceMetadata>('SELECT version,name FROM mnema_workspaces WHERE id=?');
   const readState = createWorkspaceProjectionReader(db);
   return (id) => {
     const isolated = !db.isTransaction;
     if (isolated) db.exec('BEGIN');
     try {
       const row = metadata.get(id);
-      return row && { version: row.version, name: row.name, state: readState(id) };
+      if (!row) return;
+      const state: unknown = readState(id);
+      return { version: row.version, name: row.name, state: state as StoredWorkspace };
     } finally {
       if (isolated) db.exec('ROLLBACK');
     }
   };
 }
 
-const emptyState = () => ({
+const emptyState = (): StoredWorkspace => ({
   studies: [],
   findings: [],
   processors: [],
@@ -65,7 +81,7 @@ const emptyState = () => ({
   ],
   modelId: 'deepseek',
 });
-const amveraPreset = {
+const amveraPreset: StoredModel = {
   id: 'amvera-deepseek-v4',
   name: 'DeepSeek V4 · Amvera',
   provider: 'Amvera',
@@ -77,10 +93,10 @@ const amveraPreset = {
   builtin: true,
 };
 export const initialState = () => {
-  const st: any = emptyState();
+  const st = emptyState();
   if (process.env.MNEMA_LLM_PRESET === 'amvera-deepseek-v4') {
     st.models = st.models.map((m) => ({ ...m, enabled: false }));
-    st.models.push(amveraPreset as any);
+    st.models.push(amveraPreset);
     st.modelId = amveraPreset.id;
   }
   return st;
@@ -93,7 +109,9 @@ export function migrateLegacyWorkspace(db: Database, q: Prepare) {
     !q("SELECT 1 FROM mnema_migrations WHERE name='workspaces-v1'").get() &&
     !q('SELECT 1 FROM mnema_workspaces LIMIT 1').get()
   ) {
-    const legacy = q('SELECT * FROM mnema_workspace WHERE id=1').get();
+    const legacy = q<{ version: number; data: string }>(
+      'SELECT * FROM mnema_workspace WHERE id=1',
+    ).get();
     q('INSERT INTO mnema_workspaces VALUES(?,?,?,?,?,NULL)').run(
       'main',
       'Команда',
@@ -126,11 +144,7 @@ export function createWorkspaceFactory({
   writeProjection,
   tablesOnly = false,
 }: WorkspaceFactoryServices) {
-  const hasJson =
-    !tablesOnly ||
-    Boolean(
-      db.prepare("SELECT 1 FROM pragma_table_info('mnema_workspaces') WHERE name='data'").get(),
-    );
+  const hasJson = !tablesOnly || hasWorkspaceJsonColumn(db);
   const insert = q(
     hasJson
       ? 'INSERT INTO mnema_workspaces(id,name,version,data,created,created_by) VALUES(?,?,?,?,?,?)'
@@ -161,9 +175,9 @@ export function createWorkspaceFactory({
       db.exec('ROLLBACK');
       throw error;
     }
-    const source = q('SELECT id FROM mnema_workspaces WHERE id<>? ORDER BY created LIMIT 1').get(
-      id,
-    );
+    const source = q<{ id: string }>(
+      'SELECT id FROM mnema_workspaces WHERE id<>? ORDER BY created LIMIT 1',
+    ).get(id);
     if (source) copyModels(source.id, id);
     return id;
   };
@@ -196,7 +210,7 @@ export function createProjectStore({
     if (!row) fail(404, 'Пространство не найдено.');
     return { version: row.version, state: row.state };
   };
-  const mutate = (fn: (state: any) => void) => {
+  const mutate = (fn: (state: StoredWorkspace) => void): ProjectSnapshot => {
     db.exec('BEGIN IMMEDIATE');
     try {
       const { state, version } = getState();
@@ -237,18 +251,19 @@ export function createProjectStore({
     }
   };
   const syncModels = (from: string) => {
-    for (const w of q('SELECT id FROM mnema_workspaces WHERE id<>?').all(from))
+    for (const w of q<{ id: string }>('SELECT id FROM mnema_workspaces WHERE id<>?').all(from))
       copyModels(from, w.id);
   };
   // One-time migration: boolean `verified` becomes a review status. Unverified legacy findings wait for review.
-  for (const w of q('SELECT id FROM mnema_workspaces').all())
+  const workspaceIds = q<{ id: string }>('SELECT id FROM mnema_workspaces');
+  for (const w of workspaceIds.all())
     wsStore.run(w.id, () => {
       if (getState().state.findings.some((f) => !f.status))
         mutate((s) => {
           s.findings = s.findings.map(legacyFinding).map(({ verified, priority, ...f }) => f);
         });
     });
-  for (const w of q('SELECT id FROM mnema_workspaces').all())
+  for (const w of workspaceIds.all())
     wsStore.run(w.id, () => {
       if (
         getState().state.studies.some(
@@ -267,7 +282,7 @@ export function createProjectStore({
         });
     });
   if (process.env.MNEMA_LLM_PRESET === 'amvera-deepseek-v4')
-    for (const w of q('SELECT id FROM mnema_workspaces').all())
+    for (const w of workspaceIds.all())
       wsStore.run(w.id, () => {
         if (!getState().state.models.some((m) => m.id === amveraPreset.id))
           mutate((s) => {

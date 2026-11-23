@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { isDeepStrictEqual } from 'node:util';
+import { workspaceTableSchema } from '../db.ts';
 import type { WorkspaceState } from '../../app/types.ts';
 import {
   decodeWorkspaceProjection,
@@ -309,6 +311,43 @@ export function workspaceTablesOnly(db: DatabaseSync) {
   );
 }
 
+export function hasWorkspaceJsonColumn(db: DatabaseSync) {
+  return Boolean(
+    db.prepare("SELECT 1 FROM pragma_table_info('mnema_workspaces') WHERE name='data'").get(),
+  );
+}
+
+function restoreWorkspaceJsonColumn(db: DatabaseSync) {
+  const columns = db.prepare("PRAGMA table_info('mnema_workspaces')").all();
+  const expected = ['id', 'name', 'version', 'created', 'created_by'];
+  if (
+    !isDeepStrictEqual(
+      columns.map(({ name }) => name),
+      expected,
+    ) ||
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_schema WHERE tbl_name='mnema_workspaces' AND type!='table' AND sql IS NOT NULL",
+      )
+      .get() ||
+    db.prepare("SELECT 1 FROM sqlite_schema WHERE name='mnema_workspaces_restore'").get()
+  )
+    throw new Error('Unexpected workspace schema before restoring JSON');
+
+  const foreignKeysBefore = db.prepare('PRAGMA foreign_key_check').all();
+  db.exec(workspaceTableSchema.replace('mnema_workspaces', 'mnema_workspaces_restore'));
+  // Old releases use positional INSERT, and the queue uses project row order.
+  db.prepare(
+    'INSERT INTO mnema_workspaces_restore(rowid,id,name,version,data,created,created_by) ' +
+      'SELECT rowid,id,name,version,?,created,created_by FROM mnema_workspaces',
+  ).run(tableOnlyPlaceholder);
+  db.exec(
+    'DROP TABLE mnema_workspaces; ALTER TABLE mnema_workspaces_restore RENAME TO mnema_workspaces',
+  );
+  if (!isDeepStrictEqual(db.prepare('PRAGMA foreign_key_check').all(), foreignKeysBefore))
+    throw new Error('Foreign keys changed after restoring workspace JSON');
+}
+
 /** A read-only check of all populated columns and ordered child rows. It emits counts and IDs only. */
 export function compareWorkspaceProjection(db: DatabaseSync) {
   const tablesOnly = workspaceTablesOnly(db);
@@ -392,8 +431,15 @@ export function compareWorkspaceProjection(db: DatabaseSync) {
 /** Install and fill once, then reconcile workspaces modified while an older release was active. */
 export function initializeWorkspaceProjection(db: DatabaseSync, target?: 'dual' | 'tables') {
   const started = performance.now();
-  db.exec('BEGIN IMMEDIATE');
+  if (db.isTransaction)
+    throw new Error('Workspace storage initialization requires its own transaction');
+  const restoresColumn =
+    target === 'dual' && workspaceTablesOnly(db) && !hasWorkspaceJsonColumn(db);
+  const restoreForeignKeys =
+    restoresColumn && db.prepare('PRAGMA foreign_keys').get()?.foreign_keys === 1;
+  if (restoreForeignKeys) db.exec('PRAGMA foreign_keys=OFF');
   try {
+    db.exec('BEGIN IMMEDIATE');
     createProjectionTables(db);
     const wasTablesOnly = workspaceTablesOnly(db);
     const tablesOnly = target === undefined ? wasTablesOnly : target === 'tables';
@@ -465,6 +511,7 @@ export function initializeWorkspaceProjection(db: DatabaseSync, target?: 'dual' 
     if (wasTablesOnly !== tablesOnly) {
       if (!compareWorkspaceProjection(db).ok)
         throw new Error('Workspace projection drift before switch');
+      if (restoresColumn) restoreWorkspaceJsonColumn(db);
       const read = createWorkspaceProjectionReader(db);
       const saveJson = db.prepare('UPDATE mnema_workspaces SET data=? WHERE id=?');
       for (const { id } of db.prepare('SELECT id FROM mnema_workspaces ORDER BY id').all() as {
@@ -519,8 +566,10 @@ export function initializeWorkspaceProjection(db: DatabaseSync, target?: 'dual' 
       elapsedMs: Math.round(performance.now() - started),
     };
   } catch (error) {
-    db.exec('ROLLBACK');
+    if (db.isTransaction) db.exec('ROLLBACK');
     throw error;
+  } finally {
+    if (restoreForeignKeys) db.exec('PRAGMA foreign_keys=ON');
   }
 }
 

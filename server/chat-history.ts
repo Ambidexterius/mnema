@@ -1,14 +1,40 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import type { Segment } from '../app/types.ts';
 
 type Person = { id: string; workspaces: { id: string; role: string; admin?: boolean }[] };
-const reject = (status: number, message: string): never => {
-  throw Object.assign(new Error(message), { status });
+type ChatRow = {
+  id: string;
+  title: string;
+  project_id: string | null;
+  messages: string;
+  updated: number;
 };
+type ReaderStudy = { id: string; segments: Pick<Segment, 'id' | 'text' | 'correctedText'>[] };
+type ReplySource = {
+  workspaceId?: string;
+  studyId: string;
+  segmentId?: string;
+  id?: string;
+  text: string;
+};
+export type ChatReply = {
+  answer: string;
+  sources: ReplySource[];
+  model?: string;
+  coverage?: unknown;
+  usage?: unknown;
+};
+type ChatMessage =
+  | { id: string; role: 'user'; text: string; sources?: undefined }
+  | ({ id: string; role: 'assistant' } & ChatReply);
+function reject(status: number, message: string): never {
+  throw Object.assign(new Error(message), { status });
+}
 /** Private conversations. Revalidate the original grants and evidence before replaying any turn. */
 export function createChatHistory(
   db: DatabaseSync,
-  readProject?: (person: Person, workspaceId: string) => any[],
+  readProject?: (person: Person, workspaceId: string) => ReaderStudy[],
 ) {
   db.exec(`CREATE TABLE IF NOT EXISTS mnema_chats(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,title TEXT NOT NULL,messages TEXT NOT NULL,grants TEXT NOT NULL,updated INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS mnema_chats_user_updated ON mnema_chats(user_id,updated DESC)`);
@@ -17,21 +43,23 @@ export function createChatHistory(
     !db
       .prepare('PRAGMA table_info(mnema_chats)')
       .all()
-      .some((c: any) => c.name === 'project_id')
+      .some((c) => c.name === 'project_id')
   )
     db.exec('ALTER TABLE mnema_chats ADD COLUMN project_id TEXT');
   const busy = new Set<string>();
   const row = (person: Person, id: string) => {
-    const r = db.prepare('SELECT * FROM mnema_chats WHERE id=? AND user_id=?').get(id, person.id);
+    const r = db
+      .prepare('SELECT * FROM mnema_chats WHERE id=? AND user_id=?')
+      .get(id, person.id) as ChatRow | undefined;
     if (!r) reject(404, 'Чат не найден.');
     return r;
   };
-  function readable(person: Person, r: any, projects = new Map<string, any[]>()) {
+  function readable(person: Person, r: ChatRow, projects = new Map<string, ReaderStudy[]>()) {
     if (r.project_id && !person.workspaces.some((w) => w.id === r.project_id)) return false;
     // Visibility follows the cited fragments only. The person already read these answers, so a role change or losing a project the chat never cited must not hide it.
-    for (const m of JSON.parse(r.messages))
+    for (const m of JSON.parse(r.messages) as ChatMessage[])
       for (const s of m.sources || []) {
-        if (!person.workspaces.some((w) => w.id === s.workspaceId)) return false;
+        if (!s.workspaceId || !person.workspaces.some((w) => w.id === s.workspaceId)) return false;
         if (!projects.has(s.workspaceId)) {
           const project = readProject
             ? readProject(person, s.workspaceId)
@@ -51,11 +79,11 @@ export function createChatHistory(
       }
     return true;
   }
-  const decode = (r: any) => ({
+  const decode = (r: ChatRow) => ({
     id: r.id,
     title: r.title,
     projectId: r.project_id || null,
-    messages: JSON.parse(r.messages),
+    messages: JSON.parse(r.messages) as ChatMessage[],
     updated: r.updated,
   });
   function get(person: Person, id: string) {
@@ -65,10 +93,12 @@ export function createChatHistory(
     return decode(r);
   }
   function list(person: Person) {
-    const projects = new Map<string, any[]>();
-    return db
-      .prepare('SELECT * FROM mnema_chats WHERE user_id=? ORDER BY updated DESC')
-      .all(person.id)
+    const projects = new Map<string, ReaderStudy[]>();
+    return (
+      db
+        .prepare('SELECT * FROM mnema_chats WHERE user_id=? ORDER BY updated DESC')
+        .all(person.id) as ChatRow[]
+    )
       .filter((r) => readable(person, r, projects))
       .map((r) => ({
         id: r.id,
@@ -98,7 +128,7 @@ export function createChatHistory(
     busy.add(id);
     return chat;
   }
-  function append(person: Person, id: string, question: string, answer: any) {
+  function append(person: Person, id: string, question: string, answer: ChatReply) {
     const chat = get(person, id),
       r = row(person, id);
     const messages = [

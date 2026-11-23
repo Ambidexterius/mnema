@@ -207,9 +207,9 @@ export function createS3Mirror(
       enabled: Boolean(objects),
       bucket: config?.bucket || null,
       prefix: config?.prefix || null,
-      files: Number(files.n),
-      synced: Number(synced.n),
-      bytes: Number(files.bytes),
+      files: Number(files?.n ?? 0),
+      synced: Number(synced?.n ?? 0),
+      bytes: Number(files?.bytes ?? 0),
       backupAt: snapshot?.updated || null,
       busy,
       error: failed?.error || null,
@@ -298,12 +298,14 @@ export function createS3Mirror(
       if (hashes.sha256 !== expected.sha256) throw new Error('Backup checksum mismatch');
       const restored = new DatabaseSync(path, { readOnly: true });
       try {
-        if (restored.prepare('PRAGMA quick_check').get().quick_check !== 'ok')
+        if (restored.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
           throw new Error('Backup integrity check failed');
         return {
           verified: true,
           sha256: hashes.sha256,
-          workspaces: Number(restored.prepare('SELECT count(*) n FROM mnema_workspaces').get().n),
+          workspaces: Number(
+            restored.prepare('SELECT count(*) n FROM mnema_workspaces').get()?.n ?? 0,
+          ),
           checkedAt: Date.now(),
         };
       } finally {

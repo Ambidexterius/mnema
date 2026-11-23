@@ -6,13 +6,16 @@ import type { openDatabase } from '../db.ts';
 import type { createCompletionMailer } from '../completion-mail.ts';
 import { fail, text } from '../http.ts';
 import type { createFileProcessor } from './processor.ts';
+import type { createProjectStore } from '../projects/store.ts';
+import type { StoredStudy } from '../projects/types.ts';
 
-interface QueueServices {
+type FileJobKind = Parameters<ReturnType<typeof createFileProcessor>['processStudy']>[1];
+type FileJob = { id: string; study_id: string; workspace_id?: string; kind: FileJobKind };
+
+interface QueueServices extends Pick<ReturnType<typeof createProjectStore>, 'getState' | 'mutate'> {
   q: ReturnType<typeof openDatabase>['q'];
   dir: string;
   currentWs: () => string;
-  getState: () => { state: any };
-  mutate: (change: (state: any) => void) => unknown;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
   deletingStudies: ReadonlySet<string>;
   runAnalysis: () => Promise<void>;
@@ -36,7 +39,7 @@ export function createProcessingQueue({
 }: QueueServices) {
   let workerBusy = false;
   const activeCPU = new Map<string, { controller: AbortController; done: Promise<void> }>();
-  const processingLog = (event, job, extra = {}) =>
+  const processingLog = (event: string, job: FileJob, extra = {}) =>
     console.info(
       'Processing',
       JSON.stringify({
@@ -51,7 +54,7 @@ export function createProcessingQueue({
   const work = async (lane: 'files' | 'analysis') => {
     if (lane === 'analysis') return runAnalysis();
     if (workerBusy) return;
-    const job = q(
+    const job = q<FileJob>(
       "SELECT * FROM mnema_jobs WHERE status='queued' ORDER BY CASE WHEN kind='document' THEN 0 ELSE 1 END,created LIMIT 1",
     ).get();
     if (!job) return;
@@ -161,7 +164,7 @@ export function createProcessingQueue({
     q(
       "SELECT 1 FROM mnema_jobs WHERE study_id=? AND workspace_id=? AND status IN ('queued','running')",
     ).get(studyId, currentWs());
-  const queueStudy = (study, kind) => {
+  const queueStudy = (study: StoredStudy, kind: FileJobKind) => {
     if (deletingStudies.has(jobKey(currentWs(), study.id)))
       fail(409, 'Материал удаляется. Дождитесь завершения.');
     if (activeStudyJob(study.id)) fail(409, 'Этот материал уже обрабатывается.');
@@ -180,13 +183,12 @@ export function createProcessingQueue({
         error: null,
       });
   };
-  const enqueue = (study, kind) =>
-    mutate((s) =>
-      queueStudy(
-        s.studies.find((x) => x.id === study.id),
-        kind,
-      ),
-    );
+  const enqueue = (study: StoredStudy, kind: FileJobKind) =>
+    mutate((s) => {
+      const target = s.studies.find((x) => x.id === study.id);
+      if (!target) fail(404, 'Материал не найден.');
+      queueStudy(target, kind);
+    });
   return {
     stopWorker: () => clearInterval(worker),
     activeCPU,

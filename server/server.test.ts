@@ -364,6 +364,31 @@ test('self-role mutation, hostile origin and provider SSRF are denied', async ()
     400,
   );
 });
+test('invalid project state patches leave the workspace version and contents intact', async () => {
+  const before = await req('/api/state', { cookie: ownerCookie });
+  assert.equal(before.response.status, 200);
+  for (const changes of [
+    null,
+    [],
+    { findings: null },
+    { findings: [null] },
+    { models: null },
+    { processors: 'invalid' },
+    { modelId: { id: 'invalid' } },
+  ]) {
+    const rejected = await req('/api/state', {
+      cookie: ownerCookie,
+      method: 'PATCH',
+      body: { version: before.data.version, changes },
+    });
+    assert.equal(rejected.response.status, 400, JSON.stringify(changes));
+  }
+  const after = await req('/api/state', { cookie: ownerCookie });
+  assert.equal(after.response.status, 200);
+  assert.equal(after.data.version, before.data.version);
+  assert.deepEqual(after.data.state, before.data.state);
+});
+
 test('storage configuration and backup checks are restricted to the service owner', async () => {
   assert.equal((await req('/api/storage')).response.status, 401);
   assert.equal((await req('/api/storage', { cookie: viewerCookie })).response.status, 403);
