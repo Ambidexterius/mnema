@@ -26,12 +26,14 @@ test('batch cancellation releases an active session, skips queued files and cont
       calls.push(file.name);
       if (file.name === 'first.txt') {
         progress(33);
+        assert(control?.onSession && control.signal);
+        const { signal } = control;
         control.onSession(async () => {
           cleanups++;
           return null;
         });
         await new Promise((_, reject) =>
-          control.signal.addEventListener('abort', () => reject(control.signal.reason), {
+          signal.addEventListener('abort', () => reject(signal.reason), {
             once: true,
           }),
         );
@@ -68,14 +70,14 @@ test('cancel in-flight chunk deletes the pinned workspace session, retries a bus
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     value: {
-      getItem: (k) => store.get(k),
-      setItem: (k, v) => store.set(k, v),
-      removeItem: (k) => store.delete(k),
+      getItem: (k: string) => store.get(k),
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
     },
   });
   t.after(() => {
     if (original) Object.defineProperty(globalThis, 'localStorage', original);
-    else delete globalThis.localStorage;
+    else Reflect.deleteProperty(globalThis, 'localStorage');
   });
   let deletes = 0;
   t.mock.method(globalThis, 'fetch', async (url: string, init: any) => {
@@ -94,7 +96,7 @@ test('cancel in-flight chunk deletes the pinned workspace session, retries a bus
     return Response.json({ offset: 0 });
   });
   const controller = new AbortController();
-  let discard: () => Promise<any>;
+  let discard!: () => Promise<any>;
   const transfer = uploadFile(
     new File(['abcdefgh'], 'test.txt'),
     { workspaceId: 'scope' },

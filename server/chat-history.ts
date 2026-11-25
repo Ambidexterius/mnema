@@ -10,7 +10,7 @@ type ChatRow = {
   messages: string;
   updated: number;
 };
-type ReaderStudy = { id: string; segments: Pick<Segment, 'id' | 'text' | 'correctedText'>[] };
+type ReaderStudy = { id: string; segments?: Pick<Segment, 'id' | 'text' | 'correctedText'>[] };
 type ReplySource = {
   workspaceId?: string;
   studyId: string;

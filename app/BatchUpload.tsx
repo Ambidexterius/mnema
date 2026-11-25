@@ -28,12 +28,13 @@ const size = (bytes: number) =>
     ? Math.max(1, Math.round(bytes / 1024)) + ' КБ'
     : new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(bytes / 1024 ** 2) + ' МБ';
 type Draft = UploadItem & { id: string; checked: boolean; invalid: string; countText?: string };
-const countFiles = (n: number) =>
-  n +
-  ' ' +
-  { one: 'файл', few: 'файла', many: 'файлов', other: 'файла' }[
-    new Intl.PluralRules('ru').select(n)
-  ];
+const fileForms: Partial<Record<Intl.LDMLPluralRule, string>> = {
+  one: 'файл',
+  few: 'файла',
+  many: 'файлов',
+  other: 'файла',
+};
+const countFiles = (n: number) => n + ' ' + fileForms[new Intl.PluralRules('ru').select(n)];
 const labels: Record<UploadRow['state'], string> = {
   queued: 'В очереди',
   uploading: 'Загружается',
@@ -116,7 +117,7 @@ function Picker({ close, start, model, existingNames, queuedNames, initial }: Pi
   const selected = available.filter((row) => row.checked);
   const invalidCount = (r: Draft) =>
     Boolean(r.countText) &&
-    (!/^\d+$/.test(r.countText) ||
+    (!/^\d+$/.test(r.countText ?? '') ||
       !Number.isSafeInteger(Number(r.countText)) ||
       Number(r.countText) < 1);
   const chosenNames = new Set(selected.map((row) => fileNameKey(row.file.name)));
@@ -204,7 +205,7 @@ function Picker({ close, start, model, existingNames, queuedNames, initial }: Pi
               </div>
               <ul className="bulk-files upload-choice-list">
                 {rows.map((r) => {
-                  const extension = r.file.name.split('.').at(-1)?.toUpperCase();
+                  const extension = r.file.name.split('.').at(-1)?.toUpperCase() ?? '';
                   const Icon = ['MP4', 'MOV', 'WEBM'].includes(extension)
                     ? FileVideo
                     : ['MP3', 'WAV', 'M4A'].includes(extension)

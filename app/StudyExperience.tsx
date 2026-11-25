@@ -47,6 +47,7 @@ import {
   Video,
 } from 'lucide-react';
 import { api, projectFile } from './api.ts';
+import type { AppContext } from './app-context.ts';
 import type { Study, Segment, Highlight } from './types.ts';
 const stored = (key: string) => {
   try {
@@ -201,7 +202,7 @@ export default function StudyExperience({
   findings = [],
   headerActions,
 }: {
-  ctx: any;
+  ctx: AppContext;
   study: Study;
   reader: boolean;
   demo: boolean;
@@ -287,7 +288,7 @@ export default function StudyExperience({
     g.some((seg) => (seg.correctedText ?? seg.text).toLowerCase().includes(query.toLowerCase())),
   );
   const task = s.summaryInfo;
-  const activeTask = ['queued', 'running'].includes(task?.state);
+  const activeTask = task?.state === 'queued' || task?.state === 'running';
   const failedTask = task?.state === 'error';
   const hasModel = state.models.some((m) => m.enabled && (demo || m.keyConfigured));
   const unknownSpeaker = (speaker: string) =>
@@ -408,7 +409,7 @@ export default function StudyExperience({
   const speakersReady = state.processors.some((p) => p.id === 'speakers' && p.configured);
   const speakers = [...new Set(segments.map((x) => x.speaker).filter((x) => !unknownSpeaker(x)))];
   const speakerTask = s.speakerInfo;
-  const speakerBusy = ['queued', 'running'].includes(speakerTask?.state);
+  const speakerBusy = speakerTask?.state === 'queued' || speakerTask?.state === 'running';
   const [confirmSpeakers, setConfirmSpeakers] = useState(false),
     [speakerError, setSpeakerError] = useState('');
   const speakerAction = useRef<HTMLDivElement>(null);
@@ -451,10 +452,9 @@ export default function StudyExperience({
       ? speakerTask.progress?.match(/^Определяем спикеров: ([\d:]+ из [\d:]+)/)?.[1]
       : undefined;
   const count = speakers.length;
+  const forms: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'спикер', few: 'спикера' };
   const speakerCount =
-    count +
-    ' ' +
-    ({ one: 'спикер', few: 'спикера' }[new Intl.PluralRules('ru').select(count)] || 'спикеров');
+    count + ' ' + (forms[new Intl.PluralRules('ru').select(count)] || 'спикеров');
   const saveSpeaker = async () => {
     if (!speakerDialog) return;
     setBusy(true);
@@ -939,7 +939,7 @@ export default function StudyExperience({
     </div>
   );
   const search = s.findingsInfo;
-  const searching = ['queued', 'running'].includes(search?.state);
+  const searching = search?.state === 'queued' || search?.state === 'running';
   const findingsPanel = (
     <div className="panel-findings">
       {!reader && !demo && s.status === 'ready' && segments.length ? (

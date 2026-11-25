@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, Dialog, Select, TextArea, TextInput } from '@gravity-ui/uikit';
+import type { AppContext } from './app-context.ts';
 import { api } from './api.ts';
 import type { ModelConnection } from './types.ts';
 
@@ -8,7 +9,7 @@ const providers = [
   { value: 'anthropic', content: 'Claude — Anthropic' },
   { value: 'deepseek', content: 'DeepSeek API' },
   { value: 'compatible', content: 'Совместимый API' },
-];
+] as const;
 const urls = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
@@ -59,10 +60,10 @@ export default function ModelConnectionDialog({
 }: {
   open: boolean;
   model?: ModelConnection;
-  ctx: any;
+  ctx: AppContext;
   onClose: () => void;
 }) {
-  const [provider, setProvider] = useState('openai'),
+  const [provider, setProvider] = useState<keyof typeof urls>('openai'),
     [name, setName] = useState(''),
     [identifier, setIdentifier] = useState(''),
     [url, setURL] = useState('');
@@ -129,7 +130,7 @@ export default function ModelConnectionDialog({
     const requestEpoch = ++epoch.current;
     setLoading(true);
     try {
-      const result = await api('/api/models/catalog', credentials);
+      const result: { models: typeof models } = await api('/api/models/catalog', credentials);
       if (requestEpoch !== epoch.current) return;
       setModels(result.models);
       setIdentifier((current) => (result.models.some((m) => m.id === current) ? current : ''));
@@ -158,7 +159,7 @@ export default function ModelConnectionDialog({
     const values = {
       name: name.trim() || labels[provider] + ' · ' + identifier.trim(),
       model: identifier.trim(),
-      provider: sameProvider ? model.provider : labels[provider],
+      provider: sameProvider && model ? model.provider : labels[provider],
       ...credentials,
       keySource,
       instructions: instructions.trim(),
@@ -236,11 +237,12 @@ export default function ModelConnectionDialog({
               width="max"
               aria-label="Поставщик модели"
               value={[provider]}
-              options={providers}
+              options={[...providers]}
               disabled={saving || loading}
               onUpdate={(v) => {
                 epoch.current++;
-                setProvider(v[0]);
+                const selected = providers.find(({ value }) => value === v[0]);
+                if (selected) setProvider(selected.value);
                 setAPIKey('');
                 setModels([]);
                 setIdentifier('');

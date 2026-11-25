@@ -228,9 +228,9 @@ export function StudyScreen({ headerActions }: { headerActions?: HTMLDivElement 
 
 export function SourcePanel() {
   const { panel, panelClosing, setPanel, state, go, openGlobalSource, reader } = useApp();
-  const list = useRef(null),
-    media = useRef(null),
-    closeButton = useRef(null);
+  const list = useRef<HTMLDivElement>(null),
+    media = useRef<HTMLVideoElement>(null),
+    closeButton = useRef<HTMLButtonElement>(null);
   const [mediaError, setMediaError] = useState('');
   const study = panel && state.studies.find((s) => s.id === panel.studyId);
   const segments: Segment[] = study?.segments?.length
@@ -397,7 +397,7 @@ export function SourcePanel() {
         ) : null}
         {study && seg ? (
           <>
-            {isMedia ? (
+            {isMedia && study.fileId ? (
               <video
                 ref={media}
                 src={projectFile(study.fileId)}
@@ -418,7 +418,7 @@ export function SourcePanel() {
                 }}
               />
             ) : null}
-            {isPDF ? (
+            {isPDF && study.fileId ? (
               <iframe
                 title={'Исходный PDF, страница ' + (seg.page || 1)}
                 className="panel-pdf"
@@ -442,7 +442,7 @@ export function SourcePanel() {
                         setPanel((p) => ({
                           ...p,
                           segmentId: t.id,
-                          number: t.id === panel.segmentId ? p.number : undefined,
+                          number: t.id === panel.segmentId ? p?.number : undefined,
                         }));
                       }}
                       aria-label={'Перейти к ' + where(t)}

@@ -3,11 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { sendSmtp, smtpConfigured, type CompletionMail } from './completion-mail.ts';
 
 export type InvitationMailStatus = 'sent' | 'failed' | 'not_configured';
-const escape = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+const htmlEntities: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+const escape = (value: string) => value.replace(/[&<>"']/g, (c) => htmlEntities[c]);
 export interface InvitationMailInput {
   to: string;
   name: string;

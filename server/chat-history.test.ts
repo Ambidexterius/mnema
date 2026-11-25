@@ -33,7 +33,7 @@ test('conversations persist, remain private, and deletion leaves research intact
     assert.throws(() => reloaded.remove(reader, chat.id), { status: 404 });
     reloaded.remove(owner, chat.id);
     assert.deepEqual(reloaded.list(owner), []);
-    assert.equal(db.prepare('SELECT count(*) AS n FROM mnema_workspaces').get().n, 1);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM mnema_workspaces').get()!.n, 1);
   } finally {
     db.close();
   }

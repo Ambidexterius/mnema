@@ -1,3 +1,13 @@
+import type {
+  Study,
+  Segment,
+  Finding,
+  Highlight,
+  ChatSource,
+  WorkspaceUser,
+} from '../app/types.ts';
+import type { StoredStudy } from './projects/types.ts';
+import type { Person } from './request-context.ts';
 process.env.MNEMA_IMPORT_SOURCE_ORIGIN = 'https://source.example.com';
 import { test, after } from 'node:test';
 import { tmpdir } from 'node:os';
@@ -53,7 +63,7 @@ const app = await createMnemaServer({
           processingSeconds: 0,
         },
   providerFetch: async (_url, options) => {
-    providerContext = JSON.parse(String(options.body));
+    providerContext = JSON.parse(String(options?.body));
     await waitForProvider?.();
     return Response.json({
       choices: [{ message: { content: reply } }],
@@ -292,14 +302,14 @@ test('upload is durable and original requires active access', async () => {
   );
   assert.equal(
     (await req('/api/state', { cookie: viewerCookie })).data.state.studies.find(
-      (s) => s.id === study.id,
+      (s: Study) => s.id === study.id,
     ).fileSize,
     study.fileSize,
   );
   assert.equal(
     (await req('/api/research-library', { cookie: viewerCookie })).data.projects
-      .flatMap((p) => p.studies)
-      .find((s) => s.id === study.id).fileSize,
+      .flatMap((p: { studies: Study[] }) => p.studies)
+      .find((s: Study) => s.id === study.id).fileSize,
     study.fileSize,
   );
   assert.equal((await req('/api/files/' + study.fileId)).response.status, 401);
@@ -319,7 +329,7 @@ test('upload is durable and original requires active access', async () => {
   );
   assert.equal((await fetch(baseURL + '/api/files/' + study.fileId + '?download=1')).status, 401);
   assert.equal(
-    app.db.prepare('SELECT status FROM mnema_uploads WHERE id=?').get(study.fileId).status,
+    app.db.prepare('SELECT status FROM mnema_uploads WHERE id=?').get(study.fileId)!.status,
     'ready',
   );
 });
@@ -433,7 +443,7 @@ test('chunked upload bypasses request-size limits and retries do not duplicate b
       .response.status,
     409,
   );
-  async function chunk(offset, end) {
+  async function chunk(offset: number, end: number) {
     return fetch(baseURL + '/api/upload-sessions/' + id, {
       method: 'PUT',
       headers: {
@@ -457,17 +467,17 @@ test('chunked upload bypasses request-size limits and retries do not duplicate b
     body: {},
   });
   assert.equal(done.response.status, 201);
-  assert(done.data.state.studies.some((s) => s.fileId === id));
+  assert(done.data.state.studies.some((s: Study) => s.fileId === id));
   const again = await req('/api/upload-sessions/' + id + '/complete', {
     cookie: ownerCookie,
     body: {},
   });
   assert.equal(again.data.createdStudyId, done.data.createdStudyId);
-  assert.equal(again.data.state.studies.filter((s) => s.fileId === id).length, 1);
+  assert.equal(again.data.state.studies.filter((s: Study) => s.fileId === id).length, 1);
   let processed;
   for (let i = 0; i < 50; i++) {
     processed = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-      (s) => s.fileId === id,
+      (s: Study) => s.fileId === id,
     );
     if (processed.status === 'ready') break;
     await new Promise((r) => setTimeout(r, 100));
@@ -481,13 +491,13 @@ test('chunked upload bypasses request-size limits and retries do not duplicate b
 test('manual participant count changes only recording metadata', async () => {
   const study = async () =>
     (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-      (s) => s.title === 'Chunk test',
+      (s: Study) => s.title === 'Chunk test',
     );
   const original = await study(),
     url = '/api/studies/' + original.id + '/speaker-count';
-  const patch = (body, cookie = ownerCookie) => req(url, { cookie, method: 'PATCH', body });
+  const patch = (body: object, cookie = ownerCookie) => req(url, { cookie, method: 'PATCH', body });
   const jobs = () =>
-    app.db.prepare('SELECT count(*) AS n FROM mnema_jobs WHERE study_id=?').get(original.id).n;
+    app.db.prepare('SELECT count(*) AS n FROM mnema_jobs WHERE study_id=?').get(original.id)!.n;
   const initialJobs = jobs();
   assert.equal((await patch({ count: 2 }, viewerCookie)).response.status, 403);
   for (const count of [0, -1, 2.5, '2'])
@@ -501,7 +511,7 @@ test('manual participant count changes only recording metadata', async () => {
 test('speakers are detected as a background job, renamed and reassigned only with full access', async () => {
   const find = async () =>
     (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-      (s) => s.title === 'Chunk test',
+      (s: Study) => s.title === 'Chunk test',
     );
   let study = await find();
   const id = study.id,
@@ -551,23 +561,23 @@ test('speakers are detected as a background job, renamed and reassigned only wit
     body: { from: 'Спикер 1', speaker: 'Ведущая' },
   });
   assert.equal(r.response.status, 200);
-  study = r.data.state.studies.find((s) => s.id === id);
+  study = r.data.state.studies.find((s: Study) => s.id === id);
   assert.equal(study.segments[0].speaker, 'Ведущая');
   r = await req('/api/studies/' + id + '/speakers', {
     cookie: ownerCookie,
     method: 'PATCH',
     body: { segmentIds: [seg], speaker: 'Респондент' },
   });
-  study = r.data.state.studies.find((s) => s.id === id);
+  study = r.data.state.studies.find((s: Study) => s.id === id);
   assert.equal(study.segments[0].speaker, 'Респондент');
   assert.equal(study.speakerEdits.at(-1).action, 'reassigned');
   assert.equal(study.speakerEdits.at(-1).by.length > 0, true);
 });
 test('speaker rerun uses the saved limit and replaces labels only on success', async () => {
-  const workspace = app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data;
+  const workspace = app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data;
   const save = app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'");
   const state = JSON.parse(String(workspace)),
-    study = state.studies.find((s) => s.title === 'Chunk test');
+    study = state.studies.find((s: Study) => s.title === 'Chunk test');
   const url = '/api/studies/' + study.id + '/speakers';
   const original = await (
     await fetch(baseURL + '/api/files/' + study.fileId, { headers: { Cookie: ownerCookie } })
@@ -584,13 +594,13 @@ test('speaker rerun uses the saved limit and replaces labels only on success', a
   save.run(JSON.stringify(state));
   const get = async () =>
     (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-      (s) => s.id === study.id,
+      (s: Study) => s.id === study.id,
     );
   const jobs = () =>
     Number(
       app.db
         .prepare("SELECT count(*) AS n FROM mnema_jobs WHERE study_id=? AND kind='speakers'")
-        .get(study.id).n,
+        .get(study.id)!.n,
     );
   const wait = async (state: string) => {
     for (let i = 0; i < 100; i++) {
@@ -600,7 +610,7 @@ test('speaker rerun uses the saved limit and replaces labels only on success', a
     }
     assert.fail('Speaker state did not reach ' + state);
   };
-  let release: () => void;
+  let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   try {
     const initial = jobs();
@@ -635,7 +645,9 @@ test('speaker rerun uses the saved limit and replaces labels only on success', a
         engine: 'Fixture',
         processingSeconds: 0,
         speakers: Object.fromEntries(
-          segments.slice(1).map((segment, i) => [segment.id, 'Спикер ' + ((i % 4) + 1)]),
+          segments
+            .slice(1)
+            .map((segment: Segment, i: number) => [segment.id, 'Спикер ' + ((i % 4) + 1)]),
         ),
       };
     };
@@ -645,9 +657,9 @@ test('speaker rerun uses the saved limit and replaces labels only on success', a
     assert.equal(result.participants, 4);
     assert.equal(result.status, 'ready');
     assert.equal(result.segments[0].speaker, 'Запись');
-    assert.equal(new Set(result.segments.slice(1).map((s) => s.speaker)).size, 4);
+    assert.equal(new Set(result.segments.slice(1).map((s: Segment) => s.speaker)).size, 4);
     assert.deepEqual(
-      result.segments.map(({ speaker, ...segment }) => segment),
+      result.segments.map(({ speaker, ...segment }: Segment) => segment),
       segments.map(({ speaker, ...segment }) => segment),
     );
     assert.equal(result.fileId, study.fileId);
@@ -699,7 +711,7 @@ test('model connection test is admin-only and accounts actual tokens before enfo
     assert.equal(result.response.status, 200);
     assert.equal(result.data.usage.total_tokens, 42);
     assert.equal(
-      app.db.prepare("SELECT sum(amount) AS n FROM mnema_usage WHERE kind='llm_tokens'").get().n,
+      app.db.prepare("SELECT sum(amount) AS n FROM mnema_usage WHERE kind='llm_tokens'").get()!.n,
       42,
     );
     process.env.LLM_MONTHLY_TOKEN_LIMIT = '42';
@@ -721,10 +733,12 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
     let owner;
     for (let i = 0; i < 40; i++) {
       owner = await req('/api/state', { cookie: ownerCookie });
-      if (owner.data.state.studies.find((s) => s.title === 'Interview')?.status === 'ready') break;
+      if (owner.data.state.studies.find((s: Study) => s.title === 'Interview')?.status === 'ready')
+        break;
       await new Promise((r) => setTimeout(r, 250));
     }
-    const study = owner.data.state.studies.find((s) => s.title === 'Interview');
+    assert(owner);
+    const study = owner.data.state.studies.find((s: Study) => s.title === 'Interview');
     assert.equal(study.status, 'ready');
     assert.equal(study.report, 'ready');
     assert.equal(study.addedBy, 'Owner');
@@ -751,7 +765,7 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
       },
     });
     assert.equal(created.response.status, 200, JSON.stringify(created.data));
-    const human = created.data.state.findings.find((f) => f.id === 'human-1');
+    const human = created.data.state.findings.find((f: Finding) => f.id === 'human-1');
     assert.equal(human.status, 'verified');
     assert.equal(human.kind, 'Инсайт');
     assert.equal(human.importance, 'Высокая');
@@ -807,22 +821,26 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
     });
     assert.equal(queued.response.status, 202, JSON.stringify(queued.data));
     assert.equal(
-      queued.data.state.studies.find((s) => s.id === study.id).findingsInfo.state,
+      queued.data.state.studies.find((s: Study) => s.id === study.id).findingsInfo.state,
       'queued',
     );
     let suggested;
     for (let i = 0; i < 80; i++) {
       suggested = await req('/api/state', { cookie: ownerCookie });
       if (
-        suggested.data.state.studies.find((s) => s.id === study.id).findingsInfo?.state === 'ready'
+        suggested.data.state.studies.find((s: Study) => s.id === study.id).findingsInfo?.state ===
+        'ready'
       )
         break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    const info = suggested.data.state.studies.find((s) => s.id === study.id).findingsInfo;
+    assert(suggested);
+    const info = suggested.data.state.studies.find((s: Study) => s.id === study.id).findingsInfo;
     assert.equal(info.state, 'ready', JSON.stringify(info));
     assert.equal(info.added, 2);
-    const critical = suggested.data.state.findings.find((f) => f.title === 'Второй черновик ИИ');
+    const critical = suggested.data.state.findings.find(
+      (f: Finding) => f.title === 'Второй черновик ИИ',
+    );
     assert.equal(critical.importance, 'Критично');
     assert.equal(critical.kind, 'Проблема');
     assert.equal(critical.reason, 'Участник не может завершить задачу.');
@@ -833,7 +851,7 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
     assert.equal(again.response.status, 202);
     for (let i = 0; i < 80; i++) {
       const s = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-        (s) => s.id === study.id,
+        (s: Study) => s.id === study.id,
       );
       if (s.findingsInfo?.state === 'ready' && s.findingsInfo.startedAt !== info.startedAt) {
         assert.equal(s.findingsInfo.added, 0, 'a repeated run does not duplicate drafts');
@@ -842,17 +860,19 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
       await new Promise((r) => setTimeout(r, 50));
     }
     suggested = await req('/api/state', { cookie: ownerCookie });
-    const drafts = suggested.data.state.findings.filter((f) => f.origin === 'ai');
+    const drafts = suggested.data.state.findings.filter((f: Finding) => f.origin === 'ai');
     assert.equal(drafts.length, 2);
-    assert(drafts.every((f) => f.status === 'draft' && f.history[0].action === 'suggested'));
-    assert.equal(suggested.data.state.studies.find((s) => s.id === study.id).drafts, 2);
+    assert(
+      drafts.every((f: Finding) => f.status === 'draft' && f.history[0].action === 'suggested'),
+    );
+    assert.equal(suggested.data.state.studies.find((s: Study) => s.id === study.id).drafts, 2);
     const viewer = await req('/api/state', { cookie: viewerCookie });
     assert.deepEqual(
-      viewer.data.state.findings.map((f) => f.id),
+      viewer.data.state.findings.map((f: Finding) => f.id),
       ['human-1'],
     );
     assert(!JSON.stringify(viewer.data).includes('Черновик ИИ'));
-    const vs = viewer.data.state.studies.find((s) => s.id === study.id);
+    const vs = viewer.data.state.studies.find((s: Study) => s.id === study.id);
     assert.equal(vs.findings, 1);
     assert.equal(vs.drafts, 0);
     const [first, second] = drafts;
@@ -862,7 +882,7 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
       body: {
         version: suggested.data.version,
         changes: {
-          findings: suggested.data.state.findings.map((f) =>
+          findings: suggested.data.state.findings.map((f: Finding) =>
             f.id === first.id
               ? { ...f, status: 'verified', title: 'Участник проверяет выбранные даты' }
               : f.id === second.id
@@ -873,8 +893,8 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
       },
     });
     assert.equal(reviewed.response.status, 200, JSON.stringify(reviewed.data));
-    const accepted = reviewed.data.state.findings.find((f) => f.id === first.id),
-      rejected = reviewed.data.state.findings.find((f) => f.id === second.id);
+    const accepted = reviewed.data.state.findings.find((f: Finding) => f.id === first.id),
+      rejected = reviewed.data.state.findings.find((f: Finding) => f.id === second.id);
     assert.equal(accepted.status, 'verified');
     assert.equal(accepted.history.at(-1).action, 'accepted');
     assert.equal(accepted.history.at(-1).by, 'Owner');
@@ -891,7 +911,7 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
     );
     const viewer2 = await req('/api/state', { cookie: viewerCookie });
     assert.deepEqual(
-      viewer2.data.state.findings.map((f) => f.id).sort(),
+      viewer2.data.state.findings.map((f: Finding) => f.id).sort(),
       [first.id, 'human-1'].sort(),
     );
     assert.equal(
@@ -928,13 +948,13 @@ test('stage 1: readers get only verified findings, history is stamped by the ser
       },
     });
     assert.equal(passport.response.status, 200, JSON.stringify(passport.data));
-    const ps = passport.data.state.studies.find((s) => s.id === study.id);
+    const ps = passport.data.state.studies.find((s: Study) => s.id === study.id);
     assert.equal(ps.report, 'none');
     assert.equal(ps.reportExpected, '2026-11-17');
     assert(
       passport.data.state.findings
-        .filter((f) => f.studyId === study.id)
-        .every((f) => f.basis === 'raw'),
+        .filter((f: Finding) => f.studyId === study.id)
+        .every((f: Finding) => f.basis === 'raw'),
     );
     reply =
       'Участник проверяет даты [1] (по сырым данным).\n\nЧто осталось невыясненным\n- Причины не указаны [1].';
@@ -956,7 +976,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
   process.env.LLM_KEY_CUSTOM1 = 'test-only-provider-key';
   try {
     const st = await req('/api/state', { cookie: ownerCookie });
-    const study = st.data.state.studies.find((s) => s.title === 'Interview');
+    const study = st.data.state.studies.find((s: Study) => s.title === 'Interview');
     const id = study.id,
       seg = study.segments[0].id;
     reply = JSON.stringify({
@@ -978,20 +998,21 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
       body: { modelId: 'quota-test' },
     });
     assert.equal(start.response.status, 202, JSON.stringify(start.data));
-    const timestamp = start.data.state.studies.find((s) => s.id === id).summaryInfo.startedAt;
+    const timestamp = start.data.state.studies.find((s: Study) => s.id === id).summaryInfo
+      .startedAt;
     const duplicate = await req('/api/studies/' + id + '/summary', {
       cookie: ownerCookie,
       body: { modelId: 'quota-test' },
     });
     assert.equal(duplicate.response.status, 202);
     assert.equal(
-      duplicate.data.state.studies.find((s) => s.id === id).summaryInfo.startedAt,
+      duplicate.data.state.studies.find((s: Study) => s.id === id).summaryInfo.startedAt,
       timestamp,
     );
     let ready;
     for (let i = 0; i < 50; i++) {
       ready = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-        (s) => s.id === id,
+        (s: Study) => s.id === id,
       );
       if (ready.summaryInfo.state === 'ready') break;
       await new Promise((r) => setTimeout(r, 100));
@@ -999,7 +1020,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
     assert.equal(ready.summaryInfo.state, 'ready', JSON.stringify(ready));
     assert.deepEqual(ready.summary[0].segments, [seg]);
     const viewer = (await req('/api/state', { cookie: viewerCookie })).data;
-    assert.equal(viewer.state.studies.find((s) => s.id === id).summary.length, 0);
+    assert.equal(viewer.state.studies.find((s: Study) => s.id === id).summary.length, 0);
     assert(!JSON.stringify(viewer).includes('Проверка дат'));
     assert.equal(
       (await req('/api/studies/' + id + '/summary/verify', { cookie: viewerCookie, body: {} }))
@@ -1013,13 +1034,13 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
     );
     assert.equal(
       (await req('/api/state', { cookie: viewerCookie })).data.state.studies.find(
-        (s) => s.id === id,
+        (s: Study) => s.id === id,
       ).summary.length,
       1,
     );
     const persisted = JSON.parse(
-      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
-    ).studies.find((s) => s.id === id);
+      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
+    ).studies.find((s: Study) => s.id === id);
     assert.equal(persisted.summaryInfo.review, 'verified');
     const original = study.segments[0].text;
     assert.equal(
@@ -1038,7 +1059,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
       body: { text: 'Участник внимательно проверяет даты.', before: original },
     });
     assert.equal(edited.response.status, 200, JSON.stringify(edited.data));
-    const es = edited.data.state.studies.find((s) => s.id === id);
+    const es = edited.data.state.studies.find((s: Study) => s.id === id);
     assert.equal(es.segments[0].text, original);
     assert.equal(es.segments[0].correctedText, 'Участник внимательно проверяет даты.');
     assert.equal(es.transcriptEdits.at(-1).before, original);
@@ -1069,7 +1090,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
     );
     for (let i = 0; i < 50; i++) {
       ready = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-        (s) => s.id === id,
+        (s: Study) => s.id === id,
       );
       if (ready.summaryInfo.state === 'error') break;
       await new Promise((r) => setTimeout(r, 100));
@@ -1090,7 +1111,7 @@ test('summary is durable, cited, idempotent and hidden from readers until human 
 });
 test('project summary uses overview evidence, survives model errors and respects reader visibility', async () => {
   const row = app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'");
-  const stored = row.get().data;
+  const stored = row.get()!.data;
   const save = app.db.prepare(
     "UPDATE mnema_workspaces SET data=?,version=version+1 WHERE id='main'",
   );
@@ -1146,7 +1167,7 @@ test('project summary uses overview evidence, survives model errors and respects
   process.env.LLM_KEY_CUSTOM1 = 'test-only-provider-key';
   const build = (cookie = ownerCookie) => req('/api/project-summary', { cookie, body: {} });
   const delayed = async (change: (current: any) => void) => {
-    let entered: () => void, release: () => void;
+    let entered: () => void, release!: () => void;
     const started = new Promise<void>((resolve) => (entered = resolve));
     const gate = new Promise<void>((resolve) => (release = resolve));
     waitForProvider = () => {
@@ -1159,7 +1180,7 @@ test('project summary uses overview evidence, survives model errors and respects
         started,
         pending.then((result) => assert.fail('Model did not start: ' + result.response.status)),
       ]);
-      const current = JSON.parse(String(row.get().data));
+      const current = JSON.parse(String(row.get()!.data));
       change(current);
       save.run(JSON.stringify(current));
     } finally {
@@ -1171,11 +1192,11 @@ test('project summary uses overview evidence, survives model errors and respects
   try {
     const reader = (await req('/api/state', { cookie: viewerCookie })).data;
     assert.deepEqual(
-      reader.state.studies.map((study) => study.id),
+      reader.state.studies.map((study: Study) => study.id),
       [visible.id],
     );
     assert.deepEqual(
-      reader.state.highlights.map((note) => note.id),
+      reader.state.highlights.map((note: Highlight) => note.id),
       ['visible-note'],
     );
     assert.doesNotMatch(JSON.stringify(reader.user.workspaces), /PRIVATE_CATALOG/);
@@ -1188,7 +1209,7 @@ test('project summary uses overview evidence, survives model errors and respects
     assert.equal(context.coverage.included, 1);
     assert.equal(context.coverage.fragments, 1);
     assert.deepEqual(
-      context.reviewed_findings.map((f) => f.title),
+      context.reviewed_findings.map((f: { title: string }) => f.title),
       ['Настройки проекта'],
     );
     assert.doesNotMatch(JSON.stringify(providerContext), /PRIVATE_CATALOG|PRIVATE_DRAFT/);
@@ -1205,7 +1226,7 @@ test('project summary uses overview evidence, survives model errors and respects
     const retry = await build();
     assert.equal(retry.response.status, 200);
     assert.equal((await read()).answer, reply);
-    const published = row.get().data;
+    const published = row.get()!.data;
     const legacy = JSON.parse(String(published));
     delete legacy.projectSummary.reviewedRevision;
     save.run(JSON.stringify(legacy));
@@ -1295,6 +1316,7 @@ test('workspaces isolate studies; built-in models stay; studies can be deleted w
   assert.equal(created.response.status, 201);
   const wsCookie = ownerCookie + '; mnema_ws=' + created.data.id;
   const completedUpload = app.db.prepare('SELECT id FROM mnema_upload_sessions LIMIT 1').get();
+  assert(completedUpload);
   assert.equal(
     (await req('/api/upload-sessions/' + completedUpload.id, { cookie: wsCookie })).response.status,
     404,
@@ -1315,8 +1337,8 @@ test('workspaces isolate studies; built-in models stay; studies can be deleted w
   };
   const profilePath = '/api/workspaces/' + created.data.id + '/profile';
   const editProfile = (
-    cookie,
-    revision,
+    cookie: string,
+    revision: number,
     values: Record<string, unknown> = fields,
     path = profilePath,
   ) => req(path, { cookie, method: 'PATCH', body: { revision, fields: values } });
@@ -1432,7 +1454,7 @@ test('project-wide questions use only current project evidence; automatic summar
     // Prepare the valid source ID after text extraction, while the worker is between jobs.
     for (let i = 0; i < 80; i++) {
       study = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-        (s) => s.id === studyId,
+        (s: Study) => s.id === studyId,
       );
       if (study.status === 'ready') {
         reply = JSON.stringify({
@@ -1446,7 +1468,7 @@ test('project-wide questions use only current project evidence; automatic summar
     }
     for (let i = 0; i < 80; i++) {
       study = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-        (s) => s.id === studyId,
+        (s: Study) => s.id === studyId,
       );
       if (study.summaryInfo?.state === 'ready') break;
       await new Promise((r) => setTimeout(r, 50));
@@ -1455,7 +1477,7 @@ test('project-wide questions use only current project evidence; automatic summar
     assert.equal(study.summaryInfo.review, 'draft');
     assert.equal(
       (await req('/api/state', { cookie: viewerCookie })).data.state.studies.find(
-        (s) => s.id === studyId,
+        (s: Study) => s.id === studyId,
       ).summary.length,
       0,
     );
@@ -1468,9 +1490,9 @@ test('project-wide questions use only current project evidence; automatic summar
     assert(answer.data.sources.length > 0);
     assert(answer.data.coverage.sampled);
     const ownIds = new Set(
-      (await req('/api/state', { cookie: ownerCookie })).data.state.studies.map((s) => s.id),
+      (await req('/api/state', { cookie: ownerCookie })).data.state.studies.map((s: Study) => s.id),
     );
-    assert(answer.data.sources.every((s) => ownIds.has(s.studyId)));
+    assert(answer.data.sources.every((s: ChatSource) => ownIds.has(s.studyId)));
     const other = await req('/api/workspaces', {
       cookie: ownerCookie,
       body: { name: 'Empty project fixture', mode: 'private' },
@@ -1489,7 +1511,7 @@ test('project-wide questions use only current project evidence; automatic summar
       ).response.status,
       403,
     );
-    const source = state.state.studies.find((s) => s.fileId);
+    const source = state.state.studies.find((s: Study) => s.fileId);
     if (source)
       assert.equal(
         (
@@ -1630,15 +1652,20 @@ test('research import is admin-only, checks bytes, preserves sources and hides i
     method: 'PATCH',
     body: {
       version: full.version,
-      changes: { findings: full.state.findings.map((f) => ({ ...f, status: 'verified' })) },
+      changes: {
+        findings: full.state.findings.map((f: Finding) => ({ ...f, status: 'verified' })),
+      },
     },
   });
   assert.equal(accepted.response.status, 200);
   assert.equal(accepted.data.state.findings[0].importSource.url, item.url);
   const visible = (await req('/api/state', { cookie: viewCookie })).data;
   assert.equal(visible.state.findings.length, 1);
-  assert.equal(visible.state.studies.find((s) => s.importSource?.catalog).segments.length, 1);
-  const member = full.state.users.find((u) => u.email === 'reader@example.com');
+  assert.equal(
+    visible.state.studies.find((s: StoredStudy) => s.importSource?.catalog).segments.length,
+    1,
+  );
+  const member = full.state.users.find((u: WorkspaceUser) => u.email === 'reader@example.com');
   assert.equal(
     (
       await req('/api/workspaces/' + first.data.id + '/sharing/members/' + member.id, {
@@ -1654,10 +1681,12 @@ test('service derives its own draft findings from imported originals and does no
   process.env.LLM_KEY_CUSTOM1 = 'test-only-provider-key';
   try {
     const owner = (await req('/api/state', { cookie: ownerCookie })).data;
-    const project = owner.user.workspaces.find((w) => w.name === 'Import fixture');
+    const project = owner.user.workspaces.find(
+      (w: Person['workspaces'][number]) => w.name === 'Import fixture',
+    );
     const cookie = ownerCookie + '; mnema_ws=' + project.id;
     let state = (await req('/api/state', { cookie })).data;
-    const source = state.state.studies.find((s) => s.importSource?.fileId);
+    const source = state.state.studies.find((s: StoredStudy) => s.importSource?.fileId);
     const model = {
       id: 'analysis-fixture',
       name: 'Analysis fixture',
@@ -1689,11 +1718,12 @@ test('service derives its own draft findings from imported originals and does no
     assert.equal((await req('/api/imports/source/analyze', { cookie, body: {} })).data.queued, 0);
     for (let i = 0; i < 80; i++) {
       state = (await req('/api/state', { cookie })).data;
-      if (state.state.studies.find((s) => s.id === source.id).summaryInfo?.state === 'ready') break;
+      if (state.state.studies.find((s: Study) => s.id === source.id).summaryInfo?.state === 'ready')
+        break;
       await new Promise((r) => setTimeout(r, 50));
     }
     const findings = state.state.findings.filter(
-      (f) => f.studyId === source.id && f.origin === 'ai',
+      (f: Finding) => f.studyId === source.id && f.origin === 'ai',
     );
     assert.equal(findings.length, 1);
     assert.equal(findings[0].title, 'New service conclusion');
@@ -1717,7 +1747,7 @@ test('highlights: only text from the material, full access to change, readers se
   let study;
   for (let i = 0; i < 40; i++) {
     study = (await req('/api/state', { cookie: ownerCookie })).data.state.studies.find(
-      (s) => s.id === up.data.createdStudyId,
+      (s: Study) => s.id === up.data.createdStudyId,
     );
     if (study?.status === 'ready') break;
     await new Promise((r) => setTimeout(r, 100));
@@ -1743,13 +1773,15 @@ test('highlights: only text from the material, full access to change, readers se
     body: { text: '  Участник  проверяет\nвыбранные даты ' },
   });
   assert.equal(created.response.status, 201, JSON.stringify(created.data));
-  const item = created.data.state.highlights.find((h) => h.id === created.data.createdHighlightId);
+  const item = created.data.state.highlights.find(
+    (h: Highlight) => h.id === created.data.createdHighlightId,
+  );
   assert.equal(item.text, 'Участник проверяет выбранные даты');
-  assert.equal(item.segmentId, study.segments.find((s) => s.text.includes('Участник')).id);
+  assert.equal(item.segmentId, study.segments.find((s: Segment) => s.text.includes('Участник')).id);
   assert.equal(item.by, 'Owner');
   const seen = (await req('/api/state', { cookie: viewerCookie })).data.state.highlights || [];
   assert(
-    seen.some((h) => h.id === item.id),
+    seen.some((h: Highlight) => h.id === item.id),
     'readers see highlights',
   );
   assert.equal(
@@ -1758,7 +1790,7 @@ test('highlights: only text from the material, full access to change, readers se
   );
   const removed = await req(path + '/' + item.id, { cookie: ownerCookie, method: 'DELETE' });
   assert.equal(removed.response.status, 200);
-  assert(!(removed.data.state.highlights || []).some((h) => h.id === item.id));
+  assert(!(removed.data.state.highlights || []).some((h: Highlight) => h.id === item.id));
   assert.equal(
     (await req(path + '/' + item.id, { cookie: ownerCookie, method: 'DELETE' })).response.status,
     404,
@@ -1771,7 +1803,9 @@ test('file preview is escaped and requires an active membership in the source pr
     headers: { 'x-file-name': 'preview-fixture.txt', 'Content-Type': 'text/plain' },
   });
   assert.equal(uploaded.response.status, 201);
-  const id = uploaded.data.state.studies.find((s) => s.id === uploaded.data.createdStudyId).fileId;
+  const id = uploaded.data.state.studies.find(
+    (s: Study) => s.id === uploaded.data.createdStudyId,
+  ).fileId;
   const path = '/api/files/' + id + '/preview';
   assert.equal((await req(path)).response.status, 401);
   const preview = await req(path, { cookie: viewerCookie });
@@ -1799,7 +1833,9 @@ test('XLS uploads through both endpoints are documents and preview respects read
     headers: { 'x-file-name': 'legacy-sheet.xls', 'Content-Type': 'application/vnd.ms-excel' },
   });
   assert.equal(uploaded.response.status, 201);
-  const study = uploaded.data.state.studies.find((s) => s.id === uploaded.data.createdStudyId);
+  const study = uploaded.data.state.studies.find(
+    (s: Study) => s.id === uploaded.data.createdStudyId,
+  );
   assert.equal(study.format, 'XLS');
   const path = '/api/files/' + study.fileId + '/preview';
   assert.equal((await req(path)).response.status, 401);
@@ -1829,13 +1865,13 @@ test('XLS uploads through both endpoints are documents and preview respects read
   });
   assert.equal(done.response.status, 201);
   assert.equal(
-    done.data.state.studies.find((s) => s.id === done.data.createdStudyId).format,
+    done.data.state.studies.find((s: Study) => s.id === done.data.createdStudyId).format,
     'XLS',
   );
 });
 test('revocation immediately denies existing session and source URL', async () => {
   const r = await req('/api/state', { cookie: ownerCookie });
-  const viewer = r.data.state.users.find((u) => u.email === 'reader@example.com');
+  const viewer = r.data.state.users.find((u: WorkspaceUser) => u.email === 'reader@example.com');
   assert.equal(
     (
       await req('/api/users/' + viewer.id, {

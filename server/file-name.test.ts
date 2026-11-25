@@ -1,3 +1,4 @@
+import type { Study } from '../app/types.ts';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -109,10 +110,10 @@ test('uploads reserve the original file name within the project', async (t) => {
     const state = await request('/api/state', 'GET');
     assert.equal(state.status, 200);
     const matching = state.data.state.studies.filter(
-      (study) => study.fileName?.toLowerCase() === 'синхронная загрузка.webm',
+      (study: Study) => study.fileName?.toLowerCase() === 'синхронная загрузка.webm',
     );
     assert.deepEqual(
-      matching.map((study) => study.id),
+      matching.map((study: Study) => study.id),
       [saved.data.createdStudyId],
     );
   });
@@ -135,7 +136,7 @@ test('uploads reserve the original file name within the project', async (t) => {
       assert.equal(replay.status, 201);
       assert.equal(replay.data.createdStudyId, saved.data.createdStudyId);
       assert.equal(
-        replay.data.state.studies.filter((study) => study.fileId === session.data.id).length,
+        replay.data.state.studies.filter((study: Study) => study.fileId === session.data.id).length,
         1,
       );
       assertConflict(await start(file), 'duplicate_file_name');

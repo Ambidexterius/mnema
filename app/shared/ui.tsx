@@ -1,6 +1,6 @@
 import { materialActivity } from '../material-activity.ts';
 import React from 'react';
-import { Button, Label, Tooltip } from '@gravity-ui/uikit';
+import { Button, Label, Tooltip, type ButtonProps } from '@gravity-ui/uikit';
 import { Info, Library, LoaderCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Study } from '../types.ts';
@@ -13,8 +13,8 @@ export function IconButton({
 }: {
   icon: LucideIcon;
   label: string;
-  [prop: string]: any;
-}) {
+  ref?: React.Ref<HTMLButtonElement>;
+} & Omit<Extract<ButtonProps, { href?: never }>, 'children'>) {
   return (
     <Tooltip content={label}>
       <Button view="flat" size={size} aria-label={label} {...props}>

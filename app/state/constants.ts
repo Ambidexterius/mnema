@@ -1,3 +1,4 @@
+import type { AppState } from '../app-context.ts';
 import {
   initialStudies,
   initialFindings,
@@ -32,9 +33,9 @@ export const IMPORTANCE = ['Критично', 'Высокая', 'Средняя
 
 export const importanceOrder = Object.fromEntries(IMPORTANCE.map((x, i) => [x, i]));
 
-export function load() {
+export function load(): AppState {
   try {
-    const v = JSON.parse(localStorage.getItem(storage));
+    const v = JSON.parse(localStorage.getItem(storage) ?? 'null');
     const local = v?.version === 1 ? v.data : {};
     return DEMO
       ? { ...structuredClone(defaults), ...local }

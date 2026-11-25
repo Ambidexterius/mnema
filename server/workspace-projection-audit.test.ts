@@ -80,11 +80,11 @@ test('drift, read errors, missed cycles, and build changes interrupt the observa
     assert.deepEqual('differences' in drift && drift.differences, [
       { id: 'demo', tables: ['mnema_studies'] },
     ]);
-    assert.equal(db.prepare('SELECT title FROM mnema_studies').get().title, 'Drift');
+    assert.equal(db.prepare('SELECT title FROM mnema_studies').get()!.title, 'Drift');
     assert.equal(
       db
         .prepare("SELECT json_extract(data, '$.studies[0].title') AS title FROM mnema_workspaces")
-        .get().title,
+        .get()!.title,
       'Synthetic',
     );
 
@@ -94,9 +94,8 @@ test('drift, read errors, missed cycles, and build changes interrupt the observa
       readOnly: true,
     });
     try {
-      const stored = auditDb
-        .prepare('SELECT result FROM runs ORDER BY id DESC LIMIT 1')
-        .get().result;
+      const stored = auditDb.prepare('SELECT result FROM runs ORDER BY id DESC LIMIT 1').get()!
+        .result;
       assert.equal(JSON.parse(String(stored)).status, 'error');
     } finally {
       auditDb.close();

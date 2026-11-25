@@ -257,10 +257,8 @@ export function createAnalysisWorker({
     if (revision !== info.revision)
       throw new Error('Расшифровка изменилась. Запустите поиск находок заново.');
     const requestedBy = info.requestedBy;
-    const member =
-      requestedBy &&
-      sharing.projects(requestedBy).find((w: { id: string }) => w.id === currentWs());
-    if (!requestedBy || member?.role !== 'full')
+    const member = requestedBy && sharing.projects(requestedBy).find((w) => w.id === currentWs());
+    if (!member || member.role !== 'full' || !requestedBy)
       throw new Error('Доступ изменился. Попросите участника с полным доступом повторить поиск.');
     const model = getState().state.models.find((m) => m.id === info.modelId && m.enabled);
     if (!model) throw new Error('Модель выключена. Выберите подключённую модель и повторите.');

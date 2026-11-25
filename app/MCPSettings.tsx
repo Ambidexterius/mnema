@@ -11,12 +11,36 @@ import {
   Search,
   ShieldCheck,
 } from 'lucide-react';
+import type { AppContext, SessionUser } from './app-context.ts';
 import { api } from './api.ts';
 import { oauthQuery } from './oauth-query.ts';
 import BrandMark, { BetaMark } from './BrandMark.tsx';
 import EmptyState from './EmptyState.tsx';
 
 type Project = { id: string; name: string; role: 'view' | 'full' };
+interface Grant {
+  id: string;
+  name: string;
+  origin: string;
+  kind: 'token' | 'oauth';
+  expires: number;
+  last_used?: number | null;
+  user_id?: string;
+  user_name?: string;
+  user_email?: string;
+  projects: Pick<Project, 'id' | 'name'>[];
+}
+interface Settings {
+  endpoint: string;
+  grants: Grant[];
+  team?: Grant[];
+  projects: Project[];
+}
+interface Consent {
+  client: { id: string; name: string; origin: string };
+  scopes: string[];
+  projects: Project[];
+}
 const when = (value: number) =>
   new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'short', year: 'numeric' })
     .format(value)
@@ -92,17 +116,17 @@ async function copy(value: string, notify: (text: string) => void, what: string)
   }
 }
 
-export default function MCPSettings({ ctx }: { ctx: any }) {
-  const [data, setData] = useState<any>(null),
+export default function MCPSettings({ ctx }: { ctx: AppContext }) {
+  const [data, setData] = useState<Settings | null>(null),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(true),
     [dialog, setDialog] = useState(false);
   const [name, setName] = useState(''),
     [selected, setSelected] = useState<string[]>([]),
-    [secret, setSecret] = useState<any>(null),
+    [secret, setSecret] = useState<{ token: string; expires: number } | null>(null),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState('');
-  const [revoke, setRevoke] = useState<any>(null);
+  const [revoke, setRevoke] = useState<Grant | null>(null);
   // Administrators get the whole team's live connections; everyone else sees their own.
   const team = Boolean(data?.team),
     mine = new Set((data?.grants || []).map((g) => g.id)),
@@ -134,12 +158,14 @@ export default function MCPSettings({ ctx }: { ctx: any }) {
     load();
   }, [ctx.real]);
   const openToken = () => {
+    if (!data) return;
+    const workspaceId = ctx.user?.workspaceId;
     setName('');
     setFormError('');
     setSecret(null);
     setSelected(
-      data.projects.some((p) => p.id === ctx.user?.workspaceId)
-        ? [ctx.user.workspaceId]
+      workspaceId && data.projects.some((p) => p.id === workspaceId)
+        ? [workspaceId]
         : data.projects.length === 1
           ? [data.projects[0].id]
           : [],
@@ -439,6 +465,7 @@ export default function MCPSettings({ ctx }: { ctx: any }) {
           textButtonApply="Отозвать доступ"
           propsButtonApply={{ view: 'outlined-danger', loading: busy }}
           onClickButtonApply={async () => {
+            if (!revoke) return;
             setBusy(true);
             setFormError('');
             try {
@@ -458,8 +485,8 @@ export default function MCPSettings({ ctx }: { ctx: any }) {
   );
 }
 
-export function MCPConsent({ user }: { user: any }) {
-  const [data, setData] = useState<any>(null),
+export function MCPConsent({ user }: { user: SessionUser }) {
+  const [data, setData] = useState<Consent | null>(null),
     [selected, setSelected] = useState<string[]>([]),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
@@ -467,11 +494,11 @@ export function MCPConsent({ user }: { user: any }) {
   useEffect(() => {
     let alive = true;
     call('/api/mcp/consent/context', { query })
-      .then((data) => {
+      .then((data: Consent) => {
         if (!alive) return;
         setData(data);
         setSelected(
-          data.projects.some((p) => p.id === user.workspaceId)
+          user.workspaceId && data.projects.some((p) => p.id === user.workspaceId)
             ? [user.workspaceId]
             : data.projects.length === 1
               ? [data.projects[0].id]

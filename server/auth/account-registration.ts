@@ -22,7 +22,7 @@ interface AccountRegistrationServices extends Pick<RequestServices, 'body' | 'li
   grantAllProjects: (id: string, role: string) => void;
 }
 
-const safeEqual = (a, b) =>
+const safeEqual = (a: unknown, b: unknown) =>
   typeof a === 'string' &&
   typeof b === 'string' &&
   a.length === b.length &&

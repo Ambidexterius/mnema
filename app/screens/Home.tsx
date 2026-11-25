@@ -118,7 +118,8 @@ function ProjectSummary() {
   }, [summary?.at]);
   if (!summary && reader) return null;
   const current = view ? answers[view] : null,
-    cite = (list, key) => setPanel({ sources: list, heading: sourcesHeading(list), key });
+    cite = (list: ChatSource[], key: string) =>
+      setPanel({ sources: list, heading: sourcesHeading(list), key });
   return (
     <section className="overview-summary" aria-labelledby="project-summary-title">
       <div className="overview-card">

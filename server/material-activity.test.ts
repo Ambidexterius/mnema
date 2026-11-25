@@ -40,7 +40,7 @@ test('queued uploads never pretend to be extracting or transcribing', () => {
     const activity = materialActivity(s);
     assert.equal(activity.state, 'queued');
     assert.equal(activity.label, 'В очереди на обработку');
-    assert(!activity.detail.includes('stale'));
+    assert(!activity.detail?.includes('stale'));
     s.processingState = 'running';
     assert.equal(materialActivity(s).state, 'running');
   }

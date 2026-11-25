@@ -130,7 +130,7 @@ test('double write commits and rolls back with JSON, and startup replays old-ver
     });
     const source = db.prepare("SELECT data FROM mnema_workspaces WHERE id='a'");
     const part = db.prepare("SELECT corrected_text FROM mnema_segments WHERE workspace_id='a'");
-    const before = source.get().data;
+    const before = source.get()!.data;
     db.exec(
       "CREATE TEMP TRIGGER fail_projection BEFORE UPDATE ON mnema_segments BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
     );
@@ -141,14 +141,14 @@ test('double write commits and rolls back with JSON, and startup replays old-ver
         }),
       /synthetic failure/,
     );
-    assert.equal(source.get().data, before);
-    assert.equal(part.get().corrected_text, null);
+    assert.equal(source.get()!.data, before);
+    assert.equal(part.get()!.corrected_text, null);
     db.exec('DROP TRIGGER fail_projection');
     mutate((s) => {
       s.studies[0].segments[0].correctedText = 'Dual write';
     });
     assert.equal(getState().state.studies[0].segments[0].correctedText, 'Dual write');
-    assert.equal(part.get().corrected_text, 'Dual write');
+    assert.equal(part.get()!.corrected_text, 'Dual write');
     assert.equal(compareWorkspaceProjection(db).ok, true);
 
     const edit = getState().state;
@@ -158,7 +158,7 @@ test('double write commits and rolls back with JSON, and startup replays old-ver
       JSON.stringify(edit),
     );
     db.exec("DELETE FROM mnema_workspaces WHERE id='b'");
-    assert.equal(part.get().corrected_text, 'Dual write');
+    assert.equal(part.get()!.corrected_text, 'Dual write');
     assert.equal(
       getState().state.studies[0].segments[0].correctedText,
       'Old release wrote JSON only',
@@ -168,7 +168,7 @@ test('double write commits and rolls back with JSON, and startup replays old-ver
     assert.equal(repaired.rebuilt, 1);
     assert.equal(repaired.report.ok, true);
     assert.equal(repaired.report.projects.length, 1);
-    assert.equal(part.get().corrected_text, 'Old release wrote JSON only');
+    assert.equal(part.get()!.corrected_text, 'Old release wrote JSON only');
     assert.equal(repaired.report.projects[0].counts.mnema_finding_evidence, 0);
   } finally {
     db.close();
@@ -192,7 +192,7 @@ test('new projects start with both representations in the same transaction', () 
     assert.equal(report.projects.find((p) => p.id === created)?.counts.mnema_studies, 1);
     db.prepare('DELETE FROM mnema_workspaces WHERE id=?').run(created);
     assert.equal(
-      db.prepare('SELECT count(*) AS n FROM mnema_segments WHERE workspace_id=?').get(created).n,
+      db.prepare('SELECT count(*) AS n FROM mnema_segments WHERE workspace_id=?').get(created)!.n,
       0,
     );
   } finally {

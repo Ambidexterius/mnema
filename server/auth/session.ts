@@ -30,7 +30,7 @@ export function createSession({ auth, q, sharing, projectCard, news }: SessionSe
     const access = q('SELECT * FROM mnema_access WHERE user_id=?').get(s.user.id);
     if (!access || access.revoked) return null;
     const active = sharing.projects(s.user.id);
-    const requestURL = new URL(req.url, 'http://localhost'),
+    const requestURL = new URL(req.url || '/', 'http://localhost'),
       redeeming = /^\/api\/workspaces\/[^/]+\/share$/.test(requestURL.pathname),
       explicit = redeeming
         ? ''
@@ -38,7 +38,7 @@ export function createSession({ auth, q, sharing, projectCard, news }: SessionSe
             req.headers['x-mnema-workspace'] || requestURL.searchParams.get('workspace') || '',
           );
     const wanted = explicit || cookieValue(req, 'mnema_ws');
-    let current = active.find((m: any) => m.id === wanted) || (!explicit ? active[0] : null),
+    let current = active.find((m) => m.id === wanted) || (!explicit ? active[0] : null),
       sharedProject;
     if (wanted && !active.some((m) => m.id === wanted)) {
       const share = String(
@@ -47,14 +47,16 @@ export function createSession({ auth, q, sharing, projectCard, news }: SessionSe
           cookieValue(req, 'mnema_share_' + wanted),
       );
       if (sharing.validLink(wanted, share)) {
-        current = sharing.linkProject(wanted);
+        const linked = sharing.linkProject(wanted);
+        if (!linked) fail(403, 'Доступ к проекту закрыт. Обновите список проектов.');
+        current = linked;
         sharedProject = {
           id: current.id,
           name: current.name,
           role: 'view' as const,
           admin: false,
           sharingMode: 'link',
-          shareVersion: current.nonce,
+          shareVersion: linked.nonce,
         };
       } else if (explicit) fail(403, 'Доступ к проекту закрыт. Обновите список проектов.');
     }
@@ -74,7 +76,7 @@ export function createSession({ auth, q, sharing, projectCard, news }: SessionSe
       ),
       workspaceId: current?.id || null,
       ...(sharedProject ? { sharedProject } : {}),
-      workspaces: active.map((m: any) => {
+      workspaces: active.map((m) => {
         const card = projectCard(m);
         return {
           id: m.id,

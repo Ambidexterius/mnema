@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fail } from './http.ts';
 import { sendBody, encode, pickEncoding, compressible, MIN_COMPRESS_BYTES } from './compression.ts';
 
-const mimes = {
+const mimes: Partial<Record<string, string>> = {
   '.mp3': 'audio/mpeg',
   '.svg': 'image/svg+xml',
   '.html': 'text/html; charset=utf-8',
@@ -17,9 +17,9 @@ const mimes = {
 export function createStaticHandler(publicDir: string) {
   const staticCache = new Map<string, Buffer>();
   return async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string) {
-    if (!['GET', 'HEAD'].includes(req.method)) fail(405, 'Метод недоступен.');
+    if (!['GET', 'HEAD'].includes(req.method || '')) fail(405, 'Метод недоступен.');
     const name =
-      path === '/' || !path.split('/').at(-1).includes('.')
+      path === '/' || !path.slice(path.lastIndexOf('/') + 1).includes('.')
         ? 'index.html'
         : path.replace(/^\//, '');
     const abs = resolve(publicDir, name);

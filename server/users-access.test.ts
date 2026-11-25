@@ -1,3 +1,5 @@
+import type { WorkspaceUser } from '../app/types.ts';
+import type { Person } from './request-context.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -47,14 +49,14 @@ test('invitation status and all-project access cover registration, expiry, futur
         .join('; '),
     };
   };
-  const invite = (cookie, email, scope = 'project', workspace = 'main') =>
+  const invite = (cookie: string, email: string, scope = 'project', workspace = 'main') =>
     req(
       '/api/invitations',
       cookie,
       { name: email.split('@')[0], email, role: 'view', scope },
       workspace,
     );
-  const register = async (email, result) => {
+  const register = async (email: string, result: Awaited<ReturnType<typeof invite>>) => {
     assert.equal(result.status, 201, JSON.stringify(result.data));
     return req('/api/register', '', {
       email,
@@ -80,19 +82,26 @@ test('invitation status and all-project access cover registration, expiry, futur
     assert.equal(pending.status, 201);
     assert.equal(new URL(pending.data.inviteURL).hash, '');
     let state = (await req('/api/state', owner, undefined, 'main')).data;
-    const pendingUser = state.state.users.find((u) => u.email === 'global@example.test');
+    const pendingUser = state.state.users.find(
+      (u: WorkspaceUser) => u.email === 'global@example.test',
+    );
     assert.equal(pendingUser.status, 'invited');
     assert.equal(pendingUser.scope, 'all');
     assert(pendingUser.expires > Date.now());
     assert.match(mails[0].text, /в общие проекты/);
     const global = await register('global@example.test', pending);
     assert.equal(global.status, 200);
-    const globalId = app.db
-      .prepare("SELECT id FROM user WHERE email='global@example.test'")
-      .get().id;
+    const globalId = app.db.prepare("SELECT id FROM user WHERE email='global@example.test'").get()!
+      .id;
     state = (await req('/api/state', owner, undefined, 'main')).data;
-    assert.equal(state.state.users.find((u) => u.email === 'global@example.test').status, 'active');
-    assert.equal(state.state.users.filter((u) => u.email === 'global@example.test').length, 1);
+    assert.equal(
+      state.state.users.find((u: WorkspaceUser) => u.email === 'global@example.test').status,
+      'active',
+    );
+    assert.equal(
+      state.state.users.filter((u: WorkspaceUser) => u.email === 'global@example.test').length,
+      1,
+    );
     assert.equal(
       (await register('global@example.test', pending)).status,
       403,
@@ -104,8 +113,13 @@ test('invitation status and all-project access cover registration, expiry, futur
     const third = (await req('/api/workspaces', owner, { name: 'Future', mode: 'private' })).data
       .id;
     const session = (await req('/api/session', global.cookie)).data.user;
-    assert.deepEqual(session.workspaces.map((w) => w.id).sort(), ['main', second].sort());
-    assert(session.workspaces.every((w) => w.role === 'view' && !w.admin));
+    assert.deepEqual(
+      session.workspaces.map((w: Person['workspaces'][number]) => w.id).sort(),
+      ['main', second].sort(),
+    );
+    assert(
+      session.workspaces.every((w: Person['workspaces'][number]) => w.role === 'view' && !w.admin),
+    );
     assert.equal((await req('/api/state', limited.cookie, undefined, second)).status, 403);
     assert.equal((await req('/api/research-library', limited.cookie)).data.projects.length, 1);
     assert.equal((await req('/api/research-library', global.cookie)).data.projects.length, 2);
@@ -148,7 +162,7 @@ test('invitation status and all-project access cover registration, expiry, futur
     assert.equal(
       app.db
         .prepare("SELECT workspace_id FROM mnema_invites WHERE email='forced@example.test'")
-        .get().workspace_id,
+        .get()!.workspace_id,
       personal,
     );
     const forcedUser = await register('forced@example.test', forced);
@@ -158,16 +172,19 @@ test('invitation status and all-project access cover registration, expiry, futur
     app.db.prepare("UPDATE mnema_invites SET expires=1 WHERE email='expired@example.test'").run();
     state = (await req('/api/state', owner, undefined, 'main')).data;
     assert.equal(
-      state.state.users.find((u) => u.email === 'expired@example.test').status,
+      state.state.users.find((u: WorkspaceUser) => u.email === 'expired@example.test').status,
       'expired',
     );
     assert.equal((await register('expired@example.test', expired)).status, 403);
     const renewed = await invite(owner, 'expired@example.test');
     assert.equal(renewed.status, 201);
     state = (await req('/api/state', owner, undefined, 'main')).data;
-    assert.equal(state.state.users.filter((u) => u.email === 'expired@example.test').length, 1);
     assert.equal(
-      state.state.users.find((u) => u.email === 'expired@example.test').status,
+      state.state.users.filter((u: WorkspaceUser) => u.email === 'expired@example.test').length,
+      1,
+    );
+    assert.equal(
+      state.state.users.find((u: WorkspaceUser) => u.email === 'expired@example.test').status,
       'invited',
     );
     // Existing scoped accounts get global access immediately, without another signup.
@@ -181,7 +198,7 @@ test('invitation status and all-project access cover registration, expiry, futur
     );
     const limitedId = app.db
       .prepare("SELECT id FROM user WHERE email='limited@example.test'")
-      .get().id;
+      .get()!.id;
     // Role and revoke changes apply to all existing memberships and future projects.
     assert.equal(
       (await req('/api/users/' + globalId, owner, { role: 'full' }, 'main', 'PATCH')).status,
@@ -189,7 +206,7 @@ test('invitation status and all-project access cover registration, expiry, futur
     );
     assert(
       (await req('/api/session', global.cookie)).data.user.workspaces.every(
-        (w) => w.role === 'full',
+        (w: Person['workspaces'][number]) => w.role === 'full',
       ),
     );
     assert.equal(
@@ -205,7 +222,7 @@ test('invitation status and all-project access cover registration, expiry, futur
     assert.equal((await req('/api/session', global.cookie)).data.user.workspaces.length, 2);
     // A service-wide role change preserves the owner's rights in their private project.
     const draft = JSON.parse(
-      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(personal).data),
+      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(personal)!.data),
     );
     draft.findings = [
       {
@@ -252,7 +269,7 @@ test('invitation status and all-project access cover registration, expiry, futur
     assert.equal((await req('/api/state', limited.cookie, undefined, second)).status, 403);
     // A reader can open source files only in projects included in their actual memberships.
     const raw = JSON.parse(
-      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(second).data),
+      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(second)!.data),
     );
     raw.studies = [
       {

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { StoredWorkspace } from './projects/types.ts';
 import { sourceURL, importedSegments, importFindings } from './imports.ts';
 process.env.MNEMA_IMPORT_SOURCE_ORIGIN = 'https://source.example.com';
 test('import rejects foreign sources and duplicate or invalid transcript coordinates', () => {
@@ -14,7 +15,7 @@ test('import rejects foreign sources and duplicate or invalid transcript coordin
   assert.equal(importedSegments([{ id: 'a', text: 'Text', time: 4, page: 3 }])[0].page, 3);
 });
 test('import preserves acknowledgement as provenance, keeps drafts and deduplicates source IDs', () => {
-  const state = { studies: [], findings: [] };
+  const state: Pick<StoredWorkspace, 'studies' | 'findings'> = { studies: [], findings: [] };
   const item = {
     url: 'https://source.example.com/insights/one',
     title: 'Imported finding',
@@ -30,7 +31,7 @@ test('import preserves acknowledgement as provenance, keeps drafts and deduplica
   assert.equal(state.findings[0].status, 'draft');
   assert.equal(state.findings[0].origin, 'import');
   assert.equal(state.findings[0].significant, true);
-  assert.equal(state.findings[0].importSource.originalStatus, 'Принято к сведению');
+  assert.equal(state.findings[0].importSource?.originalStatus, 'Принято к сведению');
   assert.equal(importFindings(state, [item], { id: 'owner', name: 'Owner' }).added, 0);
   assert.equal(state.studies.length, 1);
   assert(state.studies[0].segments[0].text.includes(item.url));

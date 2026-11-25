@@ -55,7 +55,7 @@ test('a matching moderator question brings the actual participant reply, includi
   const result = selectEvidence([doc], 'Что известно про ответы хозяина?');
   assert(result.sources.some((s) => s.id === 'reply'));
   assert(result.sources.some((s) => s.id === 'q1'));
-  assert.equal(result.sources.find((s) => s.id === 'reply').text, doc.segments[2].text);
+  assert.equal(result.sources.find((s) => s.id === 'reply')!.text, doc.segments[2].text);
 });
 test('visible findings guide ranking to original evidence without becoming evidence or widening scope', () => {
   const doc = {
@@ -215,7 +215,7 @@ test('all linked originals precede noisy interview windows, including distant se
       id + ' must retain its original evidence',
     );
   assert.equal(
-    result.sources.find((source) => source.id === 'critical28').text,
+    result.sources.find((source) => source.id === 'critical28')!.text,
     critical.segments[28].text,
   );
   assert.equal(result.coverage.linkedFragments, 6);

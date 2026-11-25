@@ -69,7 +69,8 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
     return client;
   };
   const content = (result: any) =>
-    result.structuredContent || JSON.parse(result.content.find((c) => c.type === 'text').text);
+    result.structuredContent ||
+    JSON.parse(result.content.find((c: { type: string }) => c.type === 'text').text);
   try {
     const owner = await req('/api/register', {
       body: { email: 'mcp-owner@example.com', password: 'fixture-mcp-password', setupToken: setup },
@@ -96,11 +97,12 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
       body: '{}',
     });
     assert.equal(unauth.status, 401);
-    assert(unauth.headers.get('WWW-Authenticate').includes('oauth-protected-resource'));
+    assert(unauth.headers.get('WWW-Authenticate')!.includes('oauth-protected-resource'));
     const b = await req('/api/workspaces', { cookie, body: { name: 'Hidden fixture project' } });
     assert.equal(b.response.status, 201);
     const bid = b.data.id;
     const current = app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get('main');
+    assert(current);
     const state = JSON.parse(String(current.data));
     state.studies = [
       {
@@ -175,22 +177,22 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
       new Set(tools.tools.map((t) => t.name)),
       new Set(['list_projects', 'search', 'fetch', 'get_findings']),
     );
-    assert(tools.tools.every((t) => t.annotations.readOnlyHint));
+    assert(tools.tools.every((t) => t.annotations?.readOnlyHint));
     assert.equal((await legacy.listTools()).tools.length, 4);
     // Administrators see who uses MCP: the bot shows its owner and last use, never the token.
     const team = (await req('/api/mcp/settings', { cookie })).data.team,
-      bot = team.find((g) => g.name === 'Fixture bot');
+      bot = team.find((g: { name: string }) => g.name === 'Fixture bot');
     assert.equal(bot.user_email, 'mcp-owner@example.com');
     assert(bot.last_used);
     assert.deepEqual(
-      bot.projects.map((p) => p.id),
+      bot.projects.map((p: { id: string }) => p.id),
       ['main'],
     );
     assert(!JSON.stringify(team).includes(token));
     assert(!('token_hash' in bot));
     const projects = content(await modern.callTool({ name: 'list_projects', arguments: {} }));
     assert.deepEqual(
-      projects.projects.map((p) => p.id),
+      projects.projects.map((p: { id: string }) => p.id),
       ['main'],
     );
     assert(!JSON.stringify(projects).includes('Hidden fixture'));
@@ -250,7 +252,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
     assert.equal(otherOwner.response.status, 200);
     const otherOwnerId = app.db
       .prepare("SELECT id FROM user WHERE email='mcp-project-owner@example.test'")
-      .get().id;
+      .get()!.id;
     app.db
       .prepare("UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id='main'")
       .run(otherOwnerId);
@@ -383,7 +385,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
         grant_type: 'authorization_code',
         client_id: registered.client_id,
         redirect_uri: 'http://127.0.0.1:4309/callback',
-        code: callback.searchParams.get('code'),
+        code: callback.searchParams.get('code')!,
         code_verifier: verifier,
         resource: base + '/mcp',
       }),
@@ -403,7 +405,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
       'OAuth MCP credentials must not authenticate the application REST API',
     );
     const grants = (await req('/api/mcp/settings', { cookie })).data.grants,
-      oauthGrant = grants.find((g) => g.kind === 'oauth');
+      oauthGrant = grants.find((g: { kind: string }) => g.kind === 'oauth');
     assert(oauthGrant);
     assert.equal(
       (await req('/api/mcp/grants/' + oauthGrant.id + '/revoke', { cookie, body: {} })).response
@@ -441,7 +443,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
         grant_type: 'authorization_code',
         client_id: registered.client_id,
         redirect_uri: 'http://127.0.0.1:4309/callback',
-        code: new URL(reaccepted.data.url).searchParams.get('code'),
+        code: new URL(reaccepted.data.url).searchParams.get('code')!,
         code_verifier: verifier,
         resource: base + '/mcp',
       }),
@@ -465,7 +467,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
     const renewed = await connect(newOAuth.access_token);
     assert.deepEqual(
       content(await renewed.callTool({ name: 'list_projects', arguments: {} })).projects.map(
-        (p) => p.id,
+        (p: { id: string }) => p.id,
       ),
       [bid],
     );
@@ -505,7 +507,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
         grant_type: 'authorization_code',
         client_id: registered.client_id,
         redirect_uri: 'http://127.0.0.1:4309/callback',
-        code: callback.searchParams.get('code'),
+        code: callback.searchParams.get('code')!,
         code_verifier: verifier,
         resource: base + '/mcp',
       }),
@@ -527,7 +529,7 @@ test('MCP: official legacy/modern clients, OAuth PKCE, read-only project grants 
       401,
     );
     const renewedGrant = (await req('/api/mcp/settings', { cookie })).data.grants.find(
-      (g) => g.kind === 'oauth',
+      (g: { kind: string }) => g.kind === 'oauth',
     );
     assert.equal(
       (await req('/api/mcp/grants/' + renewedGrant.id + '/revoke', { cookie, body: {} })).response
@@ -564,7 +566,7 @@ test('MCP: expired bot grants do not permanently exhaust the active connection l
   db.exec("CREATE TABLE user(id TEXT PRIMARY KEY);INSERT INTO user VALUES('fixture-user')");
   const person = {
     id: 'fixture-user',
-    workspaces: [{ id: 'fixture-project', name: 'Fixture project', role: 'full' }],
+    workspaces: [{ id: 'fixture-project', name: 'Fixture project', role: 'full' as const }],
   };
   const service = createMcpService({
     db,
@@ -596,8 +598,8 @@ test('MCP team audit hides private-only grants and strips private projects from 
   db.exec(
     "CREATE TABLE user(id TEXT PRIMARY KEY,name TEXT,email TEXT);CREATE TABLE mnema_access(user_id TEXT,revoked INTEGER);CREATE TABLE mnema_workspaces(id TEXT,name TEXT);INSERT INTO user VALUES('reviewer','Reviewer','reviewer@example.test'),('member','Member','member@example.test');INSERT INTO mnema_access VALUES('reviewer',0),('member',0);INSERT INTO mnema_workspaces VALUES('shared','Shared project'),('private','Secret project title')",
   );
-  const shared = { id: 'shared', name: 'Shared project', role: 'full' },
-    privateProject = { id: 'private', name: 'Secret project title', role: 'full' };
+  const shared = { id: 'shared', name: 'Shared project', role: 'full' as const },
+    privateProject = { id: 'private', name: 'Secret project title', role: 'full' as const };
   const reviewer = { id: 'reviewer', owner: true, workspaces: [shared] },
     member = { id: 'member', workspaces: [shared, privateProject] };
   const service = createMcpService({

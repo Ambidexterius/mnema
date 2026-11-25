@@ -15,6 +15,14 @@ export default function AuthPage({
   setupRequired = false,
   setupEnabled = false,
   registrationEnabled = false,
+}: {
+  theme: 'dark' | 'light';
+  onTheme: () => void;
+  login: boolean;
+  onComplete: () => void | Promise<void>;
+  setupRequired?: boolean;
+  setupEnabled?: boolean;
+  registrationEnabled?: boolean;
 }) {
   const search = new URLSearchParams(
     location.hash.startsWith('#/') ? location.hash.split('?')[1] || '' : location.search,
@@ -35,7 +43,7 @@ export default function AuthPage({
   const mail = useRef<HTMLInputElement>(null),
     pass = useRef<HTMLInputElement>(null);
   const { variant, picker, enabled } = useAuthVariant();
-  async function submit(e) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
     setError('');

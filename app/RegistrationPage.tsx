@@ -147,7 +147,9 @@ export default function RegistrationPage({
   }, [firstName, lastName, photo, photoLost, pending.email, pending.verified, created]);
   useEffect(() => {
     if (loading) return;
-    const ref = { email: emailRef, password: passwordRef, profile: firstRef }[stage];
+    const ref = { email: emailRef, password: passwordRef, profile: firstRef, code: undefined }[
+      stage
+    ];
     ref?.current?.focus();
   }, [stage, loading]);
   const update = (field: string, value: string, setter: (value: string) => void) => {
@@ -558,7 +560,7 @@ export default function RegistrationPage({
                     />
                     <div className="registration-photo">
                       <Avatar
-                        imgUrl={photo || undefined}
+                        imgUrl={photo || ''}
                         text={
                           (
                             (firstName.trim()[0] || '') + (lastName.trim()[0] || '')

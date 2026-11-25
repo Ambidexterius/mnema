@@ -4,15 +4,16 @@ import type { openDatabase } from '../db.ts';
 import { fail } from '../http.ts';
 import { providerHeaders, providerRequest, providerResult } from '../model-connections.ts';
 import type { createProjectSharing } from '../project-sharing.ts';
+import type { StoredModel, StoredWorkspace } from '../projects/types.ts';
 import type { Person } from '../request-context.ts';
 
 interface ModelCallerServices {
   q: ReturnType<typeof openDatabase>['q'];
   sharing: Pick<ReturnType<typeof createProjectSharing>, 'projects' | 'validRevision'>;
   currentWs: () => string;
-  modelKey: (model: any, workspace: string) => string | undefined;
+  modelKey: (model: any, workspace: string) => string | null | undefined;
   wsStore: Pick<AsyncLocalStorage<string>, 'run'>;
-  getState: () => { state: any };
+  getState: () => { state: StoredWorkspace };
   options: { providerFetch?: typeof fetch };
 }
 
@@ -35,6 +36,7 @@ export function createModelCaller({
       before = person.workspaces?.find((w) => w.id === workspace);
     const shared =
       person.sharedProject?.id === workspace &&
+      person.sharedProject.shareVersion &&
       sharing.validRevision(workspace, person.sharedProject.shareVersion) &&
       q('SELECT 1 FROM mnema_access WHERE user_id=? AND revoked=0').get(person.id);
     if (
@@ -136,26 +138,32 @@ export function createModelCaller({
   // The failed model is skipped for 10 minutes, then the next request tries it again — that is the way back.
   // shortcut: cooldown lives in process memory, a restart starts from the selected model again.
   const modelDownUntil = new Map<string, number>();
-  const callModel = async (person, model, payload, workspace = currentWs(), useReserve = true) => {
+  const callModel = async (
+    person: Parameters<typeof callProvider>[0],
+    model: StoredModel,
+    payload: Parameters<typeof callProvider>[2],
+    workspace = currentWs(),
+    useReserve = true,
+  ) => {
     const reserve =
       useReserve && !model.reserve
         ? wsStore.run(workspace, () =>
             getState().state.models.find((m) => m.reserve && m.enabled && m.id !== model.id),
           )
         : undefined;
-    const viaReserve = async () => ({
+    const viaReserve = async (reserve: StoredModel) => ({
       ...(await callProvider(person, reserve, { ...payload, model: reserve.model }, workspace)),
       mnemaModel: reserve,
     });
     const down = workspace + ':' + model.id;
-    if (reserve && (modelDownUntil.get(down) || 0) > Date.now()) return viaReserve();
+    if (reserve && (modelDownUntil.get(down) || 0) > Date.now()) return viaReserve(reserve);
     try {
       return await callProvider(person, model, payload, workspace);
     } catch (e) {
       if (!reserve || !e.retryable) throw e;
       modelDownUntil.set(down, Date.now() + 600000);
       console.error('LLM fallback', model.model, '->', reserve.model, e.status);
-      return viaReserve();
+      return viaReserve(reserve);
     }
   };
   return callModel;

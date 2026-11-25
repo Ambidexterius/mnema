@@ -1,3 +1,4 @@
+import type { Study, ChatSource } from '../app/types.ts';
 import { collectGlobalResearch, globalEvidence, chatEvidence } from './global-research.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,8 +26,10 @@ test('global answers enforce each project role, exclude revoked projects and hid
     setupToken: setup,
     providerFetch: async (_input, init) => {
       providerCalls++;
-      const request = JSON.parse(String(init.body));
-      sentContext = JSON.parse(request.messages.find((message) => message.role === 'user').content);
+      const request = JSON.parse(String(init?.body));
+      sentContext = JSON.parse(
+        request.messages.find((message: { role: string }) => message.role === 'user').content,
+      );
       sent = sentContext.sources;
       revokeDuringCall();
       return new Response(
@@ -89,7 +92,7 @@ test('global answers enforce each project role, exclude revoked projects and hid
     assert.equal(other.status, 200);
     const otherId = app.db
       .prepare("SELECT id FROM user WHERE email='other-project-owner@example.test'")
-      .get().id;
+      .get()!.id;
     app.db
       .prepare('UPDATE mnema_project_sharing SET owner_id=? WHERE workspace_id IN (?,?)')
       .run(otherId, bid, cid);
@@ -175,7 +178,7 @@ test('global answers enforce each project role, exclude revoked projects and hid
     assert.equal(meta.data.projects, 2);
     assert.equal(meta.data.materials, 3);
     const bstate = JSON.parse(
-      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(bid).data),
+      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(bid)!.data),
     );
     bstate.studies[0].summaryInfo = {
       state: 'running',
@@ -188,7 +191,7 @@ test('global answers enforce each project role, exclude revoked projects and hid
       .prepare('UPDATE mnema_workspaces SET data=? WHERE id=?')
       .run(JSON.stringify(bstate), bid);
     const readerState = await req('/api/state?workspace=' + bid);
-    const visible = readerState.data.state.studies.find((s) => s.id === 'shared');
+    const visible = readerState.data.state.studies.find((s: Study) => s.id === 'shared');
     assert.equal(visible.activity.label, 'Анализируем материал');
     assert.equal(visible.activity.detail, 'Часть 2 из 3');
     assert.equal(visible.summaryInfo, undefined);
@@ -204,11 +207,17 @@ test('global answers enforce each project role, exclude revoked projects and hid
     assert.match(transmitted, /B_CATALOG_VERIFIED/);
     assert.doesNotMatch(transmitted, /C_FORBIDDEN|B_CATALOG_HIDDEN|B_AI_DRAFT_SECRET/);
     assert.deepEqual(
-      new Set(answer.data.sources.map((s) => s.workspaceId)),
+      new Set(answer.data.sources.map((s: ChatSource) => s.workspaceId)),
       new Set(['main', bid]),
     );
-    assert(answer.data.sources.some((s) => s.workspaceId === bid && s.studyId === 'shared'));
-    assert(answer.data.sources.some((s) => s.workspaceId === 'main' && s.studyId === 'shared'));
+    assert(
+      answer.data.sources.some((s: ChatSource) => s.workspaceId === bid && s.studyId === 'shared'),
+    );
+    assert(
+      answer.data.sources.some(
+        (s: ChatSource) => s.workspaceId === 'main' && s.studyId === 'shared',
+      ),
+    );
     for (const workspace of ['main', bid]) {
       const row: any = app.db
           .prepare('SELECT data FROM mnema_workspaces WHERE id=?')
@@ -251,7 +260,7 @@ test('global answers enforce each project role, exclude revoked projects and hid
     assert(!JSON.stringify(sentContext.reviewed_findings).includes('PRIVATE_DESCRIPTION'));
     for (const finding of sentContext.reviewed_findings)
       for (const number of finding.sourceNumbers)
-        assert(sentContext.sources.some((source) => source.number === number));
+        assert(sentContext.sources.some((source: { number: number }) => source.number === number));
     const beforeProjectReview = providerCalls;
     replies.push('Прямых данных нет.', 'В синтетическом материале проекта описан эпизод [1].');
     const projectAnswer = await req('/api/chat', {
@@ -301,7 +310,10 @@ test('global answers enforce each project role, exclude revoked projects and hid
       question: 'Какие основные идеи есть во всех исследованиях?',
     });
     assert.equal(after.response.status, 200);
-    assert.deepEqual(new Set(after.data.sources.map((s) => s.workspaceId)), new Set(['main']));
+    assert.deepEqual(
+      new Set(after.data.sources.map((s: ChatSource) => s.workspaceId)),
+      new Set(['main']),
+    );
   } finally {
     app.notifications.close();
     await new Promise((r) => app.server.close(r));

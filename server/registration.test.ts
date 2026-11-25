@@ -1,9 +1,11 @@
+import type { Person } from './request-context.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import type { CompletionMail } from './completion-mail.ts';
 import { createMnemaServer } from './server.ts';
 import { corporateEmail, registrationEmail } from './registration.ts';
 import { request as httpRequest } from 'node:http';
@@ -51,7 +53,7 @@ test('corporate registration is verified, single-use, persistent and grants proj
     authSecret: secret,
     setupToken: setup,
     corporateRegistration: true,
-    sendRegistrationMail: async (mail) => {
+    sendRegistrationMail: async (mail: CompletionMail) => {
       if (failMail) throw Error('synthetic mail failure');
       mails.push(mail);
     },
@@ -241,7 +243,11 @@ test('corporate registration is verified, single-use, persistent and grants proj
     assert.equal(person.owner, false);
     assert.equal(person.manageUsers, false);
     assert.equal(person.workspaces.length, 3);
-    assert(person.workspaces.every((w) => w.role === (w.id === 'main' ? 'full' : 'view')));
+    assert(
+      person.workspaces.every(
+        (w: Person['workspaces'][number]) => w.role === (w.id === 'main' ? 'full' : 'view'),
+      ),
+    );
     assert.ok(person.image);
     assert.equal(person.welcomePending, true);
     assert.equal(
@@ -304,7 +310,7 @@ test('corporate registration is verified, single-use, persistent and grants proj
     );
     assert.equal((await request('/api/register', signup, existing)).status, 409);
     assert.equal(
-      app.db.prepare("SELECT count(*) AS n FROM user WHERE email='new@sutochno.ru'").get().n,
+      app.db.prepare("SELECT count(*) AS n FROM user WHERE email='new@sutochno.ru'").get()!.n,
       1,
     );
     app.db.prepare('UPDATE mnema_access SET revoked=1 WHERE user_id=?').run(person.id);
@@ -545,7 +551,7 @@ test('password reset works for any mail domain without self-registration, stays 
     baseURL: base,
     authSecret: randomBytes(48).toString('hex'),
     setupToken: setup,
-    sendRegistrationMail: async (mail) => {
+    sendRegistrationMail: async (mail: CompletionMail) => {
       mails.push(mail);
     },
     sendCompletionMail: async () => {},

@@ -1,3 +1,4 @@
+import type { Person } from './request-context.ts';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, access } from 'node:fs/promises';
@@ -88,7 +89,10 @@ test('rename and invitation target an explicit project independently of the acti
   );
   const state = await req('/api/state', undefined, 'GET', owner, a);
   assert.equal(state.data.state.workspace.name, 'Project A');
-  assert.equal(state.data.user.workspaces.find((w) => w.id === b).name, 'Renamed B');
+  assert.equal(
+    state.data.user.workspaces.find((w: Person['workspaces'][number]) => w.id === b).name,
+    'Renamed B',
+  );
   assert.equal((await req('/api/workspaces/' + b, { name: 'x'.repeat(61) }, 'PATCH')).status, 400);
   const added = await req(
     '/api/workspaces/' + b + '/invitations',
@@ -168,11 +172,13 @@ test('file counts do not expose hidden catalog materials to readers', async () =
   ];
   app.db.prepare('UPDATE mnema_workspaces SET data=? WHERE id=?').run(JSON.stringify(st), a);
   assert.equal(
-    (await req('/api/session')).data.user.workspaces.find((w) => w.id === a).fileCount,
+    (await req('/api/session')).data.user.workspaces.find(
+      (w: Person['workspaces'][number]) => w.id === a,
+    ).fileCount,
     2,
   );
   const visible = (await req('/api/session', undefined, 'GET', viewer)).data.user.workspaces.find(
-    (w) => w.id === a,
+    (w: Person['workspaces'][number]) => w.id === a,
   );
   assert.equal(visible.fileCount, 1);
   assert.deepEqual(visible.filePreviews, [{ name: 'visible.txt', format: 'TXT' }]);
@@ -182,7 +188,7 @@ test('file counts do not expose hidden catalog materials to readers', async () =
   app.db
     .prepare("INSERT INTO mnema_uploads VALUES('file-hidden','hidden.txt','text/plain',6,'ready')")
     .run();
-  const download = (id) =>
+  const download = (id: string) =>
     fetch(options.baseURL + '/api/files/' + id, {
       headers: { Cookie: viewer, 'X-Mnema-Workspace': a },
     });
@@ -266,7 +272,7 @@ test('deleted projects and memberships stay deleted after restart; an empty acco
   app = await createMnemaServer(options);
   await new Promise<void>((r) => app.server.listen(4196, '127.0.0.1', r));
   assert.equal((await req('/api/session')).data.user.workspaces.length, 0);
-  assert.equal(app.db.prepare('SELECT count(*) AS n FROM mnema_members').get().n, 0);
+  assert.equal(app.db.prepare('SELECT count(*) AS n FROM mnema_members').get()!.n, 0);
   assert.equal((await req('/api/state')).status, 200);
   assert.equal((await req('/api/workspaces', { name: 'New after deletion' })).status, 201);
 });

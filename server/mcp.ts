@@ -7,6 +7,12 @@ import { fetchClientMetadataResource } from '@better-auth/cimd/node';
 import { verifyOAuthQueryParams } from '@better-auth/oauth-provider';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod';
+import type { Study, WorkspaceState } from '../app/types.ts';
+import type { Person } from './request-context.ts';
+
+type McpProject = Pick<Person['workspaces'][number], 'id' | 'name' | 'role'> & { admin?: boolean };
+type McpPerson = Pick<Person, 'id' | 'manageUsers'> & { owner?: boolean; workspaces: McpProject[] };
+type McpView = Pick<Person, 'id' | 'workspaceId' | 'role' | 'owner' | 'admin'> & McpPerson;
 
 const scopes = ['openid', 'profile', 'email', 'offline_access', 'mcp:read'];
 export const mcpPlugins = (baseURL: string, db: any) => [
@@ -68,8 +74,13 @@ interface Options {
   auth: any;
   baseURL: string;
   version: string;
-  getPerson: (id: string) => any;
-  readProject: (person: any, project: any) => any;
+  getPerson: (id: string) => McpPerson | null;
+  readProject: (
+    person: McpView,
+    project: McpProject,
+  ) => Pick<WorkspaceState, 'findings'> & {
+    studies: (Study & { importSource?: { catalog?: boolean } })[];
+  };
 }
 export function createMcpService({ db, auth, baseURL, version, getPerson, readProject }: Options) {
   db.exec(
@@ -99,7 +110,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
     if (usage.size > 10000)
       for (const [key, value] of usage) if (now - value.at > 60000) usage.delete(key);
   };
-  const projectRoles = (person: any, ids: any) => {
+  const projectRoles = (person: McpPerson, ids: any) => {
     if (
       !Array.isArray(ids) ||
       !ids.length ||
@@ -123,7 +134,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
     const roles = JSON.parse(grant.roles),
       projects = person.workspaces
         .filter((p) => roles[p.id])
-        .map((p) => ({
+        .map((p): McpProject => ({
           ...p,
           admin: false,
           role: roles[p.id] === 'view' || p.role === 'view' ? 'view' : 'full',
@@ -330,10 +341,12 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
                 kind: f.kind,
                 project: { id: project.id, name: project.name },
                 url: baseURL + routeHref('finding/' + encodeURIComponent(f.id), project.id),
-                sources: [f.segmentId, ...(f.evidence || [])].filter(Boolean).map((seg) => ({
-                  id: sourceId(project.id, f.studyId, seg),
-                  url: sourceURL(project.id, f.studyId, seg),
-                })),
+                sources: [f.segmentId, ...(f.evidence || [])]
+                  .filter((seg) => Boolean(seg))
+                  .map((seg) => ({
+                    id: sourceId(project.id, f.studyId, seg),
+                    url: sourceURL(project.id, f.studyId, seg),
+                  })),
               });
             }
           return toolResult({
@@ -457,7 +470,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
     }
     let host: string;
     try {
-      host = new URL(params.get('redirect_uri')).host;
+      host = new URL(params.get('redirect_uri') || '').host;
     } catch {
       denied('Некорректный адрес возврата.', 400);
     }
@@ -469,19 +482,19 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
       origin: host,
     };
   };
-  const activeCount = (person: any) =>
+  const activeCount = (person: McpPerson) =>
     db
       .prepare(
         'SELECT count(*) AS count FROM mnema_mcp_grants WHERE user_id=? AND revoked=0 AND (expires=0 OR expires>?)',
       )
       .get(person.id, Date.now()).count;
-  const list = (person: any) =>
+  const list = (person: McpPerson) =>
     db
       .prepare(
         'SELECT id,client_id,kind,name,origin,roles,created,last_used,expires,revoked FROM mnema_mcp_grants WHERE user_id=? AND revoked=0 ORDER BY created DESC',
       )
       .all(person.id)
-      .map((g) => ({
+      .map((g: { roles: string }) => ({
         ...g,
         roles: undefined,
         projects: Object.keys(JSON.parse(g.roles)).map((id) => ({
@@ -490,14 +503,14 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
         })),
       }));
   // Team audit only names projects the reviewing administrator can actually access.
-  const team = (person: any) => {
+  const team = (person: McpPerson) => {
     const name = db.prepare('SELECT name FROM mnema_workspaces WHERE id=?');
     return db
       .prepare(
         'SELECT g.id,g.user_id,u.name AS user_name,u.email AS user_email,g.kind,g.name,g.origin,g.roles,g.created,g.last_used,g.expires FROM mnema_mcp_grants g JOIN user u ON u.id=g.user_id JOIN mnema_access a ON a.user_id=g.user_id AND a.revoked=0 WHERE g.revoked=0 AND (g.expires=0 OR g.expires>?) ORDER BY coalesce(g.last_used,g.created) DESC',
       )
       .all(Date.now())
-      .flatMap((g) => {
+      .flatMap((g: { roles: string }) => {
         const projects = Object.keys(JSON.parse(g.roles))
           .filter((id) => person.workspaces.some((p) => p.id === id))
           .map((id) => ({ id, name: name.get(id)?.name || 'Проект удалён' }));
@@ -507,14 +520,14 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
   return {
     fetch: fetchMcp,
     close: handler.close,
-    settings: (person: any) => ({
+    settings: (person: McpPerson) => ({
       endpoint: resource,
       grants: list(person),
       ...(person.owner || person.manageUsers ? { team: team(person) } : {}),
       projects: person.workspaces.map((p) => ({ id: p.id, name: p.name, role: p.role })),
       tools: ['list_projects', 'search', 'fetch', 'get_findings'],
     }),
-    async consentContext(person: any, query: string, headers: Headers) {
+    async consentContext(person: McpPerson, query: string, headers: Headers) {
       const verified = await verifiedConsent(query, headers);
       return {
         client: { id: verified.clientId, name: verified.name, origin: verified.origin },
@@ -522,7 +535,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
         projects: person.workspaces.map((p) => ({ id: p.id, name: p.name, role: p.role })),
       };
     },
-    async consent(person: any, body: any, headers: Headers) {
+    async consent(person: McpPerson, body: any, headers: Headers) {
       if (typeof body.accept !== 'boolean') denied('Подтвердите или отклоните доступ.', 400);
       const v = await verifiedConsent(String(body.query || ''), headers),
         roles = body.accept ? projectRoles(person, body.projects) : {};
@@ -564,7 +577,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
       }
       return response;
     },
-    createToken(person: any, body: any) {
+    createToken(person: McpPerson, body: any) {
       const roles = projectRoles(person, body.projects),
         name = String(body.name || '').trim();
       if (!name || name.length > 60) denied('Назовите подключение: до 60 символов.', 400);
@@ -578,7 +591,7 @@ export function createMcpService({ db, auth, baseURL, version, getPerson, readPr
       ).run(id, person.id, id, name, JSON.stringify(roles), hash(token), Date.now(), expires);
       return { id, token, expires, endpoint: resource };
     },
-    async revoke(person: any, id: string, headers: Headers) {
+    async revoke(person: McpPerson, id: string, headers: Headers) {
       const grant = db
         .prepare('SELECT * FROM mnema_mcp_grants WHERE id=? AND user_id=?')
         .get(id, person.id);

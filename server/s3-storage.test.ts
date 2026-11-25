@@ -18,7 +18,7 @@ test('S3 requires credentials and an isolated namespace; signing encodes paths a
   assert.throws(() => s3Config({ ...env, MNEMA_S3_PREFIX: '/' }));
   assert.throws(() => s3Config({ ...env, MNEMA_S3_PREFIX: '../' }));
   const request = signedS3Request(
-    s3Config(env),
+    s3Config(env)!,
     'GET',
     'uploads/файл с пробелом',
     undefined,
@@ -48,7 +48,7 @@ test('S3 copies retry durably, preserve originals, support ranges, and restore a
     const headers = new Headers(init.headers);
     assert.equal(url.host, 'storage.yandexcloud.net');
     assert.match(key, /^\/fixture-bucket\/mnemonika\//);
-    assert.match(headers.get('authorization'), /^AWS4-HMAC-SHA256 /);
+    assert.match(headers.get('authorization') ?? '', /^AWS4-HMAC-SHA256 /);
     if (init.method === 'PUT') {
       if (fail) {
         fail = false;
@@ -62,7 +62,9 @@ test('S3 copies retry durably, preserve originals, support ranges, and restore a
         headers.get('x-amz-content-sha256'),
         createHash('sha256').update(data).digest('hex'),
       );
-      objects.set(key, { bytes: data, sha: headers.get('x-amz-meta-sha256') });
+      const sha = headers.get('x-amz-meta-sha256');
+      assert(sha);
+      objects.set(key, { bytes: data, sha });
       return new Response(null, { status: 200 });
     }
     const item = objects.get(key);
@@ -107,6 +109,7 @@ test('S3 copies retry durably, preserve originals, support ranges, and restore a
     assert.equal(restored.verified, true);
     assert.equal(restored.workspaces, 1);
     const stored = objects.get('/fixture-bucket/mnemonika/backups/latest.sqlite');
+    assert(stored);
     stored.bytes = Buffer.from('broken');
     await assert.rejects(mirror.verifyBackup(), /checksum/);
     db.prepare("DELETE FROM mnema_uploads WHERE id='file-id'").run();

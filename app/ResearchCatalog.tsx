@@ -1,10 +1,10 @@
 import { useCompactLayout, MOBILE_WEB_QUERY } from './useCompactLayout.ts';
 import type { Finding } from './types.ts';
 import { findingStatusLabel, findingStatusTheme } from './finding-status.ts';
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Hotkey, Label, SegmentedRadioGroup, Select, Table } from '@gravity-ui/uikit';
 import { Folder, LayoutGrid, Lightbulb, Plus, Table2 } from 'lucide-react';
-import { Context } from './app-context.ts';
+import { useApp } from './app-context.ts';
 import { NavigationHint } from './shared/NavigationHint.tsx';
 import { api } from './api.ts';
 import { navigate, restoreRouteScroll } from './routes.ts';
@@ -31,7 +31,7 @@ const projectNames = new Intl.Collator('ru', { sensitivity: 'base', numeric: tru
 
 function ProjectsCatalog() {
   const mobileWeb = useCompactLayout(MOBILE_WEB_QUERY);
-  const { real, state, workspaces, open, switchWorkspace, go, projectAction } = useContext(Context);
+  const { real, state, workspaces, open, switchWorkspace, go, projectAction } = useApp();
   const [error, setError] = useState('');
   const [preferences, setPreferences] = useState(() => {
     try {
@@ -232,12 +232,12 @@ function FindingStatus({ finding }: { finding: Pick<Finding, 'status' | 'origin'
 
 function FindingsCatalog() {
   const compact = useCompactLayout();
-  const { real, state, workspaces, switchWorkspace, go } = useContext(Context);
-  const [projects, setProjects] = useState<any[]>([]),
+  const { real, state, workspaces, switchWorkspace, go } = useApp();
+  const [projects, setProjects] = useState<{ id: string; name: string; findings: Finding[] }[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
     [attempt, setAttempt] = useState(0);
-  const selectedKind = new URLSearchParams(location.search).get('kind');
+  const selectedKind = new URLSearchParams(location.search).get('kind') ?? '';
   const [kind, setKind] = useState(
     ['Проблема', 'Рекомендация', 'Инсайт'].includes(selectedKind) ? selectedKind : 'all',
   );
@@ -276,7 +276,7 @@ function FindingsCatalog() {
   const rows = projects
     .flatMap((p) => p.findings.map((item) => ({ ...item, projectId: p.id, projectName: p.name })))
     .filter((item) => kind === 'all' || item.kind === kind);
-  const openItem = async (item: any) => {
+  const openItem = async (item: (typeof rows)[number]) => {
     try {
       if (real) await switchWorkspace(item.projectId, false);
       go('finding/' + item.id);

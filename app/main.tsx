@@ -34,7 +34,7 @@ import WelcomeDialog from './WelcomeDialog.tsx';
 import AuthPage from './AuthPage.tsx';
 import RegistrationPage from './RegistrationPage.tsx';
 import { api, setApiWorkspace, rememberWorkspace, redeemWorkspaceLink } from './api.ts';
-import { Context, type AppContext } from './app-context.ts';
+import { Context, type AppContext, type AppState, type SourcePanelState } from './app-context.ts';
 import { NavigationHint } from './shared/NavigationHint.tsx';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -109,10 +109,10 @@ export function App() {
   const switchWorkspaceRef = useRef<((id: string, navigate?: boolean) => Promise<void>) | null>(
     null,
   );
+  const [state, setState] = useState<AppState>(load);
   const serverVersion = useRef(0),
-    stateRef = useRef(null),
+    stateRef = useRef(state),
     pending = useRef(Promise.resolve());
-  const [state, setState] = useState(load);
   const [route, setRoute] = useState(appRoute);
   const routeRef = useRef(route);
   const [animateStudy, setAnimateStudy] = useState(false);
@@ -215,9 +215,8 @@ export function App() {
       localStorage.setItem('mnema.whatsnew', id);
     } catch {}
   }, []);
-  const main = useRef(null),
-    timer = useRef(null),
-    files = useRef(new Map());
+  const main = useRef<HTMLElement>(null),
+    files = useRef(new Map<string, { url: string; name?: string; type?: string }>());
   stateRef.current = state;
   const reader = DEMO
     ? qa && new URLSearchParams(location.search).get('role') === 'view'
@@ -239,7 +238,7 @@ export function App() {
     closeProject: () => closeProject(),
     go: (path) => go(path),
   });
-  const go = (path, segment = null, animateStudy = false) => {
+  const go = (path: string, segment: string | null = null, animateStudy = false) => {
     setSelected(segment);
     navigate(
       path +
@@ -254,7 +253,7 @@ export function App() {
         document.getElementById('segment-' + segment)?.scrollIntoView({ block: 'center' }),
       );
   };
-  const notify = (text) => setToast(text);
+  const notify = (text: string) => setToast(text);
   const locateFeedback = (feedback: FeedbackContext) => {
     const path = feedback.location?.path;
     if (!isFeedbackPath(path)) return;
@@ -311,7 +310,7 @@ export function App() {
   const recordingProcessing = Boolean(authInfo.user?.recordingProcessing && !authInfo.error);
   useCompletionFavicon(
     state.studies,
-    authInfo.user?.workspaceId,
+    authInfo.user?.workspaceId ?? undefined,
     authInfo.user?.id,
     route,
     (authInfo.user?.workspaces || []).map((w) => w.id),
@@ -319,7 +318,7 @@ export function App() {
   );
   useCompletionSound(
     state.studies,
-    authInfo.user?.workspaceId,
+    authInfo.user?.workspaceId ?? undefined,
     state.soundEnabled !== false,
     (finished) =>
       notify(
@@ -395,12 +394,13 @@ export function App() {
         main.current?.parentElement?.scrollTo({ top: 0 });
         requestAnimationFrame(() => {
           main.current?.focus({ preventScroll: true });
-          if (next === 'chat') main.current?.querySelector('.shared-composer textarea')?.focus();
+          if (next === 'chat')
+            main.current?.querySelector<HTMLTextAreaElement>('.shared-composer textarea')?.focus();
         });
       }
     };
     const click = (e: MouseEvent) => {
-      const a = (e.target as Element).closest?.('a[href]');
+      const a = (e.target as Element).closest?.<HTMLAnchorElement>('a[href]');
       if (
         !a ||
         e.defaultPrevented ||
@@ -413,7 +413,7 @@ export function App() {
         a.getAttribute('target')
       )
         return;
-      const url = new URL(a.getAttribute('href'), location.href);
+      const url = new URL(a.href, location.href);
       if (
         url.origin !== location.origin ||
         /^\/(api|mcp)(?:\/|$)/.test(url.pathname) ||
@@ -447,7 +447,7 @@ export function App() {
     return () => m.removeEventListener('change', resize);
   }, []);
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (menuOpen) {
         setMenuOpen(false);
@@ -513,7 +513,6 @@ export function App() {
   }, [route, state.studies, state.workspace?.name, recordingProcessing, chatHistory.activeTitle]);
   useEffect(
     () => () => {
-      clearTimeout(timer.current);
       for (const f of files.current.values()) URL.revokeObjectURL(f.url);
     },
     [],
@@ -580,7 +579,7 @@ export function App() {
     void transition.finished.then(finish, finish);
   }
   const theme = () => changeTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
-  const openPanel = (p) => setPanel(p);
+  const openPanel = (p: SourcePanelState) => setPanel(p);
   const setAnswerRating = (id: string, rating: 'up' | 'down' | null) => {
     const apply = (messages: any[]) =>
       messages.map((message) => (message.id === id ? { ...message, rating } : message));
@@ -676,7 +675,10 @@ export function App() {
   const globalView = globalFindingFlow || rootCatalog || conversationView;
   const findingCounts = state.findings
     .map(normalize)
-    .reduce((c, f) => ({ ...c, [f.status]: (c[f.status] || 0) + 1 }), {});
+    .reduce<Partial<Record<string, number>>>((counts, finding) => {
+      counts[finding.status] = (counts[finding.status] ?? 0) + 1;
+      return counts;
+    }, {});
   const canManage = !reader && (DEMO || authInfo.user?.admin);
   const canUseSettings = DEMO || Boolean(authInfo.user);
   const visibleManagement = management.filter(([id]) =>
@@ -705,6 +707,7 @@ export function App() {
     navigate('login');
   };
   const workspaces = (authInfo.user?.workspaces || []).filter((w) => !w.emptyDefault);
+  const currentProject = workspaces.find((w) => w.id === state.workspace?.id);
   const workspaceName =
     state.workspace?.name ||
     workspaces.find((w) => w.id === authInfo.user?.workspaceId)?.name ||
@@ -1273,7 +1276,9 @@ export function App() {
                           (state.workspace.sharingMode === 'link' &&
                           new URLSearchParams(location.search).get('share')
                             ? '?share=' +
-                              encodeURIComponent(new URLSearchParams(location.search).get('share'))
+                              encodeURIComponent(
+                                new URLSearchParams(location.search).get('share') ?? '',
+                              )
                             : '')
                         }
                         notify={notify}
@@ -1281,11 +1286,8 @@ export function App() {
                           setSharedProject({ id: state.workspace.id, name: workspaceName })
                         }
                       />
-                      {workspaces.find((w) => w.id === state.workspace.id) ? (
-                        <ProjectMenu
-                          project={workspaces.find((w) => w.id === state.workspace.id)}
-                          onAction={context.projectAction}
-                        />
+                      {currentProject ? (
+                        <ProjectMenu project={currentProject} onAction={context.projectAction} />
                       ) : null}
                     </div>
                   ) : null}

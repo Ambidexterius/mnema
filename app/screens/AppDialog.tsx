@@ -22,9 +22,9 @@ export function AppDialog() {
     [uploading, setUploading] = useState(false),
     [error, setError] = useState(''),
     [query, setQuery] = useState('');
-  const file = useRef(null);
-  const first = useRef(null);
-  const field = (name, value) => setForm((s) => ({ ...s, [name]: value }));
+  const file = useRef<File | null>(null);
+  const first = useRef<HTMLInputElement>(null);
+  const field = (name: string, value: unknown) => setForm((s) => ({ ...s, [name]: value }));
   const close = () => {
     if (!uploading) open(null);
   };
@@ -43,24 +43,26 @@ export function AppDialog() {
     setError('');
   }, [d?.type, d?.id, d?.findingId, d?.studyId, d?.segmentId]);
   const title =
-    {
-      upload: 'Добавить материал',
-      finding: finding
-        ? d.accept
-          ? 'Принять с правкой'
-          : 'Изменить находку'
-        : d?.segmentId
-          ? 'Сохранить находку'
-          : 'Новая находка',
-      passport: 'Паспорт исследования',
-      workspace: 'Новый проект',
-      whatsnew: 'Что нового',
-      invite: 'Добавить пользователя',
-      model: model ? 'Настройка модели' : 'Добавить модель',
-      source: 'Доказательство',
-      search: 'Найти в проекте',
-      processor: 'Параметры обработчика',
-    }[d?.type] || '';
+    (
+      {
+        upload: 'Добавить материал',
+        finding: finding
+          ? d.accept
+            ? 'Принять с правкой'
+            : 'Изменить находку'
+          : d?.segmentId
+            ? 'Сохранить находку'
+            : 'Новая находка',
+        passport: 'Паспорт исследования',
+        workspace: 'Новый проект',
+        whatsnew: 'Что нового',
+        invite: 'Добавить пользователя',
+        model: model ? 'Настройка модели' : 'Добавить модель',
+        source: 'Доказательство',
+        search: 'Найти в проекте',
+        processor: 'Параметры обработчика',
+      } as Partial<Record<string, string>>
+    )[d?.type] || '';
   async function submit() {
     if (uploading) return;
     setUploading(true);
@@ -204,6 +206,7 @@ export function AppDialog() {
         }
         case 'passport': {
           const st = study;
+          if (!st) throw new Error('Материал больше недоступен.');
           const report = form.report || reportOf(st);
           const passport = {
             title: (form.title ?? st.title).trim(),
@@ -643,7 +646,7 @@ export function AppDialog() {
                   accept=".mp4,.mov,.webm,.mp3,.wav,.m4a,.pdf,.txt,.docx,.doc,.xls,.xlsx"
                   aria-label="Выбрать исходный файл"
                   onChange={(e) => {
-                    const f = e.target.files[0];
+                    const f = e.target.files?.[0] ?? null;
                     file.current = f;
                     if (f)
                       setForm((s) => ({
@@ -763,20 +766,22 @@ export function AppDialog() {
             ? {
                 onClickButtonApply: submit,
                 propsButtonApply: { loading: uploading, disabled: uploading },
-                textButtonApply: {
-                  upload: state.processors.some((p) => p.id === 'whisper' && p.configured)
-                    ? 'Загрузить и распознать'
-                    : 'Загрузить файл',
-                  finding: finding
-                    ? d.accept
-                      ? 'Принять с правкой'
-                      : 'Сохранить'
-                    : 'Сохранить находку',
-                  model: 'Сохранить настройки',
-                  invite: 'Создать приглашение',
-                  passport: 'Сохранить паспорт',
-                  workspace: 'Создать и перейти',
-                }[d.type],
+                textButtonApply: (
+                  {
+                    upload: state.processors.some((p) => p.id === 'whisper' && p.configured)
+                      ? 'Загрузить и распознать'
+                      : 'Загрузить файл',
+                    finding: finding
+                      ? d.accept
+                        ? 'Принять с правкой'
+                        : 'Сохранить'
+                      : 'Сохранить находку',
+                    model: 'Сохранить настройки',
+                    invite: 'Создать приглашение',
+                    passport: 'Сохранить паспорт',
+                    workspace: 'Создать и перейти',
+                  } as Partial<Record<string, string>>
+                )[d.type],
               }
             : {})}
         />

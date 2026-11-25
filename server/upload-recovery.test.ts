@@ -1,3 +1,4 @@
+import type { Study } from '../app/types.ts';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -12,7 +13,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
     baseURL = 'http://127.0.0.1:' + port;
   const setupToken = randomBytes(32).toString('hex'),
     authSecret = randomBytes(32).toString('hex');
-  let app: Awaited<ReturnType<typeof createMnemaServer>>;
+  let app!: Awaited<ReturnType<typeof createMnemaServer>>;
   async function start() {
     app = await createMnemaServer({
       dataDir,
@@ -118,7 +119,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
   const reply = await req(first.path + '/complete', 'POST', {});
   assert.equal(reply.status, 201);
   assert.equal(reply.data.createdStudyId, saved.data.createdStudyId);
-  assert.equal(studies().filter((study) => study.fileId === first.id).length, 1);
+  assert.equal(studies().filter((study: Study) => study.fileId === first.id).length, 1);
   assert.equal(
     app.db
       .prepare('SELECT count(*) AS n FROM mnema_jobs WHERE study_id=? AND kind=?')
@@ -131,7 +132,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
     String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()?.data),
   );
   state.studies.push({
-    ...state.studies.find((study) => study.fileId === first.id),
+    ...state.studies.find((study: Study) => study.fileId === first.id),
     id: 'legacy-study',
     fileId: legacy.id,
     fileName: 'legacy.txt',
@@ -152,7 +153,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
   const repaired = await req(legacy.path + '/complete', 'POST', {});
   assert.equal(repaired.status, 201);
   assert.equal(repaired.data.createdStudyId, 'legacy-study');
-  assert.equal(studies().filter((study) => study.fileId === legacy.id).length, 1);
+  assert.equal(studies().filter((study: Study) => study.fileId === legacy.id).length, 1);
   assert.equal(
     app.db.prepare('SELECT status FROM mnema_uploads WHERE id=?').get(legacy.id)?.status,
     'ready',
@@ -171,7 +172,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
   const failedReply = await req(failed.path + '/complete', 'POST', {});
   assert.equal(failedReply.status, 500);
   assert.equal(
-    studies().some((study) => study.fileId === failed.id),
+    studies().some((study: Study) => study.fileId === failed.id),
     false,
   );
   assert.equal(
@@ -190,7 +191,7 @@ test('upload completion recovers a renamed original across restart', async (t) =
   const corrupted = await req(damaged.path + '/complete', 'POST', {});
   assert.equal(corrupted.status, 409);
   assert.match(corrupted.data.error, /Контрольная сумма/);
-  assert.equal(studies().filter((study) => study.fileId === damaged.id).length, 0);
+  assert.equal(studies().filter((study: Study) => study.fileId === damaged.id).length, 0);
   assert.equal((await req(damaged.path, 'DELETE')).status, 200);
   await assert.rejects(readFile(original(damaged.id)), { code: 'ENOENT' });
 
@@ -214,6 +215,6 @@ test('upload completion recovers a renamed original across restart', async (t) =
     .prepare('UPDATE mnema_access SET revoked=1 WHERE user_id=(SELECT id FROM user WHERE email=?)')
     .run(email);
   assert.equal((await req(revoked.path + '/complete', 'POST', {}, uploader.cookie)).status, 401);
-  assert.equal(studies().filter((study) => study.fileId === revoked.id).length, 0);
+  assert.equal(studies().filter((study: Study) => study.fileId === revoked.id).length, 0);
   assert.equal(await readFile(original(revoked.id), 'utf8'), bytes);
 });

@@ -23,7 +23,7 @@ import { fail, json } from './http.ts';
 import { createProductNews } from './product-news.ts';
 import { createRegistration } from './registration.ts';
 import { createProjectSharing } from './project-sharing.ts';
-import { createChatHistory } from './chat-history.ts';
+import { createChatHistory, type ChatReply } from './chat-history.ts';
 import { createAnswerFeedback } from './answer-feedback.ts';
 import type { loadExtension, ServerExtension } from './extension.ts';
 import { mcpPlugins, createMcpService } from './mcp.ts';
@@ -74,7 +74,7 @@ export interface MnemaServerOptions {
 // Built-in connections can be switched off but not deleted; models a user added can be deleted.
 const builtinModels = new Set(['deepseek', 'amvera-deepseek-v4', 'local-stub']);
 const isBuiltin = (m: any) => builtinModels.has(m.id) || Boolean(m.builtin);
-const hash = (v) => createHash('sha256').update(v).digest('hex');
+const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const slotPattern = keySlot;
 
 interface RuntimeConfig {
@@ -143,14 +143,26 @@ export async function createRuntime(
   });
   await (await getMigrations(auth.options)).runMigrations();
   createCoreTables(db);
-  const readableStudies = (person, workspaceId) => {
+  const readableStudies = (
+    person: {
+      id: string;
+      owner?: boolean;
+      workspaces: { id: string; role: string; admin?: boolean }[];
+    },
+    workspaceId: string,
+  ) => {
     const project = person.workspaces.find((w) => w.id === workspaceId);
-    return project
+    return project && (project.role === 'full' || project.role === 'view')
       ? wsStore.run(
           workspaceId,
           () =>
-            view({ ...person, workspaceId, role: project.role, admin: Boolean(project.admin) })
-              .state.studies,
+            view({
+              ...person,
+              workspaceId,
+              role: project.role === 'full' ? 'full' : 'view',
+              admin: Boolean(project.admin),
+              owner: Boolean(person.owner),
+            }).state.studies,
         )
       : [];
   };
@@ -167,19 +179,22 @@ export async function createRuntime(
     person: Person,
     question: string,
     scope: 'global' | 'project',
-    reply: any,
+    reply: ChatReply & { model: string },
     modelId?: string,
   ) => {
     person = scopedPerson(person);
-    const references = reply.sources.map((source) => ({
-      workspaceId: source.workspaceId || person.workspaceId,
-      studyId: source.studyId,
-      segmentId: source.segmentId || source.id,
-      text: source.text,
-    }));
+    const references = reply.sources.map((source) => {
+      const workspaceId = source.workspaceId || person.workspaceId;
+      const segmentId = source.segmentId || source.id;
+      if (!workspaceId || !segmentId) fail(409, 'Источник ответа изменился.');
+      return { workspaceId, studyId: source.studyId, segmentId, text: source.text };
+    });
+    if (scope === 'project' && !person.workspaceId) fail(409, 'Доступ к проекту изменился.');
     const projectIds =
       scope === 'project'
-        ? [person.workspaceId]
+        ? person.workspaceId
+          ? [person.workspaceId]
+          : []
         : references.length
           ? references.map((ref) => ref.workspaceId)
           : person.workspaces.map((project) => project.id);
@@ -321,10 +336,12 @@ export async function createRuntime(
   const modelKey = (model: any, workspace = currentWs()) =>
     modelKeys.get(workspace, model.id) ||
     (slotPattern.test(model.keyRef || '') ? process.env[model.keyRef] : null);
-  const scopedPerson = (person: Person): Person =>
-    person.sharedProject && !person.workspaces.some((w) => w.id === person.sharedProject.id)
-      ? { ...person, workspaces: [...person.workspaces, person.sharedProject] }
+  const scopedPerson = (person: Person): Person => {
+    const { sharedProject } = person;
+    return sharedProject && !person.workspaces.some((w) => w.id === sharedProject.id)
+      ? { ...person, workspaces: [...person.workspaces, sharedProject] }
       : person;
+  };
   const ideaLocationAccess = (person: Person) => {
     const viewer = scopedPerson(person);
     const projects = new Map<string, { studies: Set<string>; findings: Set<string> }>();
@@ -372,7 +389,7 @@ export async function createRuntime(
     baseURL,
     version: VERSION,
     getPerson: (id) => {
-      const user = q(
+      const user = q<{ id: string; name: string; email: string }>(
         'SELECT u.id,u.name,u.email FROM user u JOIN mnema_access a ON a.user_id=u.id WHERE u.id=? AND a.revoked=0',
       ).get(id);
       if (!user) return null;

@@ -1,7 +1,32 @@
 import React, { useRef, useState } from 'react';
 import { Button, Dialog, Progress } from '@gravity-ui/uikit';
 import { Folder, Upload } from 'lucide-react';
+import type { Segment } from './types.ts';
 import { api, setApiWorkspace, uploadFile } from './api.ts';
+interface ManifestFile {
+  fileName: string;
+  originalName: string;
+  size: number;
+  sourceId: string;
+  mime?: string;
+  sha256?: string;
+  url: string;
+  duration?: number;
+  segments: Segment[];
+  passport?: { report?: string };
+}
+interface ManifestProject {
+  name: string;
+  url: string;
+  text?: string;
+  files: ManifestFile[];
+}
+interface ImportedFile {
+  sourceId: string;
+  studyId: string;
+  ready: boolean;
+}
+
 const bytes = (n: number) =>
   n >= 1024 ** 3
     ? (n / 1024 ** 3).toFixed(2).replace('.', ',') + ' ГБ'
@@ -15,7 +40,7 @@ export default function ProjectImporter({
   onClose: () => void;
   onComplete: (id: string) => Promise<void>;
 }) {
-  const [manifest, setManifest] = useState<any>(null),
+  const [manifest, setManifest] = useState<{ projects: ManifestProject[] } | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [status, setStatus] = useState(''),
@@ -67,7 +92,9 @@ export default function ProjectImporter({
     uploaded.current.clear();
     let lastProject = '';
     try {
-      const storage = await api('/api/imports/source/status');
+      const storage: { used: number; quota: number; files: ImportedFile[] } = await api(
+        '/api/imports/source/status',
+      );
       if (storage.used + total > storage.quota) {
         // Completed files are deducted below for a retry.
         const allPresent = manifest.projects.every((p) =>
@@ -87,16 +114,18 @@ export default function ProjectImporter({
         });
         lastProject = target.id;
         setApiWorkspace(target.id);
-        const current = await api('/api/imports/source/status');
-        const existing = new Map<string, any>(current.files.map((f) => [f.sourceId, f]));
+        const current: { files: ImportedFile[] } = await api('/api/imports/source/status');
+        const existing = new Map(current.files.map((f) => [f.sourceId, f]));
         const tasks = [...project.files];
         async function worker() {
           while (tasks.length) {
-            const item = tasks.shift(),
-              saved = existing.get(item.sourceId);
+            const item = tasks.shift();
+            if (!item) break;
+            const saved = existing.get(item.sourceId);
             let studyId = saved?.studyId;
             if (!studyId) {
               const original = localFiles.current.get(item.fileName);
+              if (!original) throw Error('Не найден исходный файл: ' + item.originalName);
               const file = new File([original], item.originalName, {
                 type: item.mime || original.type,
                 lastModified: original.lastModified,

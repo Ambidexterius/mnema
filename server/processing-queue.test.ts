@@ -1,3 +1,4 @@
+import type { Study, ModelConnection } from '../app/types.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
@@ -56,7 +57,8 @@ test(
             .prepare('SELECT data FROM mnema_workspaces WHERE id=?')
             .get(projectB);
           assert.equal(
-            JSON.parse(project.data).studies.find((study) => study.id === documentId)?.status,
+            JSON.parse(project.data).studies.find((study: Study) => study.id === documentId)
+              ?.status,
             'ready',
             'queued document must finish before a second CPU recording starts',
           );
@@ -193,7 +195,7 @@ test(
       });
       assert.equal(model.response.status, 201, JSON.stringify(model.data));
       const modelId = model.data.state.models.find(
-        (value) => value.model === 'queue-fixture-model',
+        (value: ModelConnection) => value.model === 'queue-fixture-model',
       ).id;
       const seedReady = (workspace: string, text: string) => {
         const row: any = app.db
@@ -222,7 +224,7 @@ test(
         () => state(),
         (value) =>
           value.studies.some(
-            (study) =>
+            (study: Study) =>
               study.id === recording.id &&
               study.processingState === 'running' &&
               study.progress === 'Синтетическое распознавание ждёт разрешения теста',
@@ -237,13 +239,13 @@ test(
         existsSync(join(firstCheckpointDir, 'asr.json')),
         'active ASR checkpoint must survive while the processor is blocked',
       );
-      const active = running.studies.find((study) => study.id === recording.id);
+      const active = running.studies.find((study: Study) => study.id === recording.id);
       assert.equal(active.activity.label, 'Распознаём запись');
       assert.equal(active.activity.state, 'running');
       assert(active.processingStartedAt > 0);
       assert(active.processingUpdatedAt >= active.processingStartedAt);
       publishPreview!();
-      const preview = (await state()).studies.find((study) => study.id === recording.id);
+      const preview = (await state()).studies.find((study: Study) => study.id === recording.id);
       assert.equal(preview.activity.label, 'Расшифровка готова');
       assert.deepEqual(preview.transcriptPreview, [{ time: 0, end: 1, text: 'PREVIEW_MAIN_ONLY' }]);
       assert(!preview.segments?.length);
@@ -252,11 +254,13 @@ test(
       const nextRecording = await upload('second-fixture.wav', 'synthetic-recording-two');
       const document = await upload('queued-fixture.txt', 'SYNTHETIC_PROJECT_B_DOCUMENT', projectB);
       documentId = document.id;
-      const waiting = document.state.studies.find((study) => study.id === documentId);
+      const waiting = document.state.studies.find((study: Study) => study.id === documentId);
       const retainedDocument = join(dir, 'uploads', waiting.fileId),
         retainedBytes = await readFile(retainedDocument);
       const discarded = await upload('discarded-fixture.wav', 'synthetic-recording-to-delete');
-      const discardedStudy = discarded.state.studies.find((study) => study.id === discarded.id),
+      const discardedStudy = discarded.state.studies.find(
+          (study: Study) => study.id === discarded.id,
+        ),
         discardedJob: any = app.db
           .prepare("SELECT id FROM mnema_jobs WHERE study_id=? AND status='queued'")
           .get(discarded.id);
@@ -297,36 +301,37 @@ test(
       const analyzed = await until(
         () => state(projectB),
         (value) =>
-          value.studies.find((study) => study.id === 'shared-material')?.summaryInfo?.state ===
-          'ready',
+          value.studies.find((study: Study) => study.id === 'shared-material')?.summaryInfo
+            ?.state === 'ready',
         'analysis was blocked by ASR',
       );
       assert.equal(asrReleased, false);
       assert.equal(asrCalls, 1);
       assert.equal(providerInputs.length, 1);
       assert.equal(
-        analyzed.studies.find((study) => study.id === documentId).processingState,
+        analyzed.studies.find((study: Study) => study.id === documentId).processingState,
         'queued',
       );
       assert(!JSON.stringify(analyzed).includes('SYNTHETIC_MAIN_ONLY'));
       const mainWhileBlocked = await state();
       assert.equal(
-        mainWhileBlocked.studies.find((study) => study.id === 'shared-material').summaryInfo,
+        mainWhileBlocked.studies.find((study: Study) => study.id === 'shared-material').summaryInfo,
         undefined,
       );
-      assert(!mainWhileBlocked.studies.some((study) => study.id === documentId));
+      assert(!mainWhileBlocked.studies.some((study: Study) => study.id === documentId));
       assert(!JSON.stringify(mainWhileBlocked).includes('SYNTHETIC_PROJECT_B_ONLY'));
       releaseASR();
       const doneB = await until(
         () => state(projectB),
-        (value) => value.studies.find((study) => study.id === documentId)?.status === 'ready',
+        (value) =>
+          value.studies.find((study: Study) => study.id === documentId)?.status === 'ready',
         'document did not complete after ASR release',
       );
       const doneMain = await until(
         () => state(),
         (value) =>
           [recording.id, nextRecording.id].every(
-            (id) => value.studies.find((study) => study.id === id)?.status === 'ready',
+            (id) => value.studies.find((study: Study) => study.id === id)?.status === 'ready',
           ),
         'recording lane did not complete',
       );
@@ -337,11 +342,11 @@ test(
       );
       assert.equal(asrCalls, 2);
       assert.equal(
-        doneB.studies.find((study) => study.id === documentId).processingState,
+        doneB.studies.find((study: Study) => study.id === documentId).processingState,
         undefined,
       );
       assert.equal(
-        doneB.studies.find((study) => study.id === documentId).activity.label,
+        doneB.studies.find((study: Study) => study.id === documentId).activity.label,
         'Текст готов',
       );
       assert.doesNotMatch(JSON.stringify(doneMain), /PREVIEW_MAIN_ONLY/);

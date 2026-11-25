@@ -1,3 +1,5 @@
+import type { WorkspaceUser } from '../app/types.ts';
+import type { Person } from './request-context.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -115,7 +117,7 @@ test('global user directory is independent of the selected project; full members
     assert.equal(fullSession.manageUsers, true);
     assert.equal(fullSession.admin, true);
     assert.deepEqual(
-      fullSession.workspaces.map((w) => w.id),
+      fullSession.workspaces.map((w: Person['workspaces'][number]) => w.id),
       ['main'],
     );
     f.app.db
@@ -133,7 +135,7 @@ test('global user directory is independent of the selected project; full members
       );
     const directory = (await req('/api/users', owner)).data.users;
     assert.equal(directory.length, 4);
-    assert(directory.some((u) => u.email === 'scoped@example.test'));
+    assert(directory.some((u: WorkspaceUser) => u.email === 'scoped@example.test'));
     for (const workspace of ['main', other])
       assert.deepEqual(
         (await req('/api/state', owner, undefined, workspace)).data.state.users,
@@ -167,7 +169,7 @@ test('global user directory is independent of the selected project; full members
     assert.equal(
       f.app.db
         .prepare("SELECT workspace_id FROM mnema_invites WHERE email='by-full@example.test'")
-        .get().workspace_id,
+        .get()!.workspace_id,
       '*',
     );
     assert.equal(
@@ -257,22 +259,24 @@ test('one-time migration opens all projects for old active accounts and invitati
     await f.restart();
     const user = (await req('/api/session', legacy.cookie)).data.user;
     assert.equal(user.workspaces.length, 2);
-    assert(user.workspaces.every((w) => w.role === 'full'));
+    assert(user.workspaces.every((w: Person['workspaces'][number]) => w.role === 'full'));
     assert.equal(user.owner, false);
     const migratedReader = (await req('/api/session', oldReader.cookie)).data.user;
     assert.equal(migratedReader.workspaces.length, 2);
-    assert(migratedReader.workspaces.every((w) => w.role === 'view'));
+    assert(migratedReader.workspaces.every((w: Person['workspaces'][number]) => w.role === 'view'));
     assert.equal((await req('/api/session', revoked.cookie)).data.user, null);
     assert.equal(
       f.app.db
         .prepare("SELECT workspace_id FROM mnema_invites WHERE email='old-pending@example.test'")
-        .get().workspace_id,
+        .get()!.workspace_id,
       '*',
     );
     const future = (await req('/api/workspaces', owner, { name: 'Future', mode: 'private' })).data
       .id;
     assert.deepEqual(
-      (await req('/api/session', legacy.cookie)).data.user.workspaces.map((w) => w.id).sort(),
+      (await req('/api/session', legacy.cookie)).data.user.workspaces
+        .map((w: Person['workspaces'][number]) => w.id)
+        .sort(),
       ['main', other].sort(),
     );
     const scoped = await f.add('new-scoped@example.test', 'view', 'project', future);
@@ -305,13 +309,14 @@ test('only admins remove other accounts and unused invitations without removing 
       .run(ownerId);
     assert.equal((await req(target, owner, { status: 'revoked' }, 'main', 'PATCH')).status, 200);
     assert.equal((await req('/api/session', reader.cookie)).data.user, null);
-    const project = f.app.db
-      .prepare("SELECT data FROM mnema_workspaces WHERE id='main'")
-      .get().data;
+    const project = f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!
+      .data;
     const removed = await req(target, owner, undefined, '', 'DELETE');
     assert.equal(removed.status, 200);
     assert.equal(
-      removed.data.users.some((u) => u.id === id || u.email === 'removed@sutochno.ru'),
+      removed.data.users.some(
+        (u: WorkspaceUser) => u.id === id || u.email === 'removed@sutochno.ru',
+      ),
       false,
     );
     assert.equal((await req('/api/state', reader.cookie)).status, 401);
@@ -321,15 +326,15 @@ test('only admins remove other accounts and unused invitations without removing 
     });
     assert.equal(signIn.status, 401, JSON.stringify(signIn.data));
     assert.equal(
-      f.app.db.prepare('SELECT count(*) AS count FROM session WHERE userId=?').get(id).count,
+      f.app.db.prepare('SELECT count(*) AS count FROM session WHERE userId=?').get(id)!.count,
       0,
     );
     assert.equal(
-      f.app.db.prepare('SELECT count(*) AS count FROM mnema_removed_emails').get().count,
+      f.app.db.prepare('SELECT count(*) AS count FROM mnema_removed_emails').get()!.count,
       1,
     );
     assert.equal(
-      f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data,
+      f.app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data,
       project,
     );
     assert.equal((await req(target, owner, undefined, '', 'DELETE')).status, 200);
@@ -339,7 +344,9 @@ test('only admins remove other accounts and unused invitations without removing 
       req('/api/invitations', owner, { email: pendingEmail, name: 'Pending', role: 'view' });
     const old = await makeInvite();
     assert.equal(old.status, 201);
-    const first = (await req('/api/users', owner)).data.users.find((u) => u.email === pendingEmail);
+    const first = (await req('/api/users', owner)).data.users.find(
+      (u: WorkspaceUser) => u.email === pendingEmail,
+    );
     assert.equal(
       (await req('/api/users/' + first.id, owner, { status: 'revoked' }, 'main', 'PATCH')).status,
       200,
@@ -347,12 +354,12 @@ test('only admins remove other accounts and unused invitations without removing 
     const newInvite = await makeInvite();
     assert.equal(newInvite.status, 201);
     const current = (await req('/api/users', owner)).data.users.find(
-      (u) => u.email === pendingEmail,
+      (u: WorkspaceUser) => u.email === pendingEmail,
     );
     const result = await req('/api/users/' + current.id, owner, undefined, '', 'DELETE');
     assert.equal(result.status, 200);
     assert.equal(
-      result.data.users.some((u) => u.email === pendingEmail),
+      result.data.users.some((u: WorkspaceUser) => u.email === pendingEmail),
       false,
     );
     for (const invite of [old, newInvite]) {
@@ -390,7 +397,7 @@ test('only admins remove other accounts and unused invitations without removing 
       'a new invitation can bring a deleted user back as a new account',
     );
     assert.notEqual(
-      f.app.db.prepare("SELECT id FROM user WHERE email='removed@sutochno.ru'").get().id,
+      f.app.db.prepare("SELECT id FROM user WHERE email='removed@sutochno.ru'").get()!.id,
       id,
     );
   } finally {

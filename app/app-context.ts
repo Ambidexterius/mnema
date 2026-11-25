@@ -71,12 +71,16 @@ export interface AppContext {
   notify: (message: string) => void;
   selected: string | null;
   setSelected: Dispatch<SetStateAction<string | null>>;
-  files: RefObject<Map<string, File | { url: string; name?: string }>>;
+  files: RefObject<Map<string, { url: string; name?: string; type?: string }>>;
   panel: SourcePanelState | null;
   panelClosing: boolean;
   setPanel: Dispatch<SetStateAction<SourcePanelState | null>>;
   openPanel: (panel: SourcePanelState) => void;
 }
 
-export const Context = createContext<AppContext>(null);
-export const useApp = () => useContext(Context);
+export const Context = createContext<AppContext | null>(null);
+export function useApp() {
+  const context = useContext(Context);
+  if (!context) throw new Error('App context is unavailable');
+  return context;
+}

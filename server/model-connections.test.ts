@@ -22,7 +22,7 @@ test('API keys are encrypted, authenticated, isolated by workspace/model and dec
   const store = modelKeyStore(db, 'fixture-master-secret-only'),
     plain = 'fixture-provider-key-not-real';
   store.set('a', 'connection', plain);
-  const sealed = String(db.prepare('SELECT sealed FROM mnema_model_keys').get().sealed);
+  const sealed = String(db.prepare('SELECT sealed FROM mnema_model_keys').get()!.sealed);
   assert(!sealed.includes(plain));
   assert.equal(store.get('a', 'connection'), plain);
   assert.equal(store.get('b', 'connection'), null);
@@ -113,7 +113,7 @@ test('native OpenAI Responses and Claude Messages preserve system instructions a
 });
 test('catalogue uses provider credentials, bounds pages and filters non-chat OpenAI models', async () => {
   const calls: any[] = [];
-  const fetcher = async (url, init) => {
+  const fetcher: typeof fetch = async (url, init) => {
     calls.push({ url, init });
     return Response.json({
       data: [
@@ -306,7 +306,8 @@ test('a negative answer with source-bound reviewed context gets one review prese
     const request = providerRequest({ apiType, url: 'https://api.deepseek.com/v1' }, calls[1]);
     const transmitted = apiType === 'openai' ? request.body.input : request.body.messages;
     const original = transmitted.find(
-      (message) => message.role === 'user' && message.content === messages[1].content,
+      (message: { role: string; content: string }) =>
+        message.role === 'user' && message.content === messages[1].content,
     );
     assert(original);
     assert.deepEqual(JSON.parse(original.content), context);

@@ -75,7 +75,7 @@ function ProjectTabs() {
           value={id}
           href={appHref(id)}
           counter={count || undefined}
-          onKeyDown={(e) => {
+          onKeyDown={(e: React.KeyboardEvent<HTMLElement>) => {
             if (e.key === ' ') {
               e.preventDefault();
               e.currentTarget.click();

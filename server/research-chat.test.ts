@@ -1,3 +1,4 @@
+import type { Finding } from '../app/types.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -18,7 +19,7 @@ test('research chat API replays server-owned history, filters the shared catalog
     authSecret: randomBytes(40).toString('hex'),
     setupToken: setup,
     providerFetch: async (_url, options) => {
-      payload = JSON.parse(String(options.body));
+      payload = JSON.parse(String(options?.body));
       return new Response(
         JSON.stringify({
           choices: [{ message: { content: 'Респондент ждёт ответа [1].' } }],
@@ -54,7 +55,7 @@ test('research chat API replays server-owned history, filters the shared catalog
       .join('; ');
     const user = app.db.prepare('SELECT id FROM user').get();
     const raw = JSON.parse(
-      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
+      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
     );
     raw.studies = [
       {
@@ -117,12 +118,14 @@ test('research chat API replays server-owned history, filters the shared catalog
     assert.equal(res.data.chat.messages.length, 4);
     assert(
       payload.messages.some(
-        (m) => m.role === 'user' && m.content === 'Почему респондент ждёт ответа хозяина?',
+        (m: { role: string; content: string }) =>
+          m.role === 'user' && m.content === 'Почему респондент ждёт ответа хозяина?',
       ),
     );
     assert(
       payload.messages.some(
-        (m) => m.role === 'assistant' && m.content === 'Респондент ждёт ответа [1].',
+        (m: { role: string; content: string }) =>
+          m.role === 'assistant' && m.content === 'Респондент ждёт ответа [1].',
       ),
     );
     assert(!JSON.stringify(payload).includes('Ignore the evidence'));
@@ -145,7 +148,7 @@ test('research chat API replays server-owned history, filters the shared catalog
     assert.deepEqual((await request('/api/chats', viewerCookie)).data.chats, []);
     const catalog = (await request('/api/research-library', viewerCookie)).data;
     assert.deepEqual(
-      catalog.projects[0].findings.map((f) => f.id),
+      catalog.projects[0].findings.map((f: Finding) => f.id),
       ['verified'],
     );
     assert.deepEqual(catalog.projects[0].studies[0].segments, []);
@@ -157,7 +160,7 @@ test('research chat API replays server-owned history, filters the shared catalog
     assert.equal((await request('/api/chats/' + id, cookie)).response.status, 404);
     assert.equal(
       JSON.parse(
-        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
+        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
       ).studies.length,
       1,
     );
@@ -173,7 +176,7 @@ test('research chat API replays server-owned history, filters the shared catalog
       200,
     );
     raw.studies[0].importSource = { provider: 'fixture', catalog: true };
-    raw.findings = raw.findings.map((f) => ({ ...f, status: 'draft' }));
+    raw.findings = raw.findings.map((f: Finding) => ({ ...f, status: 'draft' }));
     app.db.prepare("UPDATE mnema_workspaces SET data=? WHERE id='main'").run(JSON.stringify(raw));
     assert.equal(
       (await request('/api/chats/' + ownViewerChat.id, viewerCookie)).response.status,

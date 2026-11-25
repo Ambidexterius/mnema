@@ -264,10 +264,10 @@ function ConversationLog({ label }: { label: string }) {
                       <Quote size={14} aria-hidden="true" />
                       {'Опирается на ' +
                         plural(materialCount(m.sources), 'материал', 'материала', 'материалов') +
-                        (new Set(m.sources.map((x) => x.workspaceId)).size > 1
+                        (new Set(m.sources.map((x: ChatSource) => x.workspaceId)).size > 1
                           ? ' из ' +
                             plural(
-                              new Set(m.sources.map((x) => x.workspaceId)).size,
+                              new Set(m.sources.map((x: ChatSource) => x.workspaceId)).size,
                               'проекта',
                               'проектов',
                               'проектов',
@@ -326,7 +326,12 @@ export function GlobalChat() {
     go,
   } = useApp();
   const [draft, setDraft] = useState(''),
-    [context, setContext] = useState<any>({ loading: true }),
+    [context, setContext] = useState<{
+      loading: boolean;
+      materials?: number;
+      model?: string;
+      error?: string;
+    }>({ loading: true }),
     [contextRetry, setContextRetry] = useState(0);
   const bottom = useRef<HTMLDivElement>(null);
   const ready = state.studies.filter((s) => s.status === 'ready').length;
@@ -349,7 +354,10 @@ export function GlobalChat() {
     };
   }, [real, user?.id, workspaces.length, state.workspace?.id, ready, contextRetry]);
   const available =
-    Boolean(context.model) && context.materials > 0 && !context.loading && !chatHistory.loading;
+    Boolean(context.model) &&
+    (context.materials ?? 0) > 0 &&
+    !context.loading &&
+    !chatHistory.loading;
   const submit = async (question: string) => {
     setDraft('');
     if (!(await askGlobal(question))) setDraft(question);

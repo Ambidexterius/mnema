@@ -9,14 +9,18 @@ test('summary covers late transcript chunks and rejects nonexistent citations', 
   );
   const summary = await summarizeMaterial(segments, 'Длинный материал', async (payload: any) => {
     if (payload.fragments) {
-      seen.push(...payload.fragments.map((s) => s.id));
+      seen.push(...payload.fragments.map((s: { id: string }) => s.id));
       return JSON.stringify({
         summary: [{ title: 'Тема', text: 'Вывод', segments: [payload.fragments[0].id] }],
       });
     }
     return JSON.stringify({
       summary: [
-        { title: 'Общее', text: 'Все части', segments: payload.parts.flatMap((b) => b.segments) },
+        {
+          title: 'Общее',
+          text: 'Все части',
+          segments: payload.parts.flatMap((b: { segments: string[] }) => b.segments),
+        },
       ],
     });
   });
@@ -111,7 +115,7 @@ test('a merge which covers only the opening cannot discard independent later dec
     });
   });
   assert.deepEqual(
-    summary.map((b) => b.segments),
+    summary.map((b: { segments: string[] }) => b.segments),
     [['a'], ['b'], ['c'], ['d']],
   );
   assert(summary.every((b) => !Object.hasOwn(b, 'kind')));

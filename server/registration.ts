@@ -271,8 +271,8 @@ export function createRegistration(
             else resolve(out);
           },
         );
-        child.stdin.on('error', () => {});
-        child.stdin.end(bytes);
+        child.stdin?.on('error', () => {});
+        child.stdin?.end(bytes);
       });
     },
   };

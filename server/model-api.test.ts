@@ -1,3 +1,4 @@
+import type { ModelConnection } from '../app/types.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -95,7 +96,9 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and tea
     };
     const created = await req('/api/models', { cookie, body: values });
     assert.equal(created.response.status, 201, JSON.stringify(created.data));
-    const connection = created.data.state.models.find((m) => m.apiType === 'openai');
+    const connection = created.data.state.models.find(
+      (m: ModelConnection) => m.apiType === 'openai',
+    );
     assert(connection.keyConfigured && connection.hasStoredKey);
     assert(!JSON.stringify(created.data).includes(openAIKey));
     assert(
@@ -153,7 +156,7 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and tea
     const workspace = second.data.id;
     // The owner's connections are team-wide: a new project starts with them and their keys.
     const inherited = (await req('/api/state', { cookie, workspace })).data.state.models.find(
-      (m) => m.id === connection.id,
+      (m: ModelConnection) => m.id === connection.id,
     );
     assert(inherited?.keyConfigured, 'a new project inherits the owner connection');
     const global = await req('/api/chat/global', {
@@ -176,7 +179,7 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and tea
       },
     });
     assert.equal(claude.response.status, 201, JSON.stringify(claude.data));
-    const c = claude.data.state.models.find((m) => m.apiType === 'anthropic');
+    const c = claude.data.state.models.find((m: ModelConnection) => m.apiType === 'anthropic');
     const tested = await req('/api/models/' + c.id + '/test', { cookie, workspace, body: {} });
     assert.equal(tested.response.status, 200, JSON.stringify(tested.data));
     assert.equal(tested.data.answer, 'Claude fixture OK');
@@ -220,7 +223,7 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and tea
       body: {
         version: latest.data.version,
         changes: {
-          models: latest.data.state.models.map((m) => ({
+          models: latest.data.state.models.map((m: ModelConnection) => ({
             ...m,
             apiKey: 'should-never-be-persisted',
           })),
@@ -233,7 +236,9 @@ test('model API: owner-only keys/catalogue, native providers, chat rules and tea
       method: 'PATCH',
       body: {
         version: latest.data.version,
-        changes: { models: latest.data.state.models.filter((m) => m.id !== connection.id) },
+        changes: {
+          models: latest.data.state.models.filter((m: ModelConnection) => m.id !== connection.id),
+        },
       },
     });
     assert.equal(deleted.response.status, 200, JSON.stringify(deleted.data));
@@ -317,21 +322,21 @@ test('built-in connection without a model or key can be removed; a configured on
     assert.equal(list.response.status, 502, JSON.stringify(list.data));
     assert.match(list.data.error || '', /Указать ID вручную/);
     const state = (await req('/api/state', { cookie })).data;
-    const builtin = state.state.models.find((m) => m.id === 'deepseek');
+    const builtin = state.state.models.find((m: ModelConnection) => m.id === 'deepseek');
     assert(builtin && builtin.builtin && !builtin.model, 'fresh built-in DeepSeek has no model id');
     const removed = await req('/api/state', {
       cookie,
       method: 'PATCH',
       body: {
         version: state.version,
-        changes: { models: state.state.models.filter((m) => m.id !== 'deepseek') },
+        changes: { models: state.state.models.filter((m: ModelConnection) => m.id !== 'deepseek') },
       },
     });
     assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
-    assert(!removed.data.state.models.some((m) => m.id === 'deepseek'));
+    assert(!removed.data.state.models.some((m: ModelConnection) => m.id === 'deepseek'));
     assert.equal(
       removed.data.state.modelId,
-      created.data.state.models.find((m) => m.name === 'Amvera fixture').id,
+      created.data.state.models.find((m: ModelConnection) => m.name === 'Amvera fixture').id,
     );
   } finally {
     app.server.close();
@@ -385,7 +390,7 @@ test('a configured built-in connection cannot be removed, only switched off', as
       .map((c) => c.split(';')[0])
       .join('; ');
     const state = (await req('/api/state', { cookie })).data;
-    const preset = state.state.models.find((m) => m.id === 'amvera-deepseek-v4');
+    const preset = state.state.models.find((m: ModelConnection) => m.id === 'amvera-deepseek-v4');
     assert(
       preset && preset.builtin && preset.keyConfigured && preset.model,
       'Amvera preset is configured from the environment',
@@ -395,7 +400,9 @@ test('a configured built-in connection cannot be removed, only switched off', as
       method: 'PATCH',
       body: {
         version: state.version,
-        changes: { models: state.state.models.filter((m) => m.id !== 'amvera-deepseek-v4') },
+        changes: {
+          models: state.state.models.filter((m: ModelConnection) => m.id !== 'amvera-deepseek-v4'),
+        },
       },
     });
     assert.equal(attempt.response.status, 400);

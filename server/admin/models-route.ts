@@ -16,7 +16,7 @@ interface ModelState {
 
 interface ModelServices extends Pick<RequestServices, 'body' | 'limit'> {
   getState: () => { state: ModelState };
-  modelKey: (model: any) => string | null;
+  modelKey: (model: any) => string | null | undefined;
   modelKeys: ReturnType<typeof modelKeyStore>;
   currentWs: () => string;
   mutate: (change: (state: ModelState) => void) => unknown;

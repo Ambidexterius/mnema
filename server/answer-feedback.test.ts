@@ -152,7 +152,7 @@ test('feedback replay and review recheck currently visible source segments', () 
     assert.throws(() => api.rate(person, token, 'down'), /Источники или доступ/);
     api.rate(person, token, null);
     assert.equal(
-      db.prepare('SELECT count(*) AS n FROM mnema_answer_feedback').get().n,
+      db.prepare('SELECT count(*) AS n FROM mnema_answer_feedback').get()!.n,
       0,
       'the author can still remove their rating after access changes',
     );
@@ -228,7 +228,7 @@ test('feedback requires the current source text and retains unverifiable legacy 
     assert.equal(api.list(person).length, 1);
     api.rate(person, token, null);
     assert.equal(
-      db.prepare("SELECT count(*) AS n FROM mnema_answer_feedback WHERE answer_id='legacy'").get()
+      db.prepare("SELECT count(*) AS n FROM mnema_answer_feedback WHERE answer_id='legacy'").get()!
         .n,
       1,
     );

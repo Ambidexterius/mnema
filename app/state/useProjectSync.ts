@@ -57,7 +57,7 @@ export function useProjectSync({
     const body = JSON.stringify(data),
       previous = appliedSnapshot.current;
     // Previews, activity and access can change outside the stored workspace version.
-    if (fromPoll && previous?.version === data.version && previous.body === body) return;
+    if (fromPoll && previous && previous.version === data.version && previous.body === body) return;
     appliedSnapshot.current = { version: data.version, body };
     if (typeof data.user?.newsId === 'string') setNewsId(data.user.newsId);
     authInfoRef.current = data.user;
@@ -192,7 +192,7 @@ export function useProjectSync({
               '/api/users/' + changedUser.id,
               {
                 ...Object.fromEntries(
-                  ['role', 'status', 'admin']
+                  (['role', 'status', 'admin'] as const)
                     .filter(
                       (key) =>
                         changedUser[key] !==

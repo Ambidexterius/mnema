@@ -129,7 +129,7 @@ function StudyTable({ studies }: { studies: Study[] }) {
               <span
                 className="file-size"
                 title={
-                  Number.isSafeInteger(s.fileSize)
+                  typeof s.fileSize === 'number' && Number.isSafeInteger(s.fileSize)
                     ? s.fileSize.toLocaleString('ru-RU') + ' байт'
                     : 'Размер файла неизвестен'
                 }

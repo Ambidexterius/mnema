@@ -67,7 +67,9 @@ test('idea locations follow live project, material, finding and chat access', as
     const result = await req('/api/ideas', cookie);
     assert.equal(result.status, 200);
     assert.equal(result.headers.get('cache-control'), 'no-store');
-    return new Map(result.data.ideas.map((idea) => [idea.id, idea.feedback]));
+    return new Map(
+      result.data.ideas.map((idea: { id: string; feedback: unknown }) => [idea.id, idea.feedback]),
+    );
   };
   try {
     const author = await account('location-author@example.test', { setupToken });
@@ -92,7 +94,7 @@ test('idea locations follow live project, material, finding and chat access', as
       project = '/projects/' + id,
       members = '/api/workspaces/' + id + '/sharing/members';
     const state = JSON.parse(
-      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(id).data),
+      String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(id)!.data),
     );
     const segment = { id: 'source', speaker: 'Респондент', time: 0, text: 'Вымышленная запись.' };
     state.studies = [

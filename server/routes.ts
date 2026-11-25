@@ -91,7 +91,7 @@ export function createRequestHandler(
         'Content-Security-Policy',
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
       );
-      const url = new URL(req.url, 'http://localhost');
+      const url = new URL(req.url || '/', 'http://localhost');
       const path = url.pathname;
       if (path === '/healthz') return json(res, 200, { ok: true, version, build: buildId });
       const publicMcp = matchPublicMcpRoute(path);
@@ -101,7 +101,7 @@ export function createRequestHandler(
           auth: (request, response) => toNodeHandler(auth)(request, response),
           limit,
         });
-      if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method)) {
+      if (path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method || '')) {
         if (req.headers.origin && req.headers.origin !== origin)
           fail(403, 'Запрос с другого сайта запрещён.');
         if (req.headers['x-mnema-request'] !== '1') fail(403, 'Некорректный запрос приложения.');
@@ -440,7 +440,7 @@ export function createRequestHandler(
         console.error(
           'Request failed:',
           req.method,
-          new URL(req.url, 'http://localhost').pathname,
+          new URL(req.url || '/', 'http://localhost').pathname,
           e.name,
         );
     }

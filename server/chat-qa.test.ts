@@ -106,7 +106,7 @@ test('chat QA: team downgrade, closed uncited project, provider failures, races,
     });
     const seed = (id: string, text: string) => {
       const raw = JSON.parse(
-        String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(id).data),
+        String(app.db.prepare('SELECT data FROM mnema_workspaces WHERE id=?').get(id)!.data),
       );
       raw.studies = [
         {
@@ -148,7 +148,7 @@ test('chat QA: team downgrade, closed uncited project, provider failures, races,
     const cookie = login(member);
     const memberId = app.db
       .prepare("SELECT id FROM user WHERE email='qa-member@example.com'")
-      .get().id;
+      .get()!.id;
     app.db
       .prepare(
         "INSERT OR REPLACE INTO mnema_members(workspace_id,user_id,role,admin,revoked,grant_source) VALUES(?,?,'full',0,0,'explicit')",
@@ -323,7 +323,7 @@ test('chat QA: team downgrade, closed uncited project, provider failures, races,
     assert.equal((await req('/api/chats/' + fresh.id, { cookie })).status, 404);
     assert.equal(
       JSON.parse(
-        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
+        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
       ).studies.length,
       1,
     );

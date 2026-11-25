@@ -1,3 +1,5 @@
+import type { Finding, ModelConnection, Processor, Study, WorkspaceUser } from './types.ts';
+
 export const transcript = [
   {
     id: 's1',
@@ -68,7 +70,7 @@ export const transcript = [
   },
 ];
 
-export const initialStudies = [
+export const initialStudies: Study[] = [
   {
     id: 'calendar',
     title: 'Как хозяева управляют ценами',
@@ -80,6 +82,7 @@ export const initialStudies = [
     duration: 1464,
     participants: 2,
     status: 'ready',
+    segments: [],
     tags: ['Календарь', 'Цены'],
     color: 'sage',
     findings: 3,
@@ -112,6 +115,7 @@ export const initialStudies = [
     duration: 2160,
     participants: 2,
     status: 'ready',
+    segments: [],
     tags: ['Бронирование', 'Оплата'],
     color: 'sand',
     findings: 2,
@@ -134,6 +138,7 @@ export const initialStudies = [
     duration: 1840,
     participants: 5,
     status: 'ready',
+    segments: [],
     tags: ['Баланс', 'Навигация'],
     color: 'lilac',
     findings: 1,
@@ -156,6 +161,7 @@ export const initialStudies = [
     duration: 0,
     participants: 0,
     status: 'ready',
+    segments: [],
     tags: ['Объекты', 'Обратная связь'],
     color: 'blue',
     findings: 2,
@@ -169,7 +175,7 @@ export const initialStudies = [
   },
 ];
 
-export const initialFindings = [
+export const initialFindings: Finding[] = [
   {
     id: 'f1',
     title: 'Неясно, все ли нужные даты выбраны',
@@ -177,42 +183,54 @@ export const initialFindings = [
     kind: 'Проблема',
     studyId: 'calendar',
     segmentId: 's4',
-    priority: 'Высокая',
-    verified: false,
+    importance: 'Высокая',
+    status: 'draft',
+    origin: 'human',
+    significant: false,
+    history: [],
   },
   {
     id: 'f2',
     title: 'Нужен видимый итог изменения цен',
     description: 'Проверка значений заменяет короткое уведомление.',
-    kind: 'Наблюдение',
+    kind: 'Инсайт',
     studyId: 'calendar',
     segmentId: 's6',
-    priority: 'Средняя',
-    verified: true,
+    importance: 'Средняя',
+    status: 'verified',
+    origin: 'human',
+    significant: false,
+    history: [],
   },
   {
     id: 'f3',
     title: 'Проверить массовое изменение для нескольких объектов',
     description: 'Идея решения из интервью; ещё не проверена.',
-    kind: 'Гипотеза',
+    kind: 'Инсайт',
     studyId: 'calendar',
     segmentId: 's7',
-    priority: 'Средняя',
-    verified: false,
+    importance: 'Средняя',
+    status: 'draft',
+    origin: 'human',
+    significant: false,
+    history: [],
   },
   {
     id: 'f4',
     title: 'Способ переключения ролей остаётся открытым',
     description: 'Пример вопроса внутренней встречи, а не результат пользовательского теста.',
-    kind: 'Открытый вопрос',
+    kind: 'Инсайт',
     studyId: 'review',
-    segmentId: null,
-    priority: 'Средняя',
-    verified: false,
+    segmentId: '',
+    importance: 'Средняя',
+    status: 'draft',
+    origin: 'human',
+    significant: false,
+    history: [],
   },
 ];
 
-export const initialModels = [
+export const initialModels: (ModelConnection & { color: string })[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
@@ -220,6 +238,7 @@ export const initialModels = [
     model: 'deepseek-flash',
     url: 'https://api.deepseek.com',
     enabled: true,
+    keyRef: '',
     color: 'blue',
     description: 'Для ответов по исследованиям и разбора расшифровок',
   },
@@ -230,6 +249,7 @@ export const initialModels = [
     model: 'sonnet-demo',
     url: '',
     enabled: true,
+    keyRef: '',
     color: 'lilac',
     description: 'Альтернативная модель для сравнения результатов',
   },
@@ -240,12 +260,13 @@ export const initialModels = [
     model: 'local-demo',
     url: '',
     enabled: false,
+    keyRef: '',
     color: 'sage',
     description: 'Пример подключения модели в собственном контуре',
   },
 ];
 
-export const initialProcessors = [
+export const initialProcessors: (Processor & { icon: string })[] = [
   {
     id: 'whisper',
     name: 'faster-whisper',
@@ -280,7 +301,7 @@ export const initialProcessors = [
   },
 ];
 
-export const initialUsers = [
+export const initialUsers: WorkspaceUser[] = [
   {
     id: 'u1',
     name: 'Глеб',

@@ -132,7 +132,7 @@ test('durable mail queue waits for summary, sends once, and skips revoked access
   db.prepare('INSERT INTO user VALUES(?,?)').run('u', 'qa@example.test');
   db.prepare('INSERT INTO mnema_access VALUES(?,0)').run('u');
   db.prepare('INSERT INTO mnema_members VALUES(?,?,?,0)').run('space', 'u', 'full');
-  const save = (s) =>
+  const save = (s: object) =>
     db
       .prepare('INSERT OR REPLACE INTO mnema_workspaces(rowid,id,name,data) VALUES(1,?,?,?)')
       .run('space', 'Проект', JSON.stringify({ studies: [s] }));
@@ -156,7 +156,7 @@ test('durable mail queue waits for summary, sends once, and skips revoked access
     await mailer.tick();
     assert.equal(sent.length, 1);
     assert.equal(
-      db.prepare('SELECT status FROM mnema_completion_mail WHERE job_id=?').get('job').status,
+      db.prepare('SELECT status FROM mnema_completion_mail WHERE job_id=?').get('job')!.status,
       'sent',
     );
     mailer.queue('revoked', 'space', 'recording', 'u');
@@ -164,7 +164,7 @@ test('durable mail queue waits for summary, sends once, and skips revoked access
     await mailer.tick();
     assert.equal(sent.length, 1);
     assert.equal(
-      db.prepare('SELECT status FROM mnema_completion_mail WHERE job_id=?').get('revoked').status,
+      db.prepare('SELECT status FROM mnema_completion_mail WHERE job_id=?').get('revoked')!.status,
       'skipped',
     );
   } finally {
@@ -200,7 +200,7 @@ test('mail failures retry without changing transcription status', async () => {
     assert.equal(row.attempts, 1);
     assert(row.next_at > Date.now());
     assert.equal(
-      JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces').get().data)).studies[0]
+      JSON.parse(String(db.prepare('SELECT data FROM mnema_workspaces').get()!.data)).studies[0]
         .status,
       'ready',
     );
@@ -244,11 +244,11 @@ test('completion mail rechecks sharing access after a legacy project becomes pri
     await mailer.tick();
     assert.equal(sent.length, 1);
     assert.equal(
-      db.prepare("SELECT status FROM mnema_completion_mail WHERE job_id='narrowed'").get().status,
+      db.prepare("SELECT status FROM mnema_completion_mail WHERE job_id='narrowed'").get()!.status,
       'skipped',
     );
     assert.equal(
-      db.prepare("SELECT revoked FROM mnema_members WHERE user_id='u'").get().revoked,
+      db.prepare("SELECT revoked FROM mnema_members WHERE user_id='u'").get()!.revoked,
       0,
       'the obsolete membership alone must not authorize a private completion email',
     );

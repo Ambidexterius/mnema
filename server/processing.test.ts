@@ -1,8 +1,9 @@
+import type { Segment } from '../app/types.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractDocument, processingProgress, transcribeRecording } from './processing.ts';
 test('mixed PDF uses OCR only for scanned pages and preserves stable page citations', async () => {
-  const calls = [];
+  const calls: [string, string[]][] = [];
   const run = async (cmd: string, args: string[]): Promise<{ stdout: string }> => {
     calls.push([cmd, args]);
     if (cmd === 'pdfinfo') return { stdout: 'Pages: 2\n' };
@@ -289,7 +290,7 @@ runpy.run_path(script, run_name='__main__')
     const result = JSON.parse(await readFile(output, 'utf8'));
     assert.equal(result.segments.length, 3);
     assert.deepEqual(
-      result.segments.map((s) => s.time),
+      result.segments.map((s: Segment) => s.time),
       [0, 900, 1800],
     );
     assert.deepEqual((await readFile(calls, 'utf8')).trim().split('\n'), [
@@ -532,7 +533,7 @@ print(json.dumps({'progress': progress, 'speakers': count}))
   );
   const checked = JSON.parse(result.stdout);
   assert.deepEqual(
-    checked.progress.map((step) => step[1]),
+    checked.progress.map((step: [number, number, number]) => step[1]),
     [1, 1, 2, 2],
   );
   assert.equal(checked.speakers, 1);

@@ -110,7 +110,8 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
     .map(normalize)
     .filter((f) => (!study || f.studyId === study) && (!onlyDrafts || f.status === 'draft'));
   const withoutDrafts = appHref('findings' + (study ? '?study=' + encodeURIComponent(study) : ''));
-  const count = (k) => all.filter((f) => k === 'all' || f.status === k).length;
+  const count = (k: Finding['status'] | 'all') =>
+    all.filter((f) => k === 'all' || f.status === k).length;
   const status = 'all';
   const routeKind = KINDS.includes(params.get('kind') as any) ? params.get('kind')! : 'Все';
   const [kind, setKind] = useState(routeKind);
@@ -134,8 +135,8 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
         importanceOrder[a.importance] - importanceOrder[b.importance] ||
         (repeats.get(b.id)?.materials || 1) - (repeats.get(a.id)?.materials || 1),
     );
-  const studyInfo = study && state.studies.find((s) => s.id === study);
-  const setStatusOf = async (ids, next, message) => {
+  const studyInfo = study ? state.studies.find((s) => s.id === study) : undefined;
+  const setStatusOf = async (ids: Set<string>, next: Finding['status'], message: string) => {
     if (
       !(await update((s) => ({
         findings: s.findings.map((x) => (ids.has(x.id) ? { ...normalize(x), status: next } : x)),
@@ -146,7 +147,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
     notify(message);
     return true;
   };
-  const toggle = (id) =>
+  const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p);
       n.has(id) ? n.delete(id) : n.add(id);
@@ -154,7 +155,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
     });
   const visibleIds = list.map((f) => f.id);
   const allPicked = visibleIds.length > 0 && visibleIds.every((id) => picked.has(id));
-  const actions = (f) =>
+  const actions = (f: Finding) =>
     reader ? null : (
       <div className="row-actions">
         {f.status === 'draft' ? (
@@ -217,7 +218,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
     import.meta.env.VITE_DESIGN_WORKBENCH === 'true'
       ? new URLSearchParams(location.search).get('__variant')
       : null;
-  const structure = ['rows', 'cards'].includes(candidate) ? candidate : 'table';
+  const structure = candidate && ['rows', 'cards'].includes(candidate) ? candidate : 'table';
   const columns = [
     ...(reader
       ? []
@@ -232,7 +233,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
                 controlProps={{ 'aria-label': 'Выбрать все находки в списке' }}
               />
             ),
-            template: (f) => (
+            template: (f: Finding) => (
               <Checkbox
                 checked={picked.has(f.id)}
                 onUpdate={() => toggle(f.id)}
@@ -246,7 +247,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
       id: 'title',
       name: 'Находка',
       className: 'finding-title-column',
-      template: (f) => (
+      template: (f: Finding) => (
         <div className="finding-cell">
           <a className="text-action" href={appHref('finding/' + f.id)}>
             {f.title}
@@ -268,7 +269,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
       id: 'importance',
       name: 'Важность',
       width: 104,
-      template: (f) => (
+      template: (f: Finding) => (
         <Label size="s" theme={importanceTheme(f.importance)}>
           {f.importance}
         </Label>
@@ -280,7 +281,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
       width: 112,
       align: 'end' as const,
       className: 'table-secondary table-number',
-      template: (f) => {
+      template: (f: Finding) => {
         const n = repeats.get(f.id)?.materials || 1;
         return n > 1 ? (
           <span className="repeat-cell" title="Похожие находки по совпадению слов">
@@ -300,7 +301,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
             id: 'review',
             name: 'Проверка',
             width: 288,
-            template: (f) => (
+            template: (f: Finding) => (
               <div className="review-cell">
                 <Label size="s" theme={statusTheme(f)}>
                   {statusLabel(f)}
@@ -569,6 +570,7 @@ export function Findings({ embedded = false }: { embedded?: boolean }) {
           onClickButtonCancel={() => setConfirm(null)}
           textButtonCancel="Отмена"
           onClickButtonApply={async () => {
+            if (!confirm) return;
             if (
               await setStatusOf(
                 new Set(picked),
@@ -629,13 +631,13 @@ export function FindingsDigest() {
   const [kind, setKind] = useState('Все');
   const compact = useCompactLayout();
   const shown = state.findings.map(normalize).filter((f) => f.status !== 'rejected');
-  const rank = (f) => (f.status === 'verified' ? 0 : 10) + importanceOrder[f.importance];
-  const materialCount = (f) => repeats.get(f.id)?.materials || 1;
+  const rank = (f: Finding) => (f.status === 'verified' ? 0 : 10) + importanceOrder[f.importance];
+  const materialCount = (f: Finding) => repeats.get(f.id)?.materials || 1;
   const ready = state.studies.filter((s) => s.status === 'ready').length;
   const repeatText = (n: number) =>
     n + ' из ' + plural(Math.max(ready, n), 'материала', 'материалов', 'материалов');
-  const title = (id: string) => state.studies.find((s) => s.id === id)?.title;
-  const sources = (f) => {
+  const title = (id?: string) => state.studies.find((s) => s.id === id)?.title;
+  const sources = (f: Finding) => {
     const names = [
       ...new Set(
         [

@@ -1,6 +1,18 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { routeHref } from '../app/routes.ts';
 
+interface ProjectAccessRow {
+  id: string;
+  name: string;
+  version: number;
+  data_length: number | string | null;
+  mode: string;
+  owner_id: string | null;
+  role: 'view' | 'full';
+  admin: number;
+  member_count: number;
+}
+
 const fail = (status: number, message: string): never => {
   throw Object.assign(new Error(message), { status });
 };
@@ -62,7 +74,7 @@ export function createProjectSharing(db: any, baseURL: string, secret: string, f
   const revision = fromTables
     ? '(SELECT data_hash FROM mnema_projection_source WHERE workspace_id=w.id)'
     : 'length(w.data)';
-  const projects = (userId: string) =>
+  const projects = (userId: string): ProjectAccessRow[] =>
     q(`SELECT w.id,w.name,w.version,${revision} AS data_length,s.mode,s.owner_id,m.role AS member_role,m.admin AS member_admin,m.grant_source,
  CASE WHEN s.owner_id=? THEN 'full' WHEN m.revoked=0 AND (m.grant_source='explicit' OR s.mode='legacy') THEN m.role ELSE 'view' END AS role,
  CASE WHEN s.owner_id=? THEN 1 ELSE 0 END AS admin,
@@ -75,7 +87,7 @@ export function createProjectSharing(db: any, baseURL: string, secret: string, f
       userId,
       userId,
     );
-  const linkProject = (id: string) => {
+  const linkProject = (id: string): (ProjectAccessRow & { nonce: string }) | undefined => {
     const r = q(
       `SELECT w.id,w.name,w.version,${revision} AS data_length,s.mode,s.owner_id,s.nonce,'view' AS role,0 AS admin,0 AS member_count FROM mnema_workspaces w JOIN mnema_project_sharing s ON s.workspace_id=w.id WHERE w.id=?`,
     ).get(id);

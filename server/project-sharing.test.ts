@@ -1,3 +1,4 @@
+import type { Person } from './request-context.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -24,8 +25,8 @@ test('private projects, named members and authenticated share links cannot leak 
     authSecret: randomBytes(48).toString('hex'),
     sendInvitationMail: async () => {},
     sendCompletionMail: async () => {},
-    providerFetch: async (_url, options) => {
-      sentToModel = String(options.body);
+    providerFetch: async (_url: RequestInfo | URL, options?: RequestInit) => {
+      sentToModel = String(options?.body);
       duringCall();
       return new Response(
         JSON.stringify({
@@ -211,13 +212,17 @@ test('private projects, named members and authenticated share links cannot leak 
         403,
         'global administrators and all-project accounts are not private members',
       );
-      assert.ok(!(await req('/api/session', jar)).data.user.workspaces.some((w) => w.id === id));
+      assert.ok(
+        !(await req('/api/session', jar)).data.user.workspaces.some(
+          (w: Person['workspaces'][number]) => w.id === id,
+        ),
+      );
       const library = await req('/api/research-library', jar);
       assert.equal(library.status, 200);
       assert.doesNotMatch(JSON.stringify(library.data), /private-marker|Private-marker/);
       const mcp = await req('/api/mcp/settings', jar);
       assert.equal(mcp.status, 200);
-      assert.ok(!mcp.data.projects.some((p) => p.id === id));
+      assert.ok(!mcp.data.projects.some((p: { id: string }) => p.id === id));
     }
     assert.equal((await req(sharing, admin)).status, 403);
     assert.equal((await req(sharing, viewer, { mode: 'all' }, '', 'PATCH')).status, 403);
@@ -276,7 +281,8 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.ok(inviteToken);
     assert.ok(
       pending.data.members.some(
-        (m) => m.email === 'pending-sharing@example.test' && m.status === 'invited',
+        (m: { email: string; status: string }) =>
+          m.email === 'pending-sharing@example.test' && m.status === 'invited',
       ),
     );
     const pendingJar = new Map<string, string>();
@@ -300,10 +306,13 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.equal(accepted.status, 200);
     const pendingPerson = (await req('/api/session', pendingJar)).data.user;
     assert.deepEqual(
-      new Set(pendingPerson.workspaces.map((w) => w.id)),
+      new Set(pendingPerson.workspaces.map((w: Person['workspaces'][number]) => w.id)),
       new Set([id, openProject.data.id, imported.data.id]),
     );
-    assert.equal(pendingPerson.workspaces.find((w) => w.id === id).role, 'view');
+    assert.equal(
+      pendingPerson.workspaces.find((w: Person['workspaces'][number]) => w.id === id).role,
+      'view',
+    );
     assert.equal(pendingPerson.role, 'view');
     assert.equal(pendingPerson.owner, false);
     assert.equal(
@@ -331,7 +340,7 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.equal(
       app.db
         .prepare('SELECT revoked FROM mnema_members WHERE workspace_id=? AND user_id=?')
-        .get(id, reader.id).revoked,
+        .get(id, reader.id)!.revoked,
       1,
       'redeeming a link does not restore or create named membership',
     );
@@ -340,7 +349,11 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.equal(state.data.user.role, 'view');
     assert.equal(state.data.state.workspace.canManageSharing, false);
     assert.equal(state.data.state.studies.length, 1);
-    assert.ok(!(await req('/api/session', viewer)).data.user.workspaces.some((w) => w.id === id));
+    assert.ok(
+      !(await req('/api/session', viewer)).data.user.workspaces.some(
+        (w: Person['workspaces'][number]) => w.id === id,
+      ),
+    );
     assert.doesNotMatch(
       JSON.stringify((await req('/api/research-library', viewer)).data),
       /Private-marker/,
@@ -382,7 +395,9 @@ test('private projects, named members and authenticated share links cannot leak 
       403,
     );
     assert.ok(
-      !(await req('/api/chats', viewer)).data.chats.some((c) => c.id === chat.data.id),
+      !(await req('/api/chats', viewer)).data.chats.some(
+        (c: { id: string }) => c.id === chat.data.id,
+      ),
       'old private history disappears after link rotation',
     );
     assert.equal(
@@ -416,10 +431,10 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.ok(
       !JSON.parse(
         String(
-          app.db.prepare('SELECT messages FROM mnema_chats WHERE id=?').get(inFlight.data.id)
+          app.db.prepare('SELECT messages FROM mnema_chats WHERE id=?').get(inFlight.data.id)!
             .messages,
         ),
-      ).some((m) => m.role === 'assistant'),
+      ).some((m: { role: string }) => m.role === 'assistant'),
       'a revoked generation must not enter saved history',
     );
     duringCall = () => {};
@@ -428,7 +443,11 @@ test('private projects, named members and authenticated share links cannot leak 
     assert.equal(publicMode.status, 200);
     assert.equal((await req('/api/state', viewer, undefined, id)).status, 200);
     assert.equal((await req('/api/state', viewer, undefined, id)).data.user.role, 'view');
-    assert.ok((await req('/api/session', viewer)).data.user.workspaces.some((w) => w.id === id));
+    assert.ok(
+      (await req('/api/session', viewer)).data.user.workspaces.some(
+        (w: Person['workspaces'][number]) => w.id === id,
+      ),
+    );
     assert.equal((await req(sharing, creator, { mode: 'private' }, '', 'PATCH')).status, 200);
     assert.equal((await req('/api/state', viewer, undefined, id)).status, 403);
     assert.equal(
@@ -464,7 +483,11 @@ test('private projects, named members and authenticated share links cannot leak 
       200,
     );
     assert.deepEqual(
-      new Set((await req('/api/session', pendingJar)).data.user.workspaces.map((w) => w.id)),
+      new Set(
+        (await req('/api/session', pendingJar)).data.user.workspaces.map(
+          (w: Person['workspaces'][number]) => w.id,
+        ),
+      ),
       new Set([openProject.data.id, imported.data.id]),
       'restoring a scoped account exposes default-open projects but does not silently restore private membership',
     );

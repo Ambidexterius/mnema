@@ -35,7 +35,7 @@ export function FindingPage() {
     .filter(Boolean) as Finding[];
   const materials = info?.materials || 1;
   const ready = state.studies.filter((s) => s.status === 'ready').length;
-  const setStatus = async (next, message) => {
+  const setStatus = async (next: Finding['status'], message: string) => {
     if (
       await update((s) => ({
         findings: s.findings.map((x) => (x.id === f.id ? { ...normalize(x), status: next } : x)),

@@ -67,7 +67,7 @@ test('a broad product question includes report evidence and every available proj
     assert(result.sources.some((s) => s.id === 'problem0'));
     assert(result.sources.some((s) => s.id === 'problem1'));
     assert(result.sources.length <= 48);
-    assert(result.coverage.characters <= 36000);
+    assert(typeof result.coverage.characters === 'number' && result.coverage.characters <= 36000);
     assert(
       result.sources.filter((s) => s.studyType === 'Отчёт').every((s) => s.basis === 'report'),
     );
@@ -139,7 +139,7 @@ test('overview byte budget never truncates or fabricates a source and reviewed t
     { ...hints[0], status: 'rejected', title: 'PRIVATE_REJECTED' },
   ]);
   assert(result.sources.length < 48);
-  assert(result.coverage.characters <= 36000);
+  assert(typeof result.coverage.characters === 'number' && result.coverage.characters <= 36000);
   assert.equal(
     result.sources.reduce((n, s) => n + s.text.length, 0),
     result.coverage.characters,

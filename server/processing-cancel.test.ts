@@ -1,3 +1,4 @@
+import type { ModelConnection, Study } from '../app/types.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
@@ -18,7 +19,7 @@ test('explicit abort waits for a real child to exit rather than its early AbortE
     await assert.rejects(
       runProcessingCommand(process.execPath, ['-e', script, marker], {
         signal: controller.signal,
-        onStdoutLine: (line) => {
+        onStdoutLine: (line: string) => {
           if (line === 'ready') controller.abort();
         },
       }),
@@ -172,7 +173,7 @@ test(
       });
       assert.equal(configured.response.status, 201);
       const modelId = configured.data.state.models.find(
-        (model) => model.model === 'cancellation-fixture',
+        (model: ModelConnection) => model.model === 'cancellation-fixture',
       ).id;
       const uploaded = await request('/api/uploads', {
         body: Buffer.from('SYNTHETIC_AUDIO'),
@@ -182,8 +183,9 @@ test(
       const studyId = uploaded.data.createdStudyId;
       await until(
         async () =>
-          (await request('/api/state')).data.state.studies.find((study) => study.id === studyId)
-            ?.status === 'ready',
+          (await request('/api/state')).data.state.studies.find(
+            (study: Study) => study.id === studyId,
+          )?.status === 'ready',
         'recording did not become ready',
       );
       assert.equal(
@@ -206,17 +208,17 @@ test(
       }
       const current = (await request('/api/state')).data;
       assert.equal(
-        current.state.studies.find((study) => study.id === studyId).summaryInfo,
+        current.state.studies.find((study: Study) => study.id === studyId).summaryInfo,
         undefined,
       );
       assert.equal(
-        current.state.studies.find((study) => study.id === studyId).findingsInfo,
+        current.state.studies.find((study: Study) => study.id === studyId).findingsInfo,
         undefined,
       );
       // Simulate already persisted tasks racing the deletion; the scheduler must also guard them.
       const row: any = app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get(),
         snapshot = JSON.parse(row.data),
-        study = snapshot.studies.find((study) => study.id === studyId);
+        study = snapshot.studies.find((study: Study) => study.id === studyId);
       study.summaryInfo = {
         state: 'queued',
         review: 'draft',
@@ -236,7 +238,7 @@ test(
       await new Promise((resolve) => setTimeout(resolve, 1250));
       assert.equal(providerCalls, 0, 'analysis scheduler must skip a material being deleted');
       const waiting = (await request('/api/state')).data.state.studies.find(
-        (study) => study.id === studyId,
+        (study: Study) => study.id === studyId,
       );
       assert.equal(waiting.summaryInfo.state, 'queued');
       assert.equal(waiting.findingsInfo.state, 'queued');
@@ -244,7 +246,7 @@ test(
       const removed = await deleting;
       assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
       assert.equal(providerCalls, 0);
-      assert(!removed.data.state.studies.some((study) => study.id === studyId));
+      assert(!removed.data.state.studies.some((study: Study) => study.id === studyId));
     } finally {
       releaseAbort?.();
       releaseStop();
@@ -438,7 +440,7 @@ test(
         jobId = (app.db.prepare('SELECT id FROM mnema_jobs WHERE study_id=?').get(studyId) as any)
           .id;
       const otherId = await upload('other-fixture.wav', projectB),
-        otherStudy = (await state(projectB)).studies.find((study) => study.id === otherId),
+        otherStudy = (await state(projectB)).studies.find((study: Study) => study.id === otherId),
         otherPath = join(dir, 'uploads', otherStudy.fileId),
         otherBytes = await readFile(otherPath);
       assert.equal(
@@ -463,7 +465,7 @@ test(
       assert.equal(deleteFinished, false, 'DELETE must await processor shutdown');
       assert(existsSync(original));
       assert(existsSync(checkpoint));
-      const shuttingDown = (await state()).studies.find((study) => study.id === studyId);
+      const shuttingDown = (await state()).studies.find((study: Study) => study.id === studyId);
       assert(shuttingDown);
       assert.doesNotMatch(JSON.stringify(shuttingDown), /LATE_PROGRESS|LATE_RESULT/);
       assert.equal(processorCalls, 1);
@@ -479,15 +481,16 @@ test(
       assert(!existsSync(original));
       assert(!existsSync(checkpoint));
       assert(!app.db.prepare('SELECT 1 FROM mnema_jobs WHERE id=?').get(jobId));
-      assert(!removed.data.state.studies.some((study) => study.id === studyId));
+      assert(!removed.data.state.studies.some((study: Study) => study.id === studyId));
       lateProgress('LATE_PROGRESS_AFTER_DELETE');
       assert(
-        !(await state()).studies.some((study) => study.id === studyId),
+        !(await state()).studies.some((study: Study) => study.id === studyId),
         'late progress must not resurrect the material',
       );
       await until(
         async () =>
-          (await state(projectB)).studies.find((study) => study.id === otherId)?.status === 'ready',
+          (await state(projectB)).studies.find((study: Study) => study.id === otherId)?.status ===
+          'ready',
         'the next project job did not continue',
       );
       const remaining = await state(projectB);

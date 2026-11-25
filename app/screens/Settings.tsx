@@ -33,7 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { WorkspaceUser } from '../types.ts';
+import type { ModelConnection, WorkspaceUser } from '../types.ts';
 import { DEMO } from '../state/constants.ts';
 import { settingsBackdrop } from '../state/overlay-routes.ts';
 import { stamp } from '../shared/format.ts';
@@ -189,7 +189,7 @@ function Models() {
   const { state, update, open, notify, user, real } = useApp();
   const [checks, setChecks] = useState<Record<string, string>>({});
   const [removing, setRemoving] = useState<any>(null);
-  const check = async (m) => {
+  const check = async (m: ModelConnection) => {
     setChecks((s) => ({ ...s, [m.id]: 'Проверяем подключение…' }));
     try {
       const r = await api('/api/models/' + m.id + '/test', {});
@@ -208,7 +208,7 @@ function Models() {
       setChecks((s) => ({ ...s, [m.id]: e.message }));
     }
   };
-  const toggle = (m, v) => {
+  const toggle = (m: ModelConnection, v: boolean) => {
     if (!v && state.models.filter((x) => x.enabled).length === 1) {
       notify('Оставьте включённой хотя бы одну модель.');
       return;
@@ -216,7 +216,9 @@ function Models() {
     update((s) => ({
       models: s.models.map((x) => (x.id === m.id ? { ...x, enabled: v } : x)),
       modelId:
-        !v && s.modelId === m.id ? s.models.find((x) => x.id !== m.id && x.enabled).id : s.modelId,
+        !v && s.modelId === m.id
+          ? (s.models.find((x) => x.id !== m.id && x.enabled)?.id ?? s.modelId)
+          : s.modelId,
     }));
   };
   return (

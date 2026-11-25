@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 let soundOutput: string;
-const completionSoundGuard = {
+const completionSoundGuard: Plugin = {
   name: 'required-completion-sound',
   apply: 'build' as const,
   configResolved(config) {

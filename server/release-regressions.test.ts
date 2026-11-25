@@ -36,7 +36,7 @@ test('missing or truncated originals return errors without terminating the serve
         .join('; '),
       headers = { Cookie: cookie, 'X-Mnema-Request': '1', 'Content-Type': 'application/json' };
     const raw = JSON.parse(
-      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
+      String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
     );
     raw.studies = [
       {
@@ -91,7 +91,7 @@ test('missing or truncated originals return errors without terminating the serve
     assert.equal(await response, 401);
     assert.equal(
       JSON.parse(
-        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get().data),
+        String(app.db.prepare("SELECT data FROM mnema_workspaces WHERE id='main'").get()!.data),
       ).models.length,
       raw.models.length,
     );

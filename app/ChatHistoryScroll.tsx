@@ -7,6 +7,7 @@ export default function ChatHistoryScroll({ children }: { children: ReactNode })
   useLayoutEffect(() => {
     const box = viewport.current,
       items = content.current;
+    if (!box || !items) return;
     const update = () => setMoreBelow(box.scrollHeight - box.clientHeight - box.scrollTop > 1);
     const observer = new ResizeObserver(update);
     observer.observe(box);

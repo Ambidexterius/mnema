@@ -1,11 +1,15 @@
-const legacyKinds = {
+import type { Finding, Study } from '../types.ts';
+
+const legacyKinds: Partial<Record<string, Finding['kind']>> = {
   Наблюдение: 'Инсайт',
   Гипотеза: 'Инсайт',
   'Открытый вопрос': 'Инсайт',
   Решение: 'Рекомендация',
 };
 
-export const normalize = (f) =>
+export const normalize = (
+  f: Finding & { verified?: boolean; priority?: Finding['importance'] },
+): Finding =>
   f.status
     ? f
     : {
@@ -17,5 +21,5 @@ export const normalize = (f) =>
         history: f.history || [],
       };
 
-export const reportOf = (s) =>
+export const reportOf = (s?: Pick<Study, 'report' | 'type'> | null) =>
   s?.report === 'ready' || s?.report === 'none' ? s.report : s?.type === 'Отчёт' ? 'ready' : 'none';

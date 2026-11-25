@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AppState } from './app-context.ts';
 import { api } from './api.ts';
 type Chat = {
   id: string;
@@ -22,7 +23,7 @@ export function useResearchChats({
   route: string;
   go: (path: string) => void;
   notify: (text: string) => void;
-  state: any;
+  state: AppState;
   accessKey: string;
 }) {
   const [chats, setChats] = useState<Chat[]>([]),
@@ -43,7 +44,7 @@ export function useResearchChats({
   active.current = activeId;
   const refresh = useCallback(async () => {
     const requestEpoch = epoch.current;
-    const result = demo
+    const result: Chat[] = demo
       ? JSON.parse(localStorage.getItem(demoKey) || '[]')
       : (await api('/api/chats', undefined, 'GET', false)).chats;
     if (requestEpoch === epoch.current) setChats(result);
@@ -75,7 +76,9 @@ export function useResearchChats({
     setLoading(true);
     (demo
       ? Promise.resolve(
-          JSON.parse(localStorage.getItem(demoKey) || '[]').find((c) => c.id === activeId),
+          (JSON.parse(localStorage.getItem(demoKey) || '[]') as Chat[]).find(
+            (c) => c.id === activeId,
+          ),
         )
       : api('/api/chats/' + encodeURIComponent(activeId), undefined, 'GET', false)
     )
@@ -97,7 +100,9 @@ export function useResearchChats({
     };
   }, [activeId, demo, userId, accessKey]);
   const saveDemo = (chat: Chat) => {
-    const list = JSON.parse(localStorage.getItem(demoKey) || '[]').filter((c) => c.id !== chat.id);
+    const list = (JSON.parse(localStorage.getItem(demoKey) || '[]') as Chat[]).filter(
+      (c) => c.id !== chat.id,
+    );
     list.unshift(chat);
     localStorage.setItem(demoKey, JSON.stringify(list));
     setChats(list);
@@ -112,7 +117,7 @@ export function useResearchChats({
     try {
       let id = activeId;
       if (!id) {
-        const chat = demo
+        const chat: Chat = demo
           ? {
               id: crypto.randomUUID(),
               title: 'Новый чат',
@@ -221,7 +226,9 @@ export function useResearchChats({
         localStorage.setItem(
           demoKey,
           JSON.stringify(
-            JSON.parse(localStorage.getItem(demoKey) || '[]').filter((c) => c.id !== id),
+            (JSON.parse(localStorage.getItem(demoKey) || '[]') as Chat[]).filter(
+              (c) => c.id !== id,
+            ),
           ),
         );
       await refresh();
