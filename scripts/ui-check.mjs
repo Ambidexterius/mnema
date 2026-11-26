@@ -44,9 +44,9 @@ try{
   });
   await run(theme+': early transcript opens read-only and resolves the same passage after speakers',async()=>{
    let ready=false;
-   const early={time:12,end:20,text:'Проверяем первую фразу. Затем вторую.'};
-   const final=[{id:'early-a',time:12,end:16,text:'Проверяем первую фразу.',speaker:'Спикер 1'},
-                {id:'early-b',time:16,end:20,text:'Затем вторую.',speaker:'Спикер 2'}];
+   const early={time:0.4,end:1.7,text:'Проверяем первую фразу. Затем вторую.'};
+   const final=[{id:'early-a',time:0.4,end:1.1,text:'Проверяем первую фразу.',speaker:'Спикер 1'},
+                {id:'early-b',time:1.1,end:1.7,text:'Затем вторую.',speaker:'Спикер 2'}];
    const routeState=async route=>{
     const response=await route.fetch(),data=await response.json();
     const study=data.state.studies.find(s=>s.id==='sample');
@@ -56,16 +56,28 @@ try{
     await route.fulfill({json:data});
    };
    await page.route('**/api/state',routeState);
+   const mediaRoute='**/api/files/ui-file*';
+   await page.route(mediaRoute,route=>route.fulfill({
+    path:resolve('app/public/sounds/transcription-complete.mp3'),contentType:'audio/mpeg'
+   }));
+   const playingFrom=seconds=>page.waitForFunction(start=>{
+    const video=document.querySelector('video');
+    return video && !video.paused && !video.seeking && video.currentTime>start;
+   },seconds);
    try{
     await page.goto(fixture.base+'/projects/main/studies/sample');
     const preview=page.getByLabel('Предварительная расшифровка');
     await preview.waitFor();assert.equal(await preview.getByRole('button').count(),1);
-    await preview.getByRole('button',{name:'Перейти к 0:12'}).press('Enter');
+    await preview.getByRole('button',{name:'Воспроизвести с 0:00'}).press('Enter');
+    await playingFrom(0.41);
+    await page.locator('video').evaluate(v=>v.pause());
     ready=true;await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
     await page.locator('#segment-early-a.cited-text').waitFor();assert.equal(await preview.count(),0);
     assert(await page.locator('.transcript-time:focus').count());
     assert.equal(await page.locator('#segment-early-b').innerText(),'Затем вторую.');
-   }finally{await page.unroute('**/api/state',routeState)}
+    await page.getByRole('button',{name:'Воспроизвести с 0:01'}).click();
+    await playingFrom(1.11);
+   }finally{await page.unroute(mediaRoute);await page.unroute('**/api/state',routeState)}
   });
   await run(theme+': catalog copy and design colors',async()=>{
    await goto('/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Создать',exact:true}).count(),1);

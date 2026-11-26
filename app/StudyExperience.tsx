@@ -295,7 +295,22 @@ export default function StudyExperience({
     !speaker || ['Запись', 'Документ'].includes(speaker) || speaker.startsWith('Страница ');
   const [pendingTarget, setPendingTarget] = useState<string | null>(selected || null);
   const lastSelection = useRef(selected);
-  const target = (id: string) => {
+  const playRecording = (from?: number) => {
+    const media = player.current;
+    if (!media) {
+      notify('Исходная запись недоступна.');
+      return;
+    }
+    if (from !== undefined) media.currentTime = from;
+    void media.play().catch((error: unknown) => {
+      if (
+        player.current === media &&
+        !(error instanceof DOMException && error.name === 'AbortError')
+      )
+        notify('Не удалось воспроизвести запись. Попробуйте ещё раз.');
+    });
+  };
+  const target = (id: string, play = false) => {
     const seg = segments.find((x) => x.id === id);
     if (!seg) return;
     lastSelection.current = id;
@@ -303,7 +318,8 @@ export default function StudyExperience({
     setPendingTarget(id);
     setQuery('');
     if (compact) setCollapsed(true);
-    if (player.current) player.current.currentTime = seg.time;
+    if (play) playRecording(seg.time);
+    else if (player.current) player.current.currentTime = seg.time;
   };
   useLayoutEffect(() => {
     if (preview || previewSeek.current === null || !segments.length) return;
@@ -696,6 +712,17 @@ export default function StudyExperience({
     return () => paintRanges('mnema-quote-text', []);
   }, [studyHighlights, matched.length, pdfTextOpen, query]);
   const video = s.format === 'Видео';
+  const timestampButton = (segment: Segment) => (
+    <button
+      type="button"
+      className="transcript-time"
+      onClick={() => target(segment.id, video)}
+      aria-label={(video ? 'Воспроизвести с ' : 'Перейти к ') + where(segment)}
+    >
+      {video ? <Play size={12} /> : <FileText size={12} />}
+      {where(segment)}
+    </button>
+  );
   const highlightsPanel = (
     <div className="panel-highlights">
       {studyHighlights.length ? (
@@ -998,17 +1025,7 @@ export default function StudyExperience({
           return (
             <article key={f.id} className={'panel-finding status-' + f.status}>
               <div className="panel-finding-head">
-                {seg ? (
-                  <button
-                    type="button"
-                    className="transcript-time"
-                    onClick={() => target(seg.id)}
-                    aria-label={'Перейти к ' + where(seg)}
-                  >
-                    <Play size={12} />
-                    {where(seg)}
-                  </button>
-                ) : null}
+                {seg ? timestampButton(seg) : null}
                 {!reader ? (
                   <Label
                     size="xs"
@@ -1309,14 +1326,7 @@ export default function StudyExperience({
                     onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
                   />
                   {!started && !mini ? (
-                    <button
-                      type="button"
-                      className="player-start"
-                      onClick={() => {
-                        setStarted(true);
-                        player.current?.play().catch(() => {});
-                      }}
-                    >
+                    <button type="button" className="player-start" onClick={() => playRecording()}>
                       <span className="player-start-icon" aria-hidden="true">
                         <Play size={20} fill="currentColor" />
                       </span>
@@ -1428,11 +1438,11 @@ export default function StudyExperience({
                   <button
                     type="button"
                     className="transcript-time"
-                    aria-label={'Перейти к ' + time(part.time)}
+                    aria-label={'Воспроизвести с ' + time(part.time)}
                     onClick={(e) => {
                       previewKeyboard.current = e.detail === 0;
                       previewSeek.current = part.time;
-                      if (player.current) player.current.currentTime = part.time;
+                      playRecording(part.time);
                     }}
                   >
                     <Play size={12} />
@@ -1477,14 +1487,7 @@ export default function StudyExperience({
                   >
                     <div className="transcript-paragraph-head">
                       {speakerChip(g)}
-                      <button
-                        className="transcript-time"
-                        onClick={() => target(g[0].id)}
-                        aria-label={'Перейти к ' + where(g[0])}
-                      >
-                        {s.format === 'Видео' ? <Play size={12} /> : <FileText size={12} />}
-                        {where(g[0])}
-                      </button>
+                      {timestampButton(g[0])}
                       <div className="transcript-paragraph-actions">
                         {extension.actions?.(g)}
                         {!reader ? (
@@ -1622,14 +1625,7 @@ export default function StudyExperience({
                   >
                     <div className="transcript-paragraph-head">
                       {speakerChip(g)}
-                      <button
-                        className="transcript-time"
-                        onClick={() => target(g[0].id)}
-                        aria-label={'Перейти к ' + where(g[0])}
-                      >
-                        {s.format === 'Видео' ? <Play size={12} /> : <FileText size={12} />}
-                        {where(g[0])}
-                      </button>
+                      {timestampButton(g[0])}
                       <div className="transcript-paragraph-actions">
                         {extension.actions?.(g)}
                         {!reader ? (
