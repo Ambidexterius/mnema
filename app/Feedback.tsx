@@ -267,7 +267,7 @@ export function FeedbackMode({
                 placeholder="Что можно улучшить?"
                 controlProps={{ 'aria-label': 'Отзыв', maxLength: 2000 }}
               />
-              <p className="feedback-hint">Коллеги увидят отзыв в портале идей</p>
+              <p className="feedback-hint">Коллеги увидят ваш отзыв</p>
               {error && (
                 <p className="form-error" role="alert">
                   {error}

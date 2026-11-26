@@ -57,3 +57,33 @@ test('deleted seeded news stay hidden after startup, including when the feed is 
     db.close();
   }
 });
+
+test('the published feedback guide uses the current section name after restart', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const news = createProductNews(db);
+    news.edit('element-feedback', {
+      title: 'Инструкция команды',
+      description: 'В портале идей видно, к чему относится отзыв.\n\nДополнение команды.',
+      revision: 1,
+    });
+    const post = createProductNews(db)
+      .list()
+      .find(({ id }) => id === 'element-feedback');
+    assert.ok(post);
+    assert.equal(post.title, 'Инструкция команды');
+    assert.equal(
+      post.description,
+      'В разделе «Идеи и отзывы» видно, к чему относится отзыв.\n\nДополнение команды.',
+    );
+    assert.equal(post.revision, 3);
+    assert.deepEqual(
+      createProductNews(db)
+        .list()
+        .find(({ id }) => id === post.id),
+      post,
+    );
+  } finally {
+    db.close();
+  }
+});

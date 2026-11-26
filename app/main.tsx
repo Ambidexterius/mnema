@@ -1112,7 +1112,7 @@ export function App() {
               }}
             >
               <Lightbulb size={16} />
-              Портал идей
+              Идеи и отзывы
             </button>
           )}
           {DEMO ? null : (

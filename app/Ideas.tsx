@@ -160,7 +160,7 @@ export function IdeaPublishedDialog({
           <h2 id="feedback-title">Идея опубликована</h2>
           <p>Напишем на почту, когда сделаем её или решим не делать</p>
           <Button view="flat" size="l" width="max" onClick={onIdeas}>
-            Открыть портал идей
+            Открыть «Идеи и отзывы»
           </Button>
           <Button view="flat-secondary" size="xl" width="max" onClick={onClose}>
             Закрыть
@@ -315,14 +315,14 @@ export function IdeasPanel({
             <Button
               view="flat"
               size="l"
-              aria-label="Назад в портал идей"
+              aria-label="Назад к идеям и отзывам"
               onClick={() => setOpenId(null)}
             >
               <ArrowLeft size={18} />
             </Button>
           ) : null}
           <h2 id="ideas-title" title={current ? ideaTitle : undefined}>
-            {current ? ideaTitle : 'Портал идей'}
+            {current ? ideaTitle : 'Идеи и отзывы'}
           </h2>
           {!current ? (
             <Button
@@ -336,7 +336,7 @@ export function IdeasPanel({
               Предложить идею
             </Button>
           ) : null}
-          <Button view="flat" size="l" aria-label="Закрыть портал идей" onClick={onClose}>
+          <Button view="flat" size="l" aria-label="Закрыть «Идеи и отзывы»" onClick={onClose}>
             <X size={18} />
           </Button>
         </header>

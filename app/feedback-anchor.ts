@@ -174,17 +174,32 @@ export async function resolveFeedbackAnchor(anchor: string, shell: HTMLElement) 
     return;
   const root = shell.querySelector<HTMLElement>(roots[key]);
   if (!root) return;
-  let node = root;
+  let node: HTMLElement | undefined = root;
+  let tag = root.localName;
   for (const step of steps) {
     const match = /^([a-z][a-z0-9-]*)-(\d+)$/.exec(step);
     if (!match) return;
-    const child = node.children[Number(match[2])];
-    if (!(child instanceof HTMLElement) || child.localName !== match[1]) return;
-    node = child;
+    tag = match[1];
+    const child: Element | undefined = node?.children[Number(match[2])];
+    node = child instanceof HTMLElement && child.localName === tag ? child : undefined;
   }
-  if (!visible(node)) return;
-  const value = fingerprint(node);
-  if ((await digest(value)) === hash && unique(root, node, value)) return node;
+  if (node && visible(node)) {
+    const value = fingerprint(node);
+    if ((await digest(value)) === hash && unique(root, node, value)) return node;
+  }
+  if (!steps.length) return;
+
+  // A saved child index can change after a sort or a layout update.
+  const candidates = Array.from(root.getElementsByTagName(tag)).filter(
+    (candidate): candidate is HTMLElement => candidate instanceof HTMLElement && visible(candidate),
+  );
+  const matches = await Promise.all(
+    candidates.map(async (candidate) =>
+      (await digest(fingerprint(candidate))) === hash ? candidate : undefined,
+    ),
+  );
+  const found = matches.filter((candidate) => candidate !== undefined);
+  return found.length === 1 ? found[0] : undefined;
 }
 
 export function feedbackAnchorCaption(feedback: FeedbackContext) {

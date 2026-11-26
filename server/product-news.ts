@@ -36,6 +36,10 @@ export function createProductNews(db: DatabaseSync, extend?: (posts: NewsPost[])
     }
     for (const post of [...(extend?.(initialNews) ?? initialNews)].reverse())
       if (!exists.get(post.id)) insert.run(post.id, post.date, post.title, post.description);
+    const oldIdeasIntro = 'В портале идей видно';
+    db.prepare(
+      "UPDATE mnema_news SET description=replace(description,?,?),revision=revision+1 WHERE id='element-feedback' AND deleted=0 AND instr(description,?)>0",
+    ).run(oldIdeasIntro, 'В разделе «Идеи и отзывы» видно', oldIdeasIntro);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');

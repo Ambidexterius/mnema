@@ -532,7 +532,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     assert.deepEqual(style,['24px',fill]);
    }
    assert.equal(await page.locator('.feedback-composer-popup').evaluate(element=>getComputedStyle(element).getPropertyValue('--g-popup-border-width')),'0px');
-   const hint=form.getByText('Коллеги увидят отзыв в портале идей',{exact:true});
+   const hint=form.getByText('Коллеги увидят ваш отзыв',{exact:true});
    assert.equal(await hint.evaluate(element=>{const range=document.createRange();range.selectNodeContents(element);return range.getClientRects().length}),1);
    assert.ok(contrast(await hint.evaluate(element=>getComputedStyle(element).color),'rgb(255, 255, 255)')>=4.5);
    assert.ok(contrast(await page.locator('.feedback-mode p').evaluate(element=>getComputedStyle(element).color),'rgb(23, 24, 26)')>=4.5);
@@ -590,7 +590,8 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.unroute('**/api/ideas');await send.click();
    const published=page.getByRole('dialog',{name:'Идея опубликована',exact:true});
    await published.waitFor();await screenshot('feedback-published');
-   await published.getByRole('button',{name:'Открыть портал идей',exact:true}).click();
+   await published.getByRole('button',{name:'Открыть «Идеи и отзывы»',exact:true}).click();
+   await page.getByRole('heading',{name:'Идеи и отзывы',exact:true}).waitFor();
    const row=page.locator('.ideas-row').filter({hasText:message});
    await row.locator('.ideas-meta .g-label').getByText('Текст и содержание',{exact:true}).waitFor();
    await row.getByText('Проекты → Создать',{exact:true}).waitFor();
@@ -610,6 +611,32 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    await page.locator('[data-feedback-located]').waitFor();
    assert.equal(await create.getAttribute('data-feedback-located')===null,false);
    await screenshot('feedback-located');
+
+   const cards=page.locator('.project-catalog-card');
+   const card=cards.filter({has:page.getByText('Тест интерфейса',{exact:true})});
+   const cardIndex=await card.evaluate(node=>Array.from(node.parentElement.children).indexOf(node));
+   const cardFeedback='Отзыв о карточке проекта ('+theme+')';
+   await trigger.click();
+   await card.getByRole('button',{name:'Открыть проект «Тест интерфейса»',exact:true}).click();
+   await field.fill(cardFeedback);
+   await send.click();
+   await published.getByRole('button',{name:'Закрыть',exact:true}).click();
+   const sort=page.getByRole('combobox',{name:'Сортировка',exact:true});
+   const oppositeSort=(await sort.innerText()).includes('Сначала старые')?'Сначала новые':'Сначала старые';
+   await sort.click();
+   await page.getByRole('option',{name:oppositeSort,exact:true}).click();
+   assert.notEqual(await card.evaluate(node=>Array.from(node.parentElement.children).indexOf(node)),cardIndex);
+   await goto('/chat#ideas');
+   await page.locator('.ideas-row').filter({hasText:cardFeedback}).locator('.idea-entry').click();
+   await page.getByRole('button',{name:'Показать в интерфейсе',exact:true}).press('Enter');
+   await page.waitForURL(fixture.base+'/projects');
+   await page.locator('.project-catalog-card[data-feedback-located]').waitFor();
+   assert.notEqual(await card.getAttribute('data-feedback-located'),null);
+   assert.deepEqual(await card.evaluate(node=>{
+    const style=getComputedStyle(node);
+    return [style.outlineWidth,style.outlineStyle,style.outlineColor,style.outlineOffset];
+   }),['2px','solid','rgb(238, 32, 77)','2px']);
+   await screenshot('feedback-located-card');
    await trigger.click();await toolbar.getByRole('button',{name:'Мои идеи',exact:true}).click();
   });
   await run(theme+': ideas hierarchy, search and form error',async()=>{
@@ -624,7 +651,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
    const user=fixture.app.db.prepare('SELECT id FROM user').get(),now=Date.now(),fresh='edit-'+theme,old='expired-'+theme;
    const insert=fixture.app.db.prepare('INSERT INTO mnema_ideas(id,user_id,text,created,updated) VALUES(?,?,?,?,?)');insert.run(fresh,user.id,'Свежая идея для редактирования',now,now);insert.run(old,user.id,'Идея старше суток',now-86400000,now-86400000);
    try{
-    await page.getByRole('button',{name:'Закрыть портал идей',exact:true}).click();await goto('/projects');await page.getByRole('button',{name:'Оставить отзыв',exact:true}).click();await page.getByRole('button',{name:'Мои идеи',exact:true}).click();await page.locator('.ideas-sheet').waitFor();
+    await page.getByRole('button',{name:'Закрыть «Идеи и отзывы»',exact:true}).click();await goto('/projects');await page.getByRole('button',{name:'Оставить отзыв',exact:true}).click();await page.getByRole('button',{name:'Мои идеи',exact:true}).click();await page.locator('.ideas-sheet').waitFor();
     const row=page.locator('.ideas-row').filter({hasText:'Свежая идея для редактирования'});await act(row,'Редактировать');const editor=page.getByRole('dialog',{name:'Редактировать идею',exact:true});await editor.waitFor();
     await editor.getByRole('textbox',{name:'Описание идеи',exact:true}).fill('Уточнённая идея');await editor.getByRole('button',{name:'Отмена',exact:true}).click();await editor.waitFor({state:'hidden'});assert.equal(fixture.app.db.prepare('SELECT text FROM mnema_ideas WHERE id=?').get(fresh).text,'Свежая идея для редактирования');
     await act(row,'Редактировать');await editor.getByRole('textbox',{name:'Описание идеи',exact:true}).fill('Уточнённая идея');await editor.getByRole('button',{name:'Сохранить',exact:true}).click();await editor.waitFor({state:'hidden'});await page.getByText('Уточнённая идея',{exact:true}).waitFor();assert.equal(fixture.app.db.prepare('SELECT created FROM mnema_ideas WHERE id=?').get(fresh).created,now);
@@ -634,7 +661,7 @@ const connect=page.locator('.model-connection-dialog');await connect.waitFor();c
     const confirm=page.getByRole('dialog',{name:'Удалить идею',exact:true});await act(page.locator('.idea-page'),'Удалить');await confirm.waitFor();await screenshot('idea-delete-confirm');await confirm.getByRole('button',{name:'Отмена',exact:true}).click();await confirm.waitFor({state:'hidden'});await page.locator('.idea-page').waitFor();assert.equal(fixture.app.db.prepare('SELECT count(*) AS n FROM mnema_ideas WHERE id=?').get(fresh).n,1);
     await act(page.locator('.idea-page'),'Удалить');await confirm.getByRole('button',{name:'Удалить идею',exact:true}).click();await confirm.waitFor({state:'hidden'});await page.locator('.ideas-list').waitFor();assert.equal(await page.locator('.idea-page').count(),0);
     for(const table of [['mnema_ideas','id'],['mnema_idea_votes','idea_id'],['mnema_idea_comments','idea_id']])assert.equal(fixture.app.db.prepare('SELECT count(*) AS n FROM '+table[0]+' WHERE '+table[1]+'=?').get(fresh).n,0);
-    await page.getByRole('button',{name:'Закрыть портал идей',exact:true}).click();
+    await page.getByRole('button',{name:'Закрыть «Идеи и отзывы»',exact:true}).click();
    }finally{fixture.app.db.prepare('DELETE FROM mnema_idea_comments WHERE idea_id IN (?,?)').run(fresh,old);fixture.app.db.prepare('DELETE FROM mnema_ideas WHERE id IN (?,?)').run(fresh,old)}
   });
   await run(theme+': findings and material context',async()=>{
