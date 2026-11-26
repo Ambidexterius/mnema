@@ -79,6 +79,69 @@ try{
     await playingFrom(1.11);
    }finally{await page.unroute(mediaRoute);await page.unroute('**/api/state',routeState)}
   });
+  await run(theme+': player docks inside the scrolled study and returns to its slot',async()=>{
+   const recording=async route=>{
+    const data=await (await route.fetch()).json();
+    const study=data.state.studies.find(study=>study.id==='sample');
+    Object.assign(study,{format:'Видео',segments:Array.from({length:60},(_,i)=>({
+     id:'turn-'+i,time:i*8,end:i*8+6,speaker:'Спикер '+(1+i%3),text:'Реплика для проверки прокрутки.'
+    }))});
+    await route.fulfill({json:data});
+   };
+   await page.route('**/api/state',recording);
+   try{
+    for(const width of [390,1440]){
+     await page.setViewportSize({width,height:850});
+     await goto('/projects/main/studies/sample');
+     const slot=page.locator('.study-player-placeholder'),video=await slot.locator('video').elementHandle();
+     await page.locator('.study-sheet-scroll').evaluate(async el=>{
+      const slot=el.querySelector('.study-player-placeholder');
+      const distance=slot.getBoundingClientRect().bottom-el.getBoundingClientRect().top+80;
+      for(let i=0;i<distance;i+=24){el.scrollBy(0,24);await new Promise(requestAnimationFrame)}
+     });
+     const mini=slot.locator('.mini-player');await mini.waitFor();
+     assert(await mini.evaluate(el=>{
+      const box=el.getBoundingClientRect(),sheet=el.closest('.study-sheet').getBoundingClientRect();
+      return getComputedStyle(el).position==='fixed' && box.bottom<=sheet.bottom+1 &&
+       box.top>sheet.top && box.right<=sheet.right+1 && box.left>=sheet.left;
+     }));
+     await mini.getByRole('button',{name:'Развернуть видео'}).click();
+     await mini.waitFor({state:'detached'});
+     assert(await slot.evaluate((el,original)=>el.querySelector('video')===original,video));
+     await video.dispose();
+    }
+   }finally{await page.unroute('**/api/state',recording)}
+  });
+  await run(theme+': two source quotes form a compact list with one heading',async()=>{
+   const summary=async route=>{
+    const data=await (await route.fetch()).json();
+    const sources=['sample','report'].map(id=>data.state.studies.find(s=>s.id===id)).map((s,i)=>({
+     ...s.segments[0],number:i+1,segmentId:s.segments[0].id,studyId:s.id,title:s.title
+    }));
+    data.state.projectSummary={at:Date.now(),materials:2,answer:'Две цитаты [1] [2].',sources};
+    await route.fulfill({json:data});
+   };
+   await page.route('**/api/state',summary);
+   try{
+    for(const width of [390,1440]){
+     await page.setViewportSize({width,height:950});
+     await goto('/projects/main');
+     await page.getByRole('region',{name:'Сводка проекта'}).locator('.footnote').click();
+     const panel=page.getByRole('complementary',{name:'Источники'});
+     await panel.getByRole('heading',{name:'Цитаты из 2 материалов'}).waitFor();
+     assert.equal(await panel.getByRole('heading').count(),1);
+     const quotes=panel.locator('figure');assert.equal(await quotes.count(),2);
+     assert.match(await quotes.nth(0).locator('figcaption').innerText(),/Тестовый материал/);
+     assert.match(await quotes.nth(1).locator('figcaption').innerText(),/Отчёт по тестированию бронирования/);
+     const [first,second]=await Promise.all([quotes.nth(0).boundingBox(),quotes.nth(1).boundingBox()]);
+     assert.ok(Math.abs(second.y-first.y-first.height-8)<=1);
+     assert.ok(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+     if(width===1440)await panel.screenshot({path:resolve(out,theme+'-quote-list.png')});
+     await quotes.nth(1).getByRole('button',{name:'Открыть фрагмент'}).click();
+     await page.getByRole('complementary',{name:'Источник',exact:true}).getByRole('heading',{name:'Отчёт по тестированию бронирования'}).waitFor();
+    }
+   }finally{await page.unroute('**/api/state',summary)}
+  });
   await run(theme+': catalog copy and design colors',async()=>{
    await goto('/projects');await page.getByRole('heading',{name:'Проект',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Создать',exact:true}).count(),1);
    const palette=await page.locator('.g-root').first().evaluate(e=>({theme:e.className,background:getComputedStyle(e).getPropertyValue('--g-color-base-background').trim(),brand:getComputedStyle(e).getPropertyValue('--g-color-base-brand').trim()}));

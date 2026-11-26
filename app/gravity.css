@@ -8958,19 +8958,11 @@ html[data-theme='dark'] .shared-composer .g-text-area__control::placeholder {
 }
 .source-list {
   display: grid;
-  gap: 20px;
-}
-.source-group h3 {
-  margin: 0;
-  font: var(--g-text-subheader-2-font);
-}
-.source-group-project {
-  margin: 2px 0 0;
-  font: var(--g-text-caption-2-font);
-  color: var(--g-color-text-secondary);
+  align-content: start;
+  gap: var(--g-spacing-2);
 }
 .source-quote {
-  margin: 10px 0 0;
+  margin: 0;
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--g-color-base-generic);
@@ -8984,9 +8976,10 @@ html[data-theme='dark'] .shared-composer .g-text-area__control::placeholder {
   overflow-wrap: anywhere;
 }
 .source-quote figcaption {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow-wrap: anywhere;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-top: 8px;
   font: var(--g-text-caption-2-font);

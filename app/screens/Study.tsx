@@ -7,7 +7,7 @@ import { useApp } from '../app-context.ts';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Label, Tooltip } from '@gravity-ui/uikit';
 import { ArrowRight, FileText, X } from 'lucide-react';
-import type { Segment, ChatSource } from '../types.ts';
+import type { Segment } from '../types.ts';
 import { transcript } from '../data.ts';
 import { DEMO } from '../state/constants.ts';
 import { normalize, reportOf } from '../state/normalize.ts';
@@ -260,14 +260,6 @@ export function SourcePanel() {
   const close = () => setPanel(null);
   // List mode: quotes come with the answer, so it opens instantly; «Открыть фрагмент» switches to the detailed view.
   if (panel.sources) {
-    const groups = [
-      ...new Map<string, ChatSource[]>(
-        panel.sources.map((x) => [
-          x.studyId,
-          panel.sources!.filter((y) => y.studyId === x.studyId),
-        ]),
-      ).values(),
-    ];
     return (
       <aside
         className="source-panel"
@@ -295,29 +287,29 @@ export function SourcePanel() {
           </Tooltip>
         </div>
         <div className="source-panel-body source-list">
-          {groups.map((list) => (
-            <section key={list[0].studyId} className="source-group">
-              {groups.length > 1 || list[0].title !== panel.heading ? (
-                <h3>{list[0].title}</h3>
-              ) : null}
-              {list[0].workspaceName ? (
-                <p className="source-group-project">{list[0].workspaceName}</p>
-              ) : null}
-              {list.map((x) => (
-                <figure key={x.segmentId} className="source-quote">
-                  <blockquote>«{renderText(x.correctedText ?? x.text)}»</blockquote>
-                  <figcaption>
-                    <span>
-                      {x.speaker} · {where(x)}
-                    </span>
-                    <Button view="flat" size="s" onClick={() => openGlobalSource(x)}>
-                      Открыть фрагмент
-                      <ArrowRight size={14} aria-hidden="true" />
-                    </Button>
-                  </figcaption>
-                </figure>
-              ))}
-            </section>
+          {panel.sources.map((source) => (
+            <figure
+              key={JSON.stringify([source.workspaceId, source.studyId, source.segmentId])}
+              className="source-quote"
+            >
+              <blockquote>«{renderText(source.correctedText ?? source.text)}»</blockquote>
+              <figcaption>
+                <span>
+                  {[
+                    source.workspaceName,
+                    source.title !== panel.heading && source.title,
+                    source.speaker,
+                    where(source),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+                <Button view="flat" size="s" onClick={() => openGlobalSource(source)}>
+                  Открыть фрагмент
+                  <ArrowRight size={14} aria-hidden="true" />
+                </Button>
+              </figcaption>
+            </figure>
           ))}
         </div>
       </aside>

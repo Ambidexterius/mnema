@@ -593,16 +593,12 @@
   .study-player video {
     max-height: 40dvh;
   }
-  .study-player.mini-player {
-    position: static;
-    inset: auto;
-    width: 100%;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
+  .study-player-placeholder:has(.mini-player) {
+    max-height: 40dvh;
   }
-  .study-player.mini-player > .g-button {
-    display: none;
+  .study-player.mini-player {
+    width: min(200px, calc(100% - 32px));
+    bottom: calc(16px + env(safe-area-inset-bottom));
   }
   .source-panel {
     width: 100%;

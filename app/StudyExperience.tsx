@@ -235,9 +235,10 @@ export default function StudyExperience({
     [speakerName, setSpeakerName] = useState('');
   const speakerInput = useRef<HTMLInputElement>(null),
     player = useRef<HTMLVideoElement>(null),
-    sentinel = useRef<HTMLDivElement>(null),
+    playerSlot = useRef<HTMLDivElement>(null),
     summaryPanel = useRef<HTMLElement>(null),
     sourceColumn = useRef<HTMLElement>(null);
+  const file = s.fileId ? projectFile(s.fileId) : ctx.files.current.get(s.id)?.url;
   const [pdfTextOpen, setPdfTextOpen] = useState(() => compact && Boolean(s.segments?.length));
   const isPDF = s.format === 'PDF';
   // PDF and .docx open as pages inside the window; the extracted text stays below for citations and corrections.
@@ -384,14 +385,18 @@ export default function StudyExperience({
     setPendingTarget(null);
   }, [pendingTarget, collapsed, pdfTextOpen, query]);
   useEffect(() => {
-    if (!sentinel.current) return;
-    const o = new IntersectionObserver(
-      ([entry]) => setMini(!entry.isIntersecting && entry.boundingClientRect.top < 72),
-      { rootMargin: '-72px 0px 0px 0px' },
+    const slot = playerSlot.current;
+    if (!slot) return;
+    const observer = new IntersectionObserver(
+      ([entry]) =>
+        setMini(
+          !entry.isIntersecting && entry.boundingClientRect.bottom <= (entry.rootBounds?.top ?? 0),
+        ),
+      { root: slot.closest('.study-sheet-scroll') },
     );
-    o.observe(sentinel.current);
-    return () => o.disconnect();
-  }, [s.id]);
+    observer.observe(slot);
+    return () => observer.disconnect();
+  }, [file, s.format]);
   useEffect(() => {
     const align = () => {
       const source = sourceColumn.current;
@@ -570,7 +575,6 @@ export default function StudyExperience({
     s.format !== 'Видео' && !seg.page
       ? 'Фрагмент ' + (segments.findIndex((x) => x.id === seg.id) + 1)
       : where(seg);
-  const file = s.fileId ? projectFile(s.fileId) : ctx.files.current.get(s.id)?.url;
   const sourcePending = s.status === 'processing';
   const readProgress = sourcePending
     ? activity.detail || s.progress || 'В очереди на обработку'
@@ -1308,10 +1312,9 @@ export default function StudyExperience({
           className={'study-source' + (video ? ' is-recording' : '')}
           aria-label="Исходный материал"
         >
-          <div ref={sentinel} />
           {file ? (
             s.format === 'Видео' ? (
-              <div className="study-player-placeholder">
+              <div ref={playerSlot} className="study-player-placeholder">
                 <div
                   className={'study-player' + (mini ? ' mini-player' : '')}
                   style={mini ? { insetInlineEnd: miniEnd } : undefined}
@@ -1337,7 +1340,7 @@ export default function StudyExperience({
                     <Button
                       size="s"
                       view="flat"
-                      onClick={() => sentinel.current?.scrollIntoView({ block: 'start' })}
+                      onClick={() => playerSlot.current?.scrollIntoView({ block: 'start' })}
                     >
                       Развернуть видео
                     </Button>
